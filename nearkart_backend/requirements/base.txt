@@ -1,0 +1,59 @@
+# ── CORE FRAMEWORK ──────────────────────────────────────────
+Django==4.2.13
+djangorestframework==3.15.1
+django-environ==0.11.2
+django-cors-headers==4.3.1
+
+# ── DATABASE ─────────────────────────────────────────────────
+psycopg2-binary==2.9.9
+django-postgis==0.1.0
+
+# ── REAL-TIME (WebSocket) ────────────────────────────────────
+channels==4.1.0
+channels-redis==4.2.0
+daphne==4.1.0
+
+# ── TASK QUEUE ───────────────────────────────────────────────
+celery==5.3.6
+django-celery-beat==2.6.0
+redis==5.0.4
+django-redis==5.4.0
+
+# ── AUTHENTICATION ───────────────────────────────────────────
+djangorestframework-simplejwt==5.3.1
+
+# ── AWS ──────────────────────────────────────────────────────
+boto3==1.34.61
+django-storages==1.14.2
+
+# ── PUSH NOTIFICATIONS ───────────────────────────────────────
+firebase-admin==6.4.0
+
+# ── SMS ──────────────────────────────────────────────────────
+twilio==8.13.0
+
+# ── EMAIL ────────────────────────────────────────────────────
+sendgrid==6.11.0
+
+# ── API DOCUMENTATION ────────────────────────────────────────
+drf-spectacular==0.27.1
+
+# ── IMAGE PROCESSING ─────────────────────────────────────────
+Pillow==10.2.0
+
+# ── QR CODE ──────────────────────────────────────────────────
+qrcode==7.4.2
+
+# ── PDF GENERATION ───────────────────────────────────────────
+reportlab==4.1.0
+
+# ── FILTERING ────────────────────────────────────────────────
+django-filter==23.5
+
+# ── MONITORING ───────────────────────────────────────────────
+sentry-sdk[django]==1.43.0
+
+# ── UTILITIES ────────────────────────────────────────────────
+python-dateutil==2.8.2
+pytz==2024.1
+requests==2.31.0

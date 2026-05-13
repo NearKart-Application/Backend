@@ -1,0 +1,68 @@
+"""
+NearKart — Custom DRF Permissions
+"""
+from rest_framework.permissions import BasePermission
+
+
+class IsCustomer(BasePermission):
+    """User must be authenticated with role=customer."""
+    message = 'Customer access only.'
+
+    def has_permission(self, request, view):
+        return (
+            request.user and
+            request.user.is_authenticated and
+            request.user.role == 'customer'
+        )
+
+
+class IsVendor(BasePermission):
+    """User must be authenticated with role=vendor."""
+    message = 'Vendor access only.'
+
+    def has_permission(self, request, view):
+        return (
+            request.user and
+            request.user.is_authenticated and
+            request.user.role == 'vendor'
+        )
+
+
+class IsAdmin(BasePermission):
+    """User must be authenticated with role=admin."""
+    message = 'Admin access only.'
+
+    def has_permission(self, request, view):
+        return (
+            request.user and
+            request.user.is_authenticated and
+            request.user.role == 'admin'
+        )
+
+
+class IsVendorOrAdmin(BasePermission):
+    """User must be vendor or admin."""
+    message = 'Vendor or admin access only.'
+
+    def has_permission(self, request, view):
+        return (
+            request.user and
+            request.user.is_authenticated and
+            request.user.role in ('vendor', 'admin')
+        )
+
+
+class IsStoreOwner(BasePermission):
+    """
+    Object-level permission — vendor can only access their own store.
+    Used on store, product, video, invoice endpoints.
+    """
+    message = 'You do not have permission to access this store.'
+
+    def has_object_permission(self, request, view, obj):
+        # obj can be Store, Product, Video, Invoice etc.
+        if hasattr(obj, 'owner'):
+            return obj.owner == request.user
+        if hasattr(obj, 'store'):
+            return obj.store.owner == request.user
+        return False
