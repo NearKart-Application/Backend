@@ -51,6 +51,7 @@ built in later sprints. Right now you can only test via:
          │  AWS S3 (videos/images)              │
          │  Twilio (SMS OTP)                    │
          │  Firebase (Push notifications)       │
+         │  Razorpay (Payments)                 │
          └──────────────────────────────────────┘
 ```
 
@@ -72,4 +73,4 @@ built in later sprints. Right now you can only test via:
 | S9 | Reservations | Done ✅ | `docs/sprint_9_reservations/` |
 | S10 | Groups | Done ✅ | `docs/sprint_10_groups/` |
 | S11 | Notifications | Done ✅ | `docs/sprint_11_notifications/` |
-| S12 | Staging + Production | Done ✅ | `docs/sprint_12_production/` |
+| S12 | Staging + Production + Razorpay | Done ✅ | `docs/sprint_12_production/` |

@@ -15,6 +15,7 @@ Completes the production-readiness of the NearKart Backend:
 - Auto-migrate entrypoint (zero-downtime ECS deploys)
 - CI/CD pipeline fixes (Python 3.13, sprint branches, staging→prod deploy gate)
 - `.env.example` with all required variables documented
+- **Razorpay payment flow** — initiate order → verify HMAC → fund wallet → activate subscription + webhook backup
 
 ---
 
@@ -58,9 +59,60 @@ PostgreSQL + PostGIS  |  Redis  |  AWS S3  |  Firebase FCM
 | `Dockerfile` | Updated — production stage uses entrypoint.sh, sets DJANGO_SETTINGS_MODULE |
 | `docker-compose.prod.yml` | New — production compose: production build target, no code mounts, resource limits |
 | `nginx/nginx.prod.conf` | New — production nginx: ALB proxy headers, Swagger blocked, attack path blocking |
-| `.env.example` | Updated — added REDIS_PASSWORD, AWS_S3_STATIC_BUCKET, GUNICORN_WORKERS |
+| `.env.example` | Updated — REDIS_PASSWORD, AWS_S3_STATIC_BUCKET, GUNICORN_WORKERS, Razorpay keys |
 | `.github/workflows/ci_cd.yml` | Fixed — Python 3.13, sprint-* branches, staging→prod deploy gate, AWS creds |
 | `Makefile` | Updated — prod-up, prod-down, prod-logs, check-env commands |
+| `apps/billing/razorpay_service.py` | New — RazorpayService with dev-mode bypass; create_order, verify signatures |
+| `apps/billing/views.py` | Added PaymentInitiateView, PaymentVerifyView, PaymentWebhookView |
+| `apps/billing/urls.py` | Added /payment/initiate/, /payment/verify/, /payment/webhook/ routes |
+| `config/settings/base.py` | Added RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET, RAZORPAY_WEBHOOK_SECRET |
+| `requirements/base.txt` | Added razorpay>=1.4 |
+
+---
+
+## Razorpay Payment API
+
+Three new endpoints added under `/api/v1/billing/payment/`:
+
+| Method | Endpoint | Auth | Purpose |
+|--------|----------|------|---------|
+| POST | `/payment/initiate/` | JWT + Vendor | Create Razorpay order for a plan → get `order_id` for checkout SDK |
+| POST | `/payment/verify/` | JWT + Vendor | Verify HMAC signature → credit wallet → activate subscription |
+| POST | `/payment/webhook/` | None (signature) | Razorpay webhook backup for `payment.captured` events |
+
+### Mobile App Integration Flow
+
+```
+1. Vendor taps "Subscribe Basic"
+2. App → POST /billing/payment/initiate/ { plan_name: "basic" }
+   ← { order_id, amount: 49900, currency: "INR", razorpay_key_id }
+3. App opens Razorpay checkout SDK with order_id + key_id
+4. User completes payment in SDK
+   ← SDK returns { razorpay_payment_id, razorpay_signature }
+5. App → POST /billing/payment/verify/ { order_id, payment_id, signature, plan_name }
+   ← Subscription object with is_active: true
+```
+
+### Dev Mode
+
+Set `RAZORPAY_KEY_ID=rzp_test_PLACEHOLDER` in `.env` (default).
+- `initiate` returns a mock `order_DEV_*` order ID
+- `verify` skips signature check — any values accepted
+- `webhook` skips signature check
+- No real money moves
+
+### Going Live
+
+1. Get keys from [dashboard.razorpay.com/app/keys](https://dashboard.razorpay.com/app/keys)
+2. Update `.env`:
+   ```
+   RAZORPAY_KEY_ID=rzp_live_XXXXXXXXXX
+   RAZORPAY_KEY_SECRET=your_live_secret
+   RAZORPAY_WEBHOOK_SECRET=your_webhook_secret
+   ```
+3. Register webhook URL in Razorpay Dashboard → Settings → Webhooks:
+   `https://api.nearkart.in/api/v1/billing/payment/webhook/`
+   Events: `payment.captured`
 
 ---
 
