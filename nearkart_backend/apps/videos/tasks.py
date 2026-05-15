@@ -118,7 +118,49 @@ def transcode_video(self, video_id: str):
         shutil.rmtree(local_hls_dir, ignore_errors=True)
 
 
-@shared_task
+@shared_task(name='videos.notify_expiring_videos')
+def notify_expiring_videos():
+    """
+    Daily Celery Beat task — find videos expiring in the next 24–48 hours
+    and notify each vendor so they can download before deletion.
+    """
+    from datetime import timedelta
+    from django.utils import timezone
+    from .models import Video
+    from apps.notifications.services import NotificationService
+
+    now = timezone.now()
+    window_start = now + timedelta(hours=24)
+    window_end   = now + timedelta(hours=48)
+
+    videos = (
+        Video.objects
+        .filter(
+            expires_at__gte=window_start,
+            expires_at__lte=window_end,
+            status=Video.STATUS_READY,
+        )
+        .select_related('store__owner')
+    )
+
+    count = 0
+    for video in videos:
+        try:
+            NotificationService.notify_video_expiring_soon(
+                vendor=video.store.owner,
+                video_title=video.title,
+                video_id=str(video.id),
+                expires_at=video.expires_at.isoformat(),
+            )
+            count += 1
+        except Exception as exc:
+            logger.error('notify_expiring_videos: failed for video %s — %s', video.id, exc)
+
+    logger.info('notify_expiring_videos: notified vendors for %d videos', count)
+    return count
+
+
+@shared_task(name='videos.delete_expired_videos')
 def delete_expired_videos():
     """Daily Celery Beat task — expire videos past their expiry date."""
     from .services import VideoService

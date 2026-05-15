@@ -170,6 +170,15 @@ CELERY_BEAT_SCHEDULE = {
         'task':     'notifications.notify_expired_subscriptions',
         'schedule': crontab(hour=9, minute=5),   # 9:05 AM daily
     },
+    # Video expiry flow — notify 2 days before, then delete on day 30
+    'notify-expiring-videos-daily': {
+        'task':     'videos.notify_expiring_videos',
+        'schedule': crontab(hour=9, minute=10),  # 9:10 AM daily
+    },
+    'delete-expired-videos-daily': {
+        'task':     'videos.delete_expired_videos',
+        'schedule': crontab(hour=0, minute=30),  # 12:30 AM daily
+    },
 }
 
 # ── AUTH ───────────────────────────────────────────────────────

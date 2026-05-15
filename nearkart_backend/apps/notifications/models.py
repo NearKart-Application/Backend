@@ -23,6 +23,7 @@ class NotificationType(models.TextChoices):
     # Videos
     VIDEO_LIKED             = 'video_liked',             'Video Liked'
     VIDEO_READY             = 'video_ready',             'Video Ready'
+    VIDEO_EXPIRING_SOON     = 'video_expiring_soon',     'Video Expiring Soon'
     # Billing
     WALLET_TOPUP            = 'wallet_topup',            'Wallet Top-Up'
     SUBSCRIPTION_EXPIRING   = 'subscription_expiring',   'Subscription Expiring'

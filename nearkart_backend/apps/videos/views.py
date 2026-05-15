@@ -8,6 +8,7 @@ GET  /api/v1/videos/<id>/
 PATCH /api/v1/videos/<id>/
 DELETE /api/v1/videos/<id>/delete/
 POST /api/v1/videos/<id>/like/
+GET  /api/v1/videos/<id>/download/
 """
 import logging
 
@@ -26,7 +27,7 @@ from core.permissions import IsVendor
 from apps.billing.services import BillingService
 from .models import Video
 from .serializers import VideoSerializer, VideoUploadRequestSerializer
-from .services import VideoService
+from .services import AWSService, VideoService
 
 logger = logging.getLogger(__name__)
 _TAG = 'Videos'
@@ -358,3 +359,59 @@ class VideoLikeView(APIView):
                 str(video.id),
             )
         return Response({'liked': liked, 'message': 'Liked.' if liked else 'Unliked.'})
+
+
+class VideoDownloadView(APIView):
+    permission_classes = [IsAuthenticated, IsVendor]
+
+    @extend_schema(
+        tags=[_TAG],
+        summary='Get presigned download URL for your video (vendor only)',
+        description=(
+            'Returns a 1-hour presigned S3 GET URL so the vendor can download '
+            'the original MP4 locally before it expires.\n\n'
+            'Only the store owner can download their own video.\n\n'
+            '**Dev mode:** Returns a mock download URL — no real S3 call.\n\n'
+            '**Flow:** Vendor receives `video_expiring_soon` push notification '
+            '→ taps Download → app calls this endpoint → downloads via the URL.'
+        ),
+        responses={
+            200: OpenApiResponse(
+                response=inline_serializer('VideoDownloadResponse', fields={
+                    'video_id':    s.UUIDField(),
+                    'title':       s.CharField(),
+                    'download_url': s.URLField(),
+                    'expires_in':  s.IntegerField(help_text='Seconds until the URL expires'),
+                })
+            ),
+            403: OpenApiResponse(description='Not your video'),
+            404: OpenApiResponse(description='Video not found'),
+            409: OpenApiResponse(description='Video has no raw file available (already deleted or not yet uploaded)'),
+        },
+    )
+    def get(self, request, video_id):
+        try:
+            video = Video.objects.get(id=video_id, store=request.user.store)
+        except Video.DoesNotExist:
+            return Response(
+                {'error': 'not_found', 'message': 'Video not found.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if not video.raw_s3_key:
+            return Response(
+                {'error': 'conflict', 'message': 'No raw file available for this video.'},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        expiry_seconds = 3600  # 1 hour
+        download_url = AWSService.generate_presigned_download_url(
+            video.raw_s3_key, expiry_seconds=expiry_seconds
+        )
+
+        return Response({
+            'video_id':    str(video.id),
+            'title':       video.title,
+            'download_url': download_url,
+            'expires_in':  expiry_seconds,
+        })
