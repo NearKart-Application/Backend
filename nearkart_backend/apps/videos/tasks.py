@@ -28,7 +28,7 @@ def transcode_video(self, video_id: str):
     from .services import AWSService
 
     try:
-        video = Video.objects.get(id=video_id)
+        video = Video.objects.select_related('store__owner').get(id=video_id)
     except Video.DoesNotExist:
         logger.error('transcode_video: video %s not found', video_id)
         return
@@ -40,6 +40,8 @@ def transcode_video(self, video_id: str):
         video.thumbnail_url = f'https://mock-s3.dev/videos/thumbnails/{video_id}/thumb.jpg?dev=true'
         video.save(update_fields=['status', 'video_url', 'thumbnail_url', 'updated_at'])
         logger.info('transcode_video: dev mode — video %s marked ready', video_id)
+        from apps.notifications.services import NotificationService
+        NotificationService.notify_video_ready(video.store.owner, video.title, str(video.id))
         return
 
     local_input   = f'/tmp/{video_id}_input.mp4'
@@ -99,8 +101,9 @@ def transcode_video(self, video_id: str):
         video.thumbnail_url = AWSService.cdn_url(thumb_key)
         video.status      = Video.STATUS_READY
         video.save(update_fields=['hls_s3_key', 'video_url', 'thumbnail_url', 'status', 'updated_at'])
-
         logger.info('transcode_video: video %s ready', video_id)
+        from apps.notifications.services import NotificationService
+        NotificationService.notify_video_ready(video.store.owner, video.title, str(video.id))
 
     except Exception as exc:
         logger.error('transcode_video: failed for %s — %s', video_id, exc)
