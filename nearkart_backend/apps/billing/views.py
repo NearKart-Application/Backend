@@ -1,15 +1,21 @@
 """
 NearKart — Billing Views
-GET  /api/v1/billing/plans/           → list all plans (public)
-GET  /api/v1/billing/wallet/          → vendor wallet balance
-POST /api/v1/billing/topup/           → add money to wallet
-POST /api/v1/billing/subscribe/       → buy a plan
-GET  /api/v1/billing/subscription/    → current subscription status
-GET  /api/v1/billing/transactions/    → wallet transaction history
+GET  /api/v1/billing/plans/                  → list all plans (public)
+GET  /api/v1/billing/wallet/                 → vendor wallet balance
+POST /api/v1/billing/topup/                  → admin top-up (dev/testing)
+POST /api/v1/billing/subscribe/              → buy a plan (wallet must be funded)
+GET  /api/v1/billing/subscription/           → current subscription status
+GET  /api/v1/billing/transactions/           → wallet transaction history
+POST /api/v1/billing/payment/initiate/       → create Razorpay order for a plan
+POST /api/v1/billing/payment/verify/         → verify payment + fund wallet + subscribe
+POST /api/v1/billing/payment/webhook/        → Razorpay webhook (payment.captured backup)
 """
+import json
 import logging
 from decimal import Decimal, InvalidOperation
 
+from django.conf import settings
+from django.utils import timezone
 from drf_spectacular.utils import OpenApiExample, OpenApiResponse, extend_schema, inline_serializer
 from rest_framework import serializers as s
 from rest_framework import status
@@ -18,7 +24,8 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from core.permissions import IsVendor
-from .models import Plan
+from .models import Plan, Transaction
+from .razorpay_service import RazorpayService
 from .serializers import PlanSerializer, SubscriptionSerializer, TransactionSerializer
 from .services import BillingService
 
@@ -213,3 +220,232 @@ class TransactionListView(APIView):
             )
         txns = BillingService.get_transactions(request.user.store)
         return Response(TransactionSerializer(txns, many=True).data)
+
+
+# ── Razorpay Payment Views ─────────────────────────────────────────────────────
+
+
+class PaymentInitiateView(APIView):
+    permission_classes = [IsAuthenticated, IsVendor]
+
+    @extend_schema(
+        tags=[_TAG],
+        summary='Initiate Razorpay payment for a plan (vendor only)',
+        description=(
+            'Creates a Razorpay order for the selected plan price.\n\n'
+            'The app uses the returned `order_id` and `razorpay_key_id` to open '
+            'the Razorpay checkout SDK. After payment succeeds call **POST /billing/payment/verify/**.\n\n'
+            '**Dev mode:** returns a mock order — no real payment processed.'
+        ),
+        request=inline_serializer('PaymentInitiateRequest', fields={
+            'plan_name': s.CharField(help_text='Plan slug: basic | premium'),
+        }),
+        responses={
+            200: OpenApiResponse(
+                response=inline_serializer('PaymentInitiateResponse', fields={
+                    'order_id':       s.CharField(),
+                    'amount':         s.IntegerField(help_text='Amount in paise (₹×100)'),
+                    'currency':       s.CharField(),
+                    'plan_name':      s.CharField(),
+                    'receipt':        s.CharField(),
+                    'razorpay_key_id': s.CharField(),
+                })
+            ),
+            400: OpenApiResponse(description='Free plan or invalid plan name'),
+        },
+        examples=[
+            OpenApiExample('Initiate Basic',   request_only=True, value={'plan_name': 'basic'}),
+            OpenApiExample('Initiate Premium', request_only=True, value={'plan_name': 'premium'}),
+        ],
+    )
+    def post(self, request):
+        if not hasattr(request.user, 'store'):
+            return Response(
+                {'error': 'not_found', 'message': 'You do not have a store yet.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        plan_name = (request.data.get('plan_name') or '').strip().lower()
+        try:
+            plan = Plan.objects.get(name=plan_name, is_active=True)
+        except Plan.DoesNotExist:
+            return Response(
+                {'error': 'not_found', 'message': f'Plan "{plan_name}" not found. Valid paid plans: basic, premium.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        if plan.price <= 0:
+            return Response(
+                {'error': 'validation_error', 'message': 'Free plan requires no payment. Use POST /billing/subscribe/ directly.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        store = request.user.store
+        receipt = f'store_{str(store.id)[:8]}_{plan_name}_{int(timezone.now().timestamp())}'
+        order = RazorpayService.create_order(
+            amount_inr=plan.price,
+            receipt=receipt,
+            notes={'store_id': str(store.id), 'plan': plan_name},
+        )
+        return Response({
+            'order_id':        order['id'],
+            'amount':          order['amount'],
+            'currency':        order['currency'],
+            'plan_name':       plan_name,
+            'receipt':         receipt,
+            'razorpay_key_id': settings.RAZORPAY_KEY_ID,
+        })
+
+
+class PaymentVerifyView(APIView):
+    permission_classes = [IsAuthenticated, IsVendor]
+
+    @extend_schema(
+        tags=[_TAG],
+        summary='Verify Razorpay payment and activate subscription (vendor only)',
+        description=(
+            'After the Razorpay checkout SDK succeeds, send the three IDs here to verify '
+            'the HMAC-SHA256 signature. On success the plan price is credited to the wallet '
+            'and the subscription is activated immediately.\n\n'
+            '**Dev mode:** signature check is skipped — any values work.'
+        ),
+        request=inline_serializer('PaymentVerifyRequest', fields={
+            'razorpay_order_id':   s.CharField(),
+            'razorpay_payment_id': s.CharField(),
+            'razorpay_signature':  s.CharField(),
+            'plan_name':           s.CharField(help_text='Must match the plan from initiate step'),
+        }),
+        responses={
+            200: SubscriptionSerializer,
+            400: OpenApiResponse(description='Signature mismatch or invalid plan'),
+        },
+        examples=[
+            OpenApiExample(
+                'Verify payment (dev)',
+                request_only=True,
+                value={
+                    'razorpay_order_id':   'order_DEV_store_abc',
+                    'razorpay_payment_id': 'pay_DEV_12345',
+                    'razorpay_signature':  'mock_signature',
+                    'plan_name':           'basic',
+                },
+            ),
+        ],
+    )
+    def post(self, request):
+        if not hasattr(request.user, 'store'):
+            return Response(
+                {'error': 'not_found', 'message': 'You do not have a store yet.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        order_id   = (request.data.get('razorpay_order_id')   or '').strip()
+        payment_id = (request.data.get('razorpay_payment_id') or '').strip()
+        signature  = (request.data.get('razorpay_signature')  or '').strip()
+        plan_name  = (request.data.get('plan_name')           or '').strip().lower()
+
+        if not all([order_id, payment_id, signature, plan_name]):
+            return Response(
+                {'error': 'validation_error', 'message': 'razorpay_order_id, razorpay_payment_id, razorpay_signature and plan_name are all required.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not RazorpayService.verify_payment_signature(order_id, payment_id, signature):
+            return Response(
+                {'error': 'payment_failed', 'message': 'Payment signature verification failed. Do not retry — contact support.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            plan = Plan.objects.get(name=plan_name, is_active=True)
+        except Plan.DoesNotExist:
+            return Response(
+                {'error': 'not_found', 'message': f'Plan "{plan_name}" not found.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        store = request.user.store
+        # Credit wallet then subscribe (topup creates the transaction record with Razorpay payment_id)
+        BillingService.topup(store, plan.price, reference_id=payment_id)
+        store.refresh_from_db(fields=['wallet_balance'])
+        try:
+            sub = BillingService.subscribe(store, plan)
+        except ValueError as e:
+            return Response(
+                {'error': 'subscription_failed', 'message': str(e)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        logger.info('Payment verified: store=%s plan=%s payment_id=%s', store.id, plan_name, payment_id)
+        return Response(SubscriptionSerializer(sub).data)
+
+
+class PaymentWebhookView(APIView):
+    """
+    Razorpay webhook endpoint — backup for payment.captured events.
+    Registers with Razorpay dashboard: POST /api/v1/billing/payment/webhook/
+    No JWT auth — authenticated via X-Razorpay-Signature header.
+    """
+    permission_classes = [AllowAny]
+    authentication_classes = []  # skip JWT for webhook
+
+    @extend_schema(
+        tags=[_TAG],
+        summary='Razorpay webhook receiver (no auth — verified by signature)',
+        description=(
+            'Razorpay calls this endpoint after a payment event. '
+            'Verifies the `X-Razorpay-Signature` header before processing.\n\n'
+            'Handles: `payment.captured` — credits wallet and activates subscription if not already done.\n\n'
+            '**Register this URL in Razorpay Dashboard → Webhooks.**'
+        ),
+        request=inline_serializer('WebhookPayload', fields={
+            'event':   s.CharField(),
+            'payload': s.DictField(),
+        }),
+        responses={
+            200: OpenApiResponse(description='Webhook processed'),
+            400: OpenApiResponse(description='Signature invalid or missing'),
+        },
+        auth=[],
+    )
+    def post(self, request):
+        signature = request.headers.get('X-Razorpay-Signature', '')
+        body = request.body
+
+        if not RazorpayService.verify_webhook_signature(body, signature):
+            logger.warning('Razorpay webhook signature mismatch')
+            return Response({'error': 'invalid_signature'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            payload = json.loads(body)
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            return Response({'error': 'invalid_payload'}, status=status.HTTP_400_BAD_REQUEST)
+
+        event = payload.get('event')
+        logger.info('Razorpay webhook received: event=%s', event)
+
+        if event == 'payment.captured':
+            payment = payload.get('payload', {}).get('payment', {}).get('entity', {})
+            payment_id = payment.get('id', '')
+            order_id   = payment.get('order_id', '')
+            notes      = payment.get('notes', {})
+            store_id   = notes.get('store_id', '')
+            plan_name  = notes.get('plan', '')
+
+            # Skip if already processed (idempotency: check for existing topup transaction)
+            if payment_id and Transaction.objects.filter(reference_id=payment_id).exists():
+                logger.info('Razorpay webhook: payment %s already processed, skipping', payment_id)
+                return Response({'status': 'already_processed'})
+
+            if store_id and plan_name:
+                try:
+                    from apps.stores.models import Store
+                    store = Store.objects.get(id=store_id)
+                    plan  = Plan.objects.get(name=plan_name, is_active=True)
+                    BillingService.topup(store, plan.price, reference_id=payment_id)
+                    store.refresh_from_db(fields=['wallet_balance'])
+                    BillingService.subscribe(store, plan)
+                    logger.info('Razorpay webhook: activated %s for store %s', plan_name, store_id)
+                except Exception as exc:
+                    logger.exception('Razorpay webhook: failed to activate plan — %s', exc)
+                    return Response({'error': 'processing_failed'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        return Response({'status': 'ok'})

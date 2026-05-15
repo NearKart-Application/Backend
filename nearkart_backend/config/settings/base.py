@@ -288,6 +288,11 @@ AWS_S3_BUCKET = env('AWS_S3_BUCKET', default='nearkart-media-dev')
 AWS_CDN_DOMAIN = env('AWS_CDN_DOMAIN', default='')
 AWS_PRESIGNED_URL_EXPIRY = env.int('AWS_PRESIGNED_URL_EXPIRY', default=900)
 
+# ── RAZORPAY ───────────────────────────────────────────────────
+RAZORPAY_KEY_ID      = env('RAZORPAY_KEY_ID',      default='rzp_test_PLACEHOLDER')
+RAZORPAY_KEY_SECRET  = env('RAZORPAY_KEY_SECRET',  default='PLACEHOLDER_SECRET')
+RAZORPAY_WEBHOOK_SECRET = env('RAZORPAY_WEBHOOK_SECRET', default='PLACEHOLDER_WEBHOOK_SECRET')
+
 # ── TWILIO ─────────────────────────────────────────────────────
 TWILIO_ACCOUNT_SID = env('TWILIO_ACCOUNT_SID', default='')
 TWILIO_AUTH_TOKEN = env('TWILIO_AUTH_TOKEN', default='')
