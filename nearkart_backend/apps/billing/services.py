@@ -6,6 +6,7 @@ from django.db import transaction as db_transaction
 from django.utils import timezone
 from datetime import timedelta
 
+from apps.notifications.services import NotificationService
 from .models import Plan, Subscription, Transaction
 
 
@@ -23,7 +24,7 @@ class BillingService:
                 wallet_balance=store.wallet_balance + amount
             )
             store.refresh_from_db(fields=['wallet_balance'])
-            return Transaction.objects.create(
+            txn = Transaction.objects.create(
                 store=store,
                 type=Transaction.TYPE_TOPUP,
                 amount=amount,
@@ -31,6 +32,8 @@ class BillingService:
                 reference_id=reference_id or f'DEV-TOPUP-{int(timezone.now().timestamp())}',
                 balance_after=store.wallet_balance,
             )
+        NotificationService.notify_wallet_topup(store.owner, str(amount))
+        return txn
 
     # ── Subscription ─────────────────────────────────────────────────────────
 

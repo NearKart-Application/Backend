@@ -1,79 +1,19 @@
 """
 NearKart — Chat Services
 ConversationService: create/get conversations, save messages, mark read
-FCMService: push notifications for offline users (dev mode: mock)
+FCMService: re-exported from apps.notifications.fcm (shared across the project)
 """
 import logging
 
-from django.conf import settings
 from django.db.models import F
 from django.utils import timezone
 
 from apps.auth_app.models import User
 from apps.stores.models import Store
+from apps.notifications.fcm import FCMService  # noqa: F401 — re-export for consumer
 from .models import Conversation, Message
 
 logger = logging.getLogger(__name__)
-
-# ── Firebase init guard ──────────────────────────────────────────────────────
-_firebase_app = None
-
-def _get_firebase_app():
-    global _firebase_app
-    if _firebase_app:
-        return _firebase_app
-    cred_path = getattr(settings, 'FIREBASE_CREDENTIALS_PATH', '')
-    if not cred_path or 'EXAMPLE' in cred_path.upper() or not cred_path.endswith('.json'):
-        return None
-    try:
-        import firebase_admin
-        from firebase_admin import credentials as fb_creds
-        cred = fb_creds.Certificate(cred_path)
-        _firebase_app = firebase_admin.initialize_app(cred)
-        return _firebase_app
-    except Exception as e:
-        logger.warning(f'Firebase init failed: {e}')
-        return None
-
-
-def _is_dev_fcm():
-    return _get_firebase_app() is None
-
-
-# ── FCM Service ──────────────────────────────────────────────────────────────
-
-class FCMService:
-    @staticmethod
-    def send_push(recipient: User, title: str, body: str, data: dict | None = None):
-        tokens = list(
-            recipient.device_tokens
-            .filter(is_active=True)
-            .values_list('fcm_token', flat=True)
-        )
-        if not tokens:
-            return
-
-        if _is_dev_fcm():
-            logger.info(
-                f'[FCM-DEV] → {recipient.phone_number} | '
-                f'title="{title}" body="{body[:60]}" tokens={len(tokens)}'
-            )
-            return
-
-        try:
-            from firebase_admin import messaging
-            messages = [
-                messaging.Message(
-                    notification=messaging.Notification(title=title, body=body),
-                    data={k: str(v) for k, v in (data or {}).items()},
-                    token=token,
-                )
-                for token in tokens
-            ]
-            resp = messaging.send_each(messages)
-            logger.info(f'FCM sent {resp.success_count}/{len(tokens)} to {recipient.phone_number}')
-        except Exception as e:
-            logger.error(f'FCM push failed for {recipient.phone_number}: {e}')
 
 
 # ── Conversation Service ─────────────────────────────────────────────────────

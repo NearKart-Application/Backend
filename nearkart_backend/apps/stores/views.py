@@ -126,7 +126,15 @@ class StoreUpdateView(APIView):
         self.check_object_permissions(request, store)
         serializer = StoreSerializer(store, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
+        was_open = store.is_open
         store = StoreService.update(store, serializer.validated_data)
+        if not was_open and store.is_open:
+            from apps.stores.models import StoreFollow
+            from apps.auth_app.models import User
+            from apps.notifications.services import NotificationService
+            follower_ids = StoreFollow.objects.filter(store=store).values_list('user_id', flat=True)
+            followers = list(User.objects.filter(id__in=follower_ids))
+            NotificationService.notify_store_opened(followers, store.name, str(store.id))
         return Response(StoreSerializer(store).data)
 
 

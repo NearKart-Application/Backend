@@ -340,7 +340,7 @@ class VideoLikeView(APIView):
     )
     def post(self, request, video_id):
         try:
-            video = Video.objects.get(
+            video = Video.objects.select_related('store__owner').get(
                 id=video_id, status=Video.STATUS_READY, is_visible=True,
             )
         except Video.DoesNotExist:
@@ -349,4 +349,12 @@ class VideoLikeView(APIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
         liked = VideoService.toggle_like(request.user, video)
+        if liked:
+            from apps.notifications.services import NotificationService
+            NotificationService.notify_video_liked(
+                video.store.owner,
+                request.user.full_name or request.user.phone_number,
+                video.title,
+                str(video.id),
+            )
         return Response({'liked': liked, 'message': 'Liked.' if liked else 'Unliked.'})

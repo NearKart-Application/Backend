@@ -39,7 +39,7 @@ class GroupService:
 
     @staticmethod
     @transaction.atomic
-    def add_member(group: Group, user_to_add) -> GroupMember:
+    def add_member(group: Group, user_to_add, added_by=None) -> GroupMember:
         if group.group_type == GroupType.VENDOR and group.store:
             if not StoreFollow.objects.filter(store=group.store, user=user_to_add).exists():
                 raise PermissionError('User does not follow this store.')
@@ -51,6 +51,10 @@ class GroupService:
         )
         if not created:
             raise ValueError('User is already a member of this group.')
+
+        from apps.notifications.services import NotificationService
+        adder_name = (added_by.full_name or added_by.profile_id) if added_by else 'An admin'
+        NotificationService.notify_group_added(user_to_add, group.name, str(group.id), adder_name)
         return member
 
     @staticmethod
@@ -61,6 +65,8 @@ class GroupService:
         if group.created_by_id == user_to_remove.id:
             raise PermissionError('Cannot remove the group creator.')
         member.delete()
+        from apps.notifications.services import NotificationService
+        NotificationService.notify_group_removed(user_to_remove, group.name, str(group.id))
 
     @staticmethod
     def leave(group: Group, user):
@@ -80,6 +86,8 @@ class GroupService:
             raise ValueError('User is already an admin.')
         member.role = GroupMemberRole.ADMIN
         member.save(update_fields=['role', 'updated_at'])
+        from apps.notifications.services import NotificationService
+        NotificationService.notify_group_admin_promoted(user_to_promote, group.name, str(group.id))
         return member
 
     @staticmethod
@@ -111,15 +119,36 @@ class GroupService:
 
     @staticmethod
     def share_product(group: Group, product, shared_by, note: str = '') -> GroupSharedProduct:
-        return GroupSharedProduct.objects.create(
+        shared = GroupSharedProduct.objects.create(
             group=group, product=product, shared_by=shared_by, note=note,
         )
+        from apps.notifications.services import NotificationService
+        other_members = list(
+            GroupMember.objects.filter(group=group).exclude(user=shared_by).select_related('user')
+        )
+        NotificationService.notify_group_product_shared(
+            [m.user for m in other_members],
+            group.name,
+            str(group.id),
+            shared_by.full_name or shared_by.profile_id,
+            product.name,
+        )
+        return shared
 
     @staticmethod
     def finalize_product(shared_product: GroupSharedProduct, finalized_by) -> GroupSharedProduct:
         shared_product.is_finalized = True
         shared_product.finalized_by = finalized_by
         shared_product.save(update_fields=['is_finalized', 'finalized_by', 'updated_at'])
+        from apps.notifications.services import NotificationService
+        grp = shared_product.group
+        all_members = list(GroupMember.objects.filter(group=grp).select_related('user'))
+        NotificationService.notify_group_product_finalized(
+            [m.user for m in all_members],
+            grp.name,
+            str(grp.id),
+            shared_product.product.name,
+        )
         return shared_product
 
     @staticmethod

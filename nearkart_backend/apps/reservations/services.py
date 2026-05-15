@@ -8,6 +8,7 @@ from datetime import timedelta
 from django.conf import settings
 from django.utils import timezone
 
+from apps.notifications.services import NotificationService
 from .models import Reservation, ReservationStatus
 
 logger = logging.getLogger(__name__)
@@ -28,6 +29,12 @@ class ReservationService:
             expires_at=expires_at,
         )
         logger.info('[reservations] created %s — %s x%d', reservation.id, product.name, quantity)
+        NotificationService.notify_reservation_created(
+            store.owner,
+            customer.full_name or customer.phone_number,
+            str(reservation.id),
+            product.name,
+        )
         return reservation
 
     @staticmethod
@@ -36,6 +43,11 @@ class ReservationService:
         reservation.vendor_note = vendor_note
         reservation.save(update_fields=['status', 'vendor_note', 'updated_at'])
         logger.info('[reservations] confirmed %s', reservation.id)
+        NotificationService.notify_reservation_confirmed(
+            reservation.customer,
+            reservation.store.name,
+            str(reservation.id),
+        )
         return reservation
 
     @staticmethod
@@ -47,6 +59,11 @@ class ReservationService:
         else:
             reservation.save(update_fields=['status', 'updated_at'])
         logger.info('[reservations] cancelled %s', reservation.id)
+        NotificationService.notify_reservation_cancelled(
+            reservation.customer,
+            reservation.store.name,
+            str(reservation.id),
+        )
         return reservation
 
     @staticmethod
@@ -58,12 +75,21 @@ class ReservationService:
 
     @staticmethod
     def expire_pending() -> int:
+        now = timezone.now()
+        to_expire = list(
+            Reservation.objects.filter(
+                status=ReservationStatus.PENDING,
+                expires_at__lt=now,
+            ).select_related('customer', 'store')
+        )
         count = Reservation.objects.filter(
             status=ReservationStatus.PENDING,
-            expires_at__lt=timezone.now(),
+            expires_at__lt=now,
         ).update(status=ReservationStatus.EXPIRED)
         if count:
             logger.info('[reservations] expired %d reservation(s)', count)
+            for r in to_expire:
+                NotificationService.notify_reservation_expired(r.customer, r.store.name, str(r.id))
         return count
 
     @staticmethod

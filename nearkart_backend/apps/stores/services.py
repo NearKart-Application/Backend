@@ -50,15 +50,21 @@ class StoreService:
     @staticmethod
     def toggle_follow(user, store):
         from .models import StoreFollow
+        from apps.notifications.services import NotificationService
         follow, created = StoreFollow.objects.get_or_create(user=user, store=store)
         if not created:
             follow.delete()
             return False  # unfollowed
+        NotificationService.notify_new_follower(
+            store.owner,
+            user.full_name or user.phone_number,
+        )
         return True  # followed
 
     @staticmethod
     def add_review(user, store, rating: int, comment: str = ''):
         from .models import StoreReview
+        from apps.notifications.services import NotificationService
         review, created = StoreReview.objects.update_or_create(
             user=user, store=store,
             defaults={'rating': rating, 'comment': comment},
@@ -69,6 +75,12 @@ class StoreService:
         )['avg'] or 0
         store.performance_score = round(avg, 2)
         store.save(update_fields=['performance_score'])
+        NotificationService.notify_new_review(
+            store.owner,
+            user.full_name or user.phone_number,
+            rating,
+            store.name,
+        )
         return review
 
 

@@ -166,7 +166,7 @@ class GroupAddMemberView(APIView):
                 return Response({'error': 'not_found', 'message': 'User not found.'}, status=404)
 
         try:
-            GroupService.add_member(group, user_to_add)
+            GroupService.add_member(group, user_to_add, added_by=request.user)
         except PermissionError as e:
             return Response({'error': 'forbidden', 'message': str(e)}, status=403)
         except ValueError as e:

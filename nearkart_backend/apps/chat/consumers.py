@@ -11,8 +11,9 @@ from channels.db import database_sync_to_async
 from channels.generic.websocket import AsyncJsonWebsocketConsumer
 
 from apps.blacklist.services import BlacklistService
+from apps.notifications.services import NotificationService
 from .models import Conversation
-from .services import ConversationService, FCMService
+from .services import ConversationService
 
 logger = logging.getLogger(__name__)
 
@@ -107,11 +108,10 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
         recipient = conv.store.owner if is_customer_sending else conv.customer
         sender_label = 'Customer' if is_customer_sending else conv.store.name
 
-        FCMService.send_push(
-            recipient=recipient,
-            title=f'New message from {sender_label}',
-            body=text[:100],
-            data={'conversation_id': str(self.conversation_id)},
+        NotificationService.notify_new_message(
+            recipient,
+            sender_label,
+            str(self.conversation_id),
         )
 
     @staticmethod

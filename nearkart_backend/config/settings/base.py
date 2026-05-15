@@ -162,6 +162,14 @@ CELERY_BEAT_SCHEDULE = {
         'task':     'reservations.expire_reservations',
         'schedule': crontab(minute=0),           # top of every hour
     },
+    'notify-expiring-subscriptions-daily': {
+        'task':     'notifications.notify_expiring_subscriptions',
+        'schedule': crontab(hour=9, minute=0),   # 9 AM daily
+    },
+    'notify-expired-subscriptions-daily': {
+        'task':     'notifications.notify_expired_subscriptions',
+        'schedule': crontab(hour=9, minute=5),   # 9:05 AM daily
+    },
 }
 
 # ── AUTH ───────────────────────────────────────────────────────

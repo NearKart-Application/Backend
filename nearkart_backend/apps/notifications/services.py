@@ -1,11 +1,194 @@
 """
 NearKart — Notification Services
 SMSService: OTP delivery via Twilio
+NotificationService: in-app inbox + FCM push
 """
 import logging
 from django.conf import settings
 
+from .fcm import FCMService
+from .models import Notification, NotificationType
+
 logger = logging.getLogger(__name__)
+
+
+class NotificationService:
+
+    @staticmethod
+    def send(recipient, notification_type: str, title: str, body: str, data: dict = None) -> Notification:
+        notif = Notification.objects.create(
+            recipient=recipient,
+            notification_type=notification_type,
+            title=title,
+            body=body,
+            data=data or {},
+        )
+        FCMService.send_push(recipient, title, body, data)
+        return notif
+
+    @staticmethod
+    def send_bulk(recipients, notification_type: str, title: str, body: str, data: dict = None):
+        for recipient in recipients:
+            NotificationService.send(recipient, notification_type, title, body, data)
+
+    # ── Helpers — one method per event ──────────────────────────────────────
+
+    @staticmethod
+    def notify_new_message(recipient, sender_label: str, conversation_id: str):
+        NotificationService.send(
+            recipient, NotificationType.NEW_MESSAGE,
+            title=f'New message from {sender_label}',
+            body='You have a new message.',
+            data={'conversation_id': conversation_id},
+        )
+
+    @staticmethod
+    def notify_reservation_created(vendor, customer_name: str, reservation_id: str, product_name: str):
+        NotificationService.send(
+            vendor, NotificationType.RESERVATION_CREATED,
+            title='New Reservation',
+            body=f'{customer_name} reserved {product_name}.',
+            data={'reservation_id': reservation_id},
+        )
+
+    @staticmethod
+    def notify_reservation_confirmed(customer, store_name: str, reservation_id: str):
+        NotificationService.send(
+            customer, NotificationType.RESERVATION_CONFIRMED,
+            title='Reservation Confirmed',
+            body=f'Your reservation at {store_name} has been confirmed.',
+            data={'reservation_id': reservation_id},
+        )
+
+    @staticmethod
+    def notify_reservation_cancelled(customer, store_name: str, reservation_id: str):
+        NotificationService.send(
+            customer, NotificationType.RESERVATION_CANCELLED,
+            title='Reservation Cancelled',
+            body=f'Your reservation at {store_name} has been cancelled.',
+            data={'reservation_id': reservation_id},
+        )
+
+    @staticmethod
+    def notify_reservation_expired(customer, store_name: str, reservation_id: str):
+        NotificationService.send(
+            customer, NotificationType.RESERVATION_EXPIRED,
+            title='Reservation Expired',
+            body=f'Your hold at {store_name} has expired.',
+            data={'reservation_id': reservation_id},
+        )
+
+    @staticmethod
+    def notify_new_follower(vendor, follower_name: str):
+        NotificationService.send(
+            vendor, NotificationType.NEW_FOLLOWER,
+            title='New Follower',
+            body=f'{follower_name} is now following your store.',
+        )
+
+    @staticmethod
+    def notify_new_review(vendor, reviewer_name: str, rating: int, store_name: str):
+        NotificationService.send(
+            vendor, NotificationType.NEW_REVIEW,
+            title='New Review',
+            body=f'{reviewer_name} rated {store_name} {rating}/5.',
+        )
+
+    @staticmethod
+    def notify_store_opened(followers, store_name: str, store_id: str):
+        NotificationService.send_bulk(
+            followers, NotificationType.STORE_OPENED,
+            title=f'{store_name} is now open!',
+            body='A store you follow just opened. Check it out.',
+            data={'store_id': store_id},
+        )
+
+    @staticmethod
+    def notify_video_liked(vendor, liker_name: str, video_title: str, video_id: str):
+        NotificationService.send(
+            vendor, NotificationType.VIDEO_LIKED,
+            title='New Like',
+            body=f'{liker_name} liked your video "{video_title}".',
+            data={'video_id': video_id},
+        )
+
+    @staticmethod
+    def notify_video_ready(vendor, video_title: str, video_id: str):
+        NotificationService.send(
+            vendor, NotificationType.VIDEO_READY,
+            title='Video Ready',
+            body=f'Your video "{video_title}" is ready to view.',
+            data={'video_id': video_id},
+        )
+
+    @staticmethod
+    def notify_wallet_topup(vendor, amount: str):
+        NotificationService.send(
+            vendor, NotificationType.WALLET_TOPUP,
+            title='Wallet Topped Up',
+            body=f'₹{amount} has been added to your wallet.',
+        )
+
+    @staticmethod
+    def notify_subscription_expiring(vendor, store_name: str, days_left: int):
+        NotificationService.send(
+            vendor, NotificationType.SUBSCRIPTION_EXPIRING,
+            title='Subscription Expiring Soon',
+            body=f'Your {store_name} subscription expires in {days_left} day(s). Renew now.',
+        )
+
+    @staticmethod
+    def notify_subscription_expired(vendor, store_name: str):
+        NotificationService.send(
+            vendor, NotificationType.SUBSCRIPTION_EXPIRED,
+            title='Subscription Expired',
+            body=f'Your {store_name} subscription has expired. Renew to continue selling.',
+        )
+
+    @staticmethod
+    def notify_group_added(user, group_name: str, group_id: str, added_by: str):
+        NotificationService.send(
+            user, NotificationType.GROUP_ADDED,
+            title='Added to Group',
+            body=f'{added_by} added you to "{group_name}".',
+            data={'group_id': group_id},
+        )
+
+    @staticmethod
+    def notify_group_removed(user, group_name: str, group_id: str):
+        NotificationService.send(
+            user, NotificationType.GROUP_REMOVED,
+            title='Removed from Group',
+            body=f'You have been removed from "{group_name}".',
+            data={'group_id': group_id},
+        )
+
+    @staticmethod
+    def notify_group_product_shared(members, group_name: str, group_id: str, sharer_name: str, product_name: str):
+        NotificationService.send_bulk(
+            members, NotificationType.GROUP_PRODUCT_SHARED,
+            title='New Product Shared',
+            body=f'{sharer_name} shared "{product_name}" in {group_name}.',
+            data={'group_id': group_id},
+        )
+
+    @staticmethod
+    def notify_group_product_finalized(members, group_name: str, group_id: str, product_name: str):
+        NotificationService.send_bulk(
+            members, NotificationType.GROUP_PRODUCT_FINALIZED,
+            title='Product Finalized',
+            body=f'"{product_name}" was chosen as the final pick in {group_name}.',
+            data={'group_id': group_id},
+        )
+
+    @staticmethod
+    def notify_group_admin_promoted(user, group_name: str, group_id: str):
+        NotificationService.send(
+            user, NotificationType.GROUP_ADMIN_PROMOTED,
+            title='You are now a Group Admin',
+            body=f'You have been made an admin of "{group_name}".',
+            data={'group_id': group_id},
+        )
 
 
 class SMSService:

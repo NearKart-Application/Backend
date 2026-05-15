@@ -48,5 +48,8 @@ urlpatterns = [
 
     # ── ADMIN PANEL ───────────────────────────────────────────
     path(API_V1 + 'admin-panel/', include('apps.admin_panel.urls')),
+
+    # ── NOTIFICATIONS ─────────────────────────────────────────
+    path(API_V1 + 'notifications/', include('apps.notifications.urls')),
 ]
 

@@ -71,5 +71,5 @@ built in later sprints. Right now you can only test via:
 | S8 | Analytics + Admin | Done ✅ | `docs/sprint_8_analytics/` |
 | S9 | Reservations | Done ✅ | `docs/sprint_9_reservations/` |
 | S10 | Groups | Done ✅ | `docs/sprint_10_groups/` |
-| S11 | Notifications | Not started | `docs/sprint_11_notifications/` |
+| S11 | Notifications | Done ✅ | `docs/sprint_11_notifications/` |
 | S12 | Staging + Production | Not started | `docs/sprint_12_production/` |
