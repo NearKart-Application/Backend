@@ -177,6 +177,14 @@ Run with: `python3 docs/gen_api_guide.py` or `python3 docs/gen_project_journey.p
 
 ---
 
+## Sprint 13 — Tests
+
+| Document | File Path | What it contains |
+|----------|-----------|-----------------|
+| **Test Runner Guide** | `docs/sprint_13_tests/TEST_RUNNER_GUIDE.md` | How to install, run all/single/keyword tests, coverage reports, markers, CI replication, dev-mode bypass explanations |
+
+---
+
 ## Quick Reference — "Where do I find...?"
 
 | I want to know... | Go to |
@@ -197,3 +205,4 @@ Run with: `python3 docs/gen_api_guide.py` or `python3 docs/gen_project_journey.p
 | What to change before going live | `docs/sprint_12_production/GOING_TO_PRODUCTION.md` |
 | How to deploy to production | `docs/sprint_12_production/DEPLOY_CHECKLIST.md` |
 | All database tables | `docs/DATABASE_SCHEMA.txt` |
+| How to run the test suite | `docs/sprint_13_tests/TEST_RUNNER_GUIDE.md` |
