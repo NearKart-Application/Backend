@@ -35,10 +35,7 @@ urlpatterns = [
     path(API_V1 + 'conversations/', include('apps.chat.urls')),
 
     # ── BILLING ───────────────────────────────────────────────
-    path(API_V1 + 'invoices/', include('apps.billing.urls.invoices')),
-    path(API_V1 + 'wallet/', include('apps.billing.urls.wallet')),
-    path(API_V1 + 'expenses/', include('apps.billing.urls.expenses')),
-    path(API_V1 + 'referral/', include('apps.billing.urls.referral')),
+    path(API_V1 + 'billing/', include('apps.billing.urls')),
 
     # ── RESERVATIONS ──────────────────────────────────────────
     path(API_V1 + 'reservations/', include('apps.reservations.urls')),
@@ -53,10 +50,3 @@ urlpatterns = [
     path(API_V1 + 'admin-panel/', include('apps.admin_panel.urls')),
 ]
 
-# ── DEBUG TOOLBAR ─────────────────────────────────────────────
-if settings.DEBUG:
-    try:
-        import debug_toolbar
-        urlpatterns = [path('__debug__/', include(debug_toolbar.urls))] + urlpatterns
-    except ImportError:
-        pass

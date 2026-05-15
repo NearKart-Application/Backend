@@ -1,8 +1,8 @@
 -r base.txt
 
 # ── WSGI/ASGI SERVER ─────────────────────────────────────────
-gunicorn==21.2.0
-uvicorn[standard]==0.29.0
+gunicorn>=21.2
+uvicorn[standard]>=0.29
 
 # ── PRODUCTION MONITORING ────────────────────────────────────
-django-health-check==3.18.1
+django-health-check>=3.18

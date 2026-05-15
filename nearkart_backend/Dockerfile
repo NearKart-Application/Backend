@@ -1,5 +1,5 @@
 # ── Stage 1: Builder ─────────────────────────────────────────
-FROM python:3.11-slim AS builder
+FROM python:3.13-slim AS builder
 
 WORKDIR /app
 
@@ -17,9 +17,16 @@ RUN apt-get update && apt-get install -y \
     libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies
+# Create venv at /venv (NOT inside /app — volume mount would overwrite it)
+RUN python -m venv /venv
+
+# Use the venv for all installs
+ENV PATH="/venv/bin:$PATH"
+ENV VIRTUAL_ENV="/venv"
+
 COPY requirements/base.txt requirements/base.txt
 COPY requirements/production.txt requirements/production.txt
+
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements/production.txt
 
@@ -30,17 +37,19 @@ COPY requirements/development.txt requirements/development.txt
 RUN pip install --no-cache-dir -r requirements/development.txt
 
 WORKDIR /app
-COPY . .
 
 # Non-root user for security
 RUN useradd --create-home --shell /bin/bash appuser && \
-    chown -R appuser:appuser /app
+    chown -R appuser:appuser /app /venv
 USER appuser
+
+ENV PATH="/venv/bin:$PATH"
+ENV VIRTUAL_ENV="/venv"
 
 EXPOSE 8000 8001
 
 # ── Stage 3: Production ──────────────────────────────────────
-FROM python:3.11-slim AS production
+FROM python:3.13-slim AS production
 
 WORKDIR /app
 
@@ -54,17 +63,19 @@ RUN apt-get update && apt-get install -y \
     libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy installed Python packages from builder
-COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
-COPY --from=builder /usr/local/bin /usr/local/bin
+# Copy venv from builder
+COPY --from=builder /venv /venv
 
 # Copy app code
 COPY . .
 
 # Non-root user
 RUN useradd --create-home --shell /bin/bash appuser && \
-    chown -R appuser:appuser /app
+    chown -R appuser:appuser /app /venv
 USER appuser
+
+ENV PATH="/venv/bin:$PATH"
+ENV VIRTUAL_ENV="/venv"
 
 EXPOSE 8000 8001
 

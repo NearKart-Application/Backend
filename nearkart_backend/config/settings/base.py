@@ -36,6 +36,7 @@ DJANGO_APPS = [
 THIRD_PARTY_APPS = [
     'rest_framework',
     'rest_framework_simplejwt',
+    'rest_framework_simplejwt.token_blacklist',
     'corsheaders',
     'channels',
     'django_filters',
@@ -217,14 +218,35 @@ CORS_ALLOW_HEADERS = [
 # ── API DOCS (Spectacular) ─────────────────────────────────────
 SPECTACULAR_SETTINGS = {
     'TITLE': 'NearKart API',
-    'DESCRIPTION': 'India\'s first hyperlocal video commerce platform',
+    'DESCRIPTION': (
+        "India's first hyperlocal video commerce platform.\n\n"
+        "## Authentication\n"
+        "1. Call **POST /auth/otp/send/** with your phone number\n"
+        "2. Call **POST /auth/otp/verify/** with OTP `123456` (dev fixed OTP)\n"
+        "3. Copy the `access` token from the response\n"
+        "4. Click **Authorize** (top right), enter: `Bearer <paste token here>`\n"
+        "5. All protected endpoints will now work"
+    ),
     'VERSION': '1.0.0',
     'SERVE_INCLUDE_SCHEMA': False,
     'COMPONENT_SPLIT_REQUEST': True,
     'SWAGGER_UI_SETTINGS': {
         'deepLinking': True,
         'persistAuthorization': True,
+        'displayRequestDuration': True,
+        'filter': True,
     },
+    'APPEND_COMPONENTS': {
+        'securitySchemes': {
+            'jwtAuth': {
+                'type': 'http',
+                'scheme': 'bearer',
+                'bearerFormat': 'JWT',
+                'description': 'Paste your access token here (without the "Bearer " prefix)',
+            }
+        }
+    },
+    'SECURITY': [{'jwtAuth': []}],
 }
 
 # ── AWS ────────────────────────────────────────────────────────

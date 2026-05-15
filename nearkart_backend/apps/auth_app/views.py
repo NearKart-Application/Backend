@@ -1,0 +1,307 @@
+"""
+NearKart — Auth Views
+POST /api/v1/auth/otp/send/
+POST /api/v1/auth/otp/verify/
+POST /api/v1/auth/token/refresh/
+GET  /api/v1/auth/me/
+PATCH /api/v1/auth/me/
+PUT  /api/v1/auth/me/location/
+POST /api/v1/auth/logout/
+"""
+import logging
+from rest_framework import status
+from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.response import Response
+from rest_framework.views import APIView
+from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.exceptions import TokenError
+from drf_spectacular.utils import extend_schema, OpenApiResponse, OpenApiExample, inline_serializer
+from drf_spectacular.openapi import AutoSchema
+import rest_framework.serializers as s
+
+from .serializers import (
+    OTPSendSerializer,
+    OTPVerifySerializer,
+    UserSerializer,
+    LocationUpdateSerializer,
+)
+from .services import OTPService, JWTService
+
+logger = logging.getLogger(__name__)
+
+_TAG = 'Auth'
+
+
+class OTPSendView(APIView):
+    permission_classes = [AllowAny]
+    throttle_scope = 'otp_send'
+
+    @extend_schema(
+        tags=[_TAG],
+        summary='Send OTP',
+        description=(
+            'Send a 6-digit OTP to the given Indian mobile number (+91XXXXXXXXXX).\n\n'
+            '**Dev mode:** OTP is always `123456` — no real SMS is sent.'
+        ),
+        request=OTPSendSerializer,
+        responses={
+            200: OpenApiResponse(
+                description='OTP sent successfully',
+                response=inline_serializer('OTPSendResponse', fields={
+                    'message': s.CharField(),
+                }),
+                examples=[OpenApiExample('Success', value={'message': 'OTP sent successfully'})],
+            ),
+            400: OpenApiResponse(
+                description='Invalid phone number format',
+                response=inline_serializer('OTPSendError', fields={
+                    'phone_number': s.ListField(child=s.CharField()),
+                }),
+                examples=[OpenApiExample('Bad phone', value={
+                    'phone_number': ['Enter a valid Indian mobile number in +91XXXXXXXXXX format.']
+                })],
+            ),
+        },
+        auth=[],
+    )
+    def post(self, request):
+        serializer = OTPSendSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        phone_number = serializer.validated_data['phone_number']
+        OTPService.generate_and_send(phone_number)
+        return Response({'message': 'OTP sent successfully'}, status=status.HTTP_200_OK)
+
+
+class OTPVerifyView(APIView):
+    permission_classes = [AllowAny]
+    throttle_scope = 'otp_verify'
+
+    @extend_schema(
+        tags=[_TAG],
+        summary='Verify OTP and login',
+        description=(
+            'Verify the OTP and get JWT access + refresh tokens.\n\n'
+            '**Dev mode:** Use OTP `123456` (set by `DEV_FIXED_OTP` in `.env`).\n\n'
+            'New users are created automatically on first login.'
+        ),
+        request=OTPVerifySerializer,
+        responses={
+            200: OpenApiResponse(
+                description='Login successful — returns JWT tokens',
+                response=inline_serializer('OTPVerifyResponse', fields={
+                    'message': s.CharField(),
+                    'access': s.CharField(help_text='JWT access token (expires in 1 hour)'),
+                    'refresh': s.CharField(help_text='JWT refresh token (expires in 30 days)'),
+                    'user': UserSerializer(),
+                }),
+                examples=[OpenApiExample('Success', value={
+                    'message': 'Login successful',
+                    'access': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
+                    'refresh': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
+                    'user': {
+                        'id': '550e8400-e29b-41d4-a716-446655440000',
+                        'phone_number': '+919876543210',
+                        'role': 'customer',
+                        'full_name': '',
+                        'email': '',
+                        'created_at': '2024-01-01T00:00:00Z',
+                    },
+                })],
+            ),
+            400: OpenApiResponse(
+                description='Invalid or expired OTP',
+                response=inline_serializer('OTPVerifyError', fields={
+                    'error': s.CharField(),
+                    'message': s.CharField(),
+                }),
+                examples=[OpenApiExample('Wrong OTP', value={
+                    'error': 'otp_invalid',
+                    'message': 'Invalid OTP. 4 attempt(s) remaining.',
+                })],
+            ),
+        },
+        auth=[],
+    )
+    def post(self, request):
+        serializer = OTPVerifySerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            user = OTPService.verify(
+                serializer.validated_data['phone_number'],
+                serializer.validated_data['otp'],
+            )
+        except ValueError as e:
+            return Response(
+                {'error': 'otp_invalid', 'message': str(e)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        tokens = JWTService.issue_tokens(user)
+        return Response({
+            'message': 'Login successful',
+            'user': UserSerializer(user).data,
+            **tokens,
+        }, status=status.HTTP_200_OK)
+
+
+class TokenRefreshView(APIView):
+    permission_classes = [AllowAny]
+
+    @extend_schema(
+        tags=[_TAG],
+        summary='Refresh access token',
+        description='Exchange a valid refresh token for a new access token.',
+        request=inline_serializer('TokenRefreshRequest', fields={
+            'refresh': s.CharField(help_text='Your refresh token from /otp/verify/'),
+        }),
+        responses={
+            200: OpenApiResponse(
+                description='New access token',
+                response=inline_serializer('TokenRefreshResponse', fields={
+                    'access': s.CharField(),
+                }),
+                examples=[OpenApiExample('Success', value={
+                    'access': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
+                })],
+            ),
+            401: OpenApiResponse(
+                description='Refresh token invalid or expired',
+                response=inline_serializer('TokenRefreshError', fields={
+                    'error': s.CharField(),
+                    'message': s.CharField(),
+                }),
+            ),
+        },
+        auth=[],
+    )
+    def post(self, request):
+        refresh_token = request.data.get('refresh')
+        if not refresh_token:
+            return Response(
+                {'error': 'token_missing', 'message': 'Refresh token required'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            token = RefreshToken(refresh_token)
+            return Response({'access': str(token.access_token)}, status=status.HTTP_200_OK)
+        except TokenError as e:
+            return Response(
+                {'error': 'token_invalid', 'message': str(e)},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+
+class MeView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        tags=[_TAG],
+        summary='Get my profile',
+        description='Returns the profile of the currently authenticated user.',
+        responses={200: UserSerializer},
+    )
+    def get(self, request):
+        return Response(UserSerializer(request.user).data)
+
+    @extend_schema(
+        tags=[_TAG],
+        summary='Update my profile',
+        description='Update editable fields: `full_name` and `email`. Phone number and role cannot be changed.',
+        request=inline_serializer('ProfileUpdateRequest', fields={
+            'full_name': s.CharField(required=False, allow_blank=True),
+            'email': s.EmailField(required=False, allow_blank=True),
+        }),
+        responses={200: UserSerializer},
+        examples=[
+            OpenApiExample('Update name and email', request_only=True, value={
+                'full_name': 'Rahul Kumar',
+                'email': 'rahul@example.com',
+            }),
+        ],
+    )
+    def patch(self, request):
+        serializer = UserSerializer(request.user, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
+
+
+class LocationUpdateView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        tags=[_TAG],
+        summary='Update my location',
+        description=(
+            'Save the user\'s current GPS coordinates.\n\n'
+            'Used by the hyperlocal feed to show nearby stores and videos.'
+        ),
+        request=LocationUpdateSerializer,
+        responses={
+            200: OpenApiResponse(
+                description='Location saved',
+                response=inline_serializer('LocationUpdateResponse', fields={
+                    'message': s.CharField(),
+                }),
+                examples=[OpenApiExample('Success', value={'message': 'Location updated'})],
+            ),
+            400: OpenApiResponse(
+                description='Invalid coordinates',
+                response=inline_serializer('LocationUpdateError', fields={
+                    'latitude': s.ListField(child=s.CharField()),
+                }),
+                examples=[OpenApiExample('Bad latitude', value={
+                    'latitude': ['Ensure this value is less than or equal to 90.']
+                })],
+            ),
+        },
+        examples=[
+            OpenApiExample('Chennai coordinates', request_only=True, value={
+                'latitude': 13.0827,
+                'longitude': 80.2707,
+            }),
+        ],
+    )
+    def put(self, request):
+        serializer = LocationUpdateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        JWTService.update_location(
+            request.user,
+            serializer.validated_data['latitude'],
+            serializer.validated_data['longitude'],
+        )
+        return Response({'message': 'Location updated'}, status=status.HTTP_200_OK)
+
+
+class LogoutView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        tags=[_TAG],
+        summary='Logout',
+        description='Blacklists the refresh token so it cannot be reused. Pass your refresh token in the body.',
+        request=inline_serializer('LogoutRequest', fields={
+            'refresh': s.CharField(help_text='Your refresh token — will be blacklisted'),
+        }),
+        responses={
+            200: OpenApiResponse(
+                description='Logged out',
+                response=inline_serializer('LogoutResponse', fields={
+                    'message': s.CharField(),
+                }),
+                examples=[OpenApiExample('Success', value={'message': 'Logged out successfully'})],
+            ),
+        },
+        examples=[
+            OpenApiExample('Logout', request_only=True, value={
+                'refresh': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
+            }),
+        ],
+    )
+    def post(self, request):
+        refresh_token = request.data.get('refresh')
+        if refresh_token:
+            try:
+                RefreshToken(refresh_token).blacklist()
+            except TokenError:
+                pass
+        return Response({'message': 'Logged out successfully'}, status=status.HTTP_200_OK)
