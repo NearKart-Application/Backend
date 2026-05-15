@@ -19,7 +19,22 @@
 - [x] Celery task runs in dev mode → video marked `status=ready` within ~2 seconds
 - [x] `video_url` and `thumbnail_url` populated with mock URLs in dev
 - [x] POST /videos/<id>/confirm-upload/ on already-ready video → 400 "already in ready state"
+- [x] POST /videos/<id>/confirm-upload/ with `duration_seconds=120` → 400 "cannot exceed 60 seconds"
 - [x] POST /videos/<id>/confirm-upload/ on another vendor's video → 404
+
+## My Videos
+- [x] GET /videos/my-videos/ with vendor token → 200, all vendor videos across all statuses
+- [x] GET /videos/my-videos/?status=ready → only ready videos returned
+- [x] GET /videos/my-videos/?status=processing → only processing videos returned
+- [x] GET /videos/my-videos/ with no store → 200, empty array `[]`
+- [x] GET /videos/my-videos/ with customer token → 403 Vendor access only
+
+## Update Video
+- [x] PATCH /videos/<id>/update/ with `title` → 200, updated title in response
+- [x] PATCH /videos/<id>/update/ with `is_visible: false` → 200, video hidden from feed
+- [x] PATCH /videos/<id>/update/ with `is_visible: true` → 200, video re-appears in feed
+- [x] PATCH /videos/<id>/update/ on another vendor's video → 404
+- [x] PATCH /videos/<id>/update/ without vendor token → 401/403
 
 ## Video Feed
 - [x] GET /videos/feed/?lat=13.0418&lng=80.2341&radius=10 → 200, array with video

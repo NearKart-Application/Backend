@@ -75,7 +75,37 @@ curl -X POST http://localhost:8000/api/v1/videos/$VIDEO_ID/confirm-upload/ \
 
 ---
 
-### STEP 4 — Video Detail (check status = ready)
+### STEP 4 — Check Status via My Videos (vendor only)
+```bash
+curl "http://localhost:8000/api/v1/videos/my-videos/" \
+  -H "Authorization: Bearer $VENDOR_TOKEN"
+```
+**Expected 200:** Array of all vendor's videos across all statuses.
+```json
+[
+  {
+    "id": "82d5ede8-...",
+    "title": "Summer Kurta Collection",
+    "status": "processing",
+    "video_url": "",
+    "duration_seconds": 45
+  }
+]
+```
+Wait 2–3 seconds for Celery (dev mode), then repeat — `status` will change to `ready`.
+
+Filter to see only ready videos:
+```bash
+curl "http://localhost:8000/api/v1/videos/my-videos/?status=ready" \
+  -H "Authorization: Bearer $VENDOR_TOKEN"
+```
+
+> **Key rule:** A vendor can see their own video at any status here.
+> The public `GET /videos/<id>/` only shows `ready + is_visible=true`.
+
+---
+
+### STEP 5 — Video Detail (check status = ready)
 ```bash
 curl http://localhost:8000/api/v1/videos/$VIDEO_ID/
 ```
@@ -106,7 +136,7 @@ curl http://localhost:8000/api/v1/videos/$VIDEO_ID/
 
 ---
 
-### STEP 5 — Video Feed (location-based)
+### STEP 6 — Video Feed (location-based)
 ```bash
 curl "http://localhost:8000/api/v1/videos/feed/?lat=13.0418&lng=80.2341&radius=10"
 ```
@@ -130,7 +160,28 @@ curl "http://localhost:8000/api/v1/videos/feed/?lat=13.0418&lng=80.2341&store_id
 
 ---
 
-### STEP 6 — Like / Unlike Toggle
+### STEP 7 — Update Video (vendor only)
+```bash
+curl -X PATCH http://localhost:8000/api/v1/videos/$VIDEO_ID/update/ \
+  -H "Authorization: Bearer $VENDOR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"title": "Revised Summer Collection", "is_visible": false}'
+```
+**Expected 200:** Full video object with updated fields.
+```json
+{
+  "id": "82d5ede8-...",
+  "title": "Revised Summer Collection",
+  "is_visible": false,
+  ...
+}
+```
+> Send only the fields you want to change. `description` and `is_visible` are also patchable.
+> Toggle `is_visible` to `true` to bring the video back into the public feed.
+
+---
+
+### STEP 8 — Like / Unlike Toggle
 ```bash
 # Get customer token first
 curl -X POST http://localhost:8000/api/v1/auth/otp/send/ \
@@ -154,7 +205,7 @@ curl -X POST http://localhost:8000/api/v1/videos/$VIDEO_ID/like/ \
 
 ---
 
-### STEP 7 — Delete Video (vendor owner only)
+### STEP 9 — Delete Video (vendor owner only)
 ```bash
 curl -X DELETE http://localhost:8000/api/v1/videos/$VIDEO_ID/delete/ \
   -H "Authorization: Bearer $VENDOR_TOKEN"
@@ -177,6 +228,8 @@ curl http://localhost:8000/api/v1/videos/$VIDEO_ID/
 | Missing title | POST /videos/request-upload/ with no title | 400 — This field is required |
 | Customer calls request-upload | Use customer token | 403 — Vendor access only |
 | Confirm already-ready video | POST /confirm-upload/ on ready video | 400 — Video is already in "ready" state |
+| Duration too long | POST /confirm-upload/ with `duration_seconds=120` | 400 — duration_seconds cannot exceed 60 seconds |
+| Update another vendor's video | PATCH /videos/<id>/update/ with different vendor token | 404 — not found (filtered to own store) |
 | Feed without lat/lng | GET /videos/feed/ (no params) | 400 — lat and lng are required numbers |
 | Detail on processing video | GET /videos/<id>/ while status=processing | 404 — not found (only ready+visible returned) |
 | Delete another vendor's video | Use different vendor token | 404 — not found (filtered to own store) |

@@ -51,7 +51,34 @@ if (r.video_id) {
 
 ---
 
-### 3. Video Feed (Public)
+### 3. My Videos (Vendor Library)
+- **Method:** GET
+- **URL:** `{{base_url}}/videos/my-videos/`
+- **Auth:** Bearer `{{vendor_token}}`
+- **Params (optional):**
+  - `status` = `ready` (or `processing`, `pending_upload`, `failed`, `expired`)
+- **Expected:** Array of all vendor's videos across all statuses
+- **Note:** Use `?status=ready` to filter to only published videos
+
+---
+
+### 4. Update Video
+- **Method:** PATCH
+- **URL:** `{{base_url}}/videos/{{video_id}}/update/`
+- **Auth:** Bearer `{{vendor_token}}`
+- **Body (JSON):** Send only the fields you want to change:
+```json
+{
+  "title": "Revised Summer Collection",
+  "is_visible": false
+}
+```
+- **Expected:** 200, full video object with updated fields
+- **Note:** `is_visible: false` hides the video from the public feed; set `true` to re-publish
+
+---
+
+### 5. Video Feed (Public)
 - **Method:** GET
 - **URL:** `{{base_url}}/videos/feed/`
 - **Auth:** None
@@ -63,7 +90,7 @@ if (r.video_id) {
 
 ---
 
-### 4. Video Detail (Public)
+### 6. Video Detail (Public)
 - **Method:** GET
 - **URL:** `{{base_url}}/videos/{{video_id}}/`
 - **Auth:** None (or add Bearer token to see `is_liked`)
@@ -71,7 +98,7 @@ if (r.video_id) {
 
 ---
 
-### 5. Like / Unlike Video (Toggle)
+### 7. Like / Unlike Video (Toggle)
 - **Method:** POST
 - **URL:** `{{base_url}}/videos/{{video_id}}/like/`
 - **Auth:** Bearer `{{customer_token}}`
@@ -81,7 +108,7 @@ if (r.video_id) {
 
 ---
 
-### 6. Delete Video (Vendor Only)
+### 8. Delete Video (Vendor Only)
 - **Method:** DELETE
 - **URL:** `{{base_url}}/videos/{{video_id}}/delete/`
 - **Auth:** Bearer `{{vendor_token}}`
@@ -96,6 +123,8 @@ if (r.video_id) {
 |-------|-------|-----|
 | 400 — Create a store first | Vendor has no store | Complete Sprint 3 store creation |
 | 400 — Video is already in "ready" state | Called confirm-upload twice | Check status with GET /videos/<id>/ first |
+| 400 — duration_seconds cannot exceed 60 | Sent `duration_seconds=120` in confirm-upload | Keep video under 60 seconds |
+| 404 — Video not found on update | Updating another vendor's video | Use the correct vendor token |
 | 400 — lat and lng are required | Missing feed params | Add ?lat=13.0&lng=80.2 to URL |
 | 403 — Vendor access only | Customer token used on upload | Use vendor token |
 | 404 — Video not found | Video is processing/failed/expired | Wait for transcoding or check status |

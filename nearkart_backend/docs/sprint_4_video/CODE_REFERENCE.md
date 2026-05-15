@@ -180,6 +180,19 @@ Celery Beat daily task. Calls `VideoService.expire_old_videos()`, logs count.
 - 400 if `video.status != 'pending_upload'` — prevents double-confirming
 - Passes `duration_seconds` (default 0) to `VideoService.confirm_upload`
 
+### `MyVideosView` — `GET /videos/my-videos/`
+- `permission_classes = [IsAuthenticated, IsVendor]`
+- Returns all videos for the vendor's store, all statuses (pending_upload, processing, ready, failed, expired)
+- Optional `?status=` query param to filter to a single status
+- Returns empty `[]` if vendor has no store yet
+
+### `VideoUpdateView` — `PATCH /videos/<video_id>/update/`
+- `permission_classes = [IsAuthenticated, IsVendor]`
+- Partial update — only `title`, `description`, `is_visible` can be changed
+- Filters by `store=request.user.store` — vendor can only update their own videos
+- Uses `save(update_fields=...)` — only updates the fields that changed + `updated_at`
+- Returns full `VideoSerializer` response
+
 ### `VideoFeedView` — `GET /videos/feed/`
 - `permission_classes = [AllowAny]`
 - Requires `lat`, `lng` query params — 400 if missing/invalid
@@ -187,8 +200,9 @@ Celery Beat daily task. Calls `VideoService.expire_old_videos()`, logs count.
 
 ### `VideoDetailView` — `GET /videos/<video_id>/`
 - `permission_classes = [AllowAny]`
-- Filters: `status=ready AND is_visible=True` — anything else returns 404
-- Calls `VideoService.increment_view(video)` before serializing
+- Public: only shows `status=ready AND is_visible=True` — anything else is 404
+- Vendor (store owner): can see their own video at any status (pending, processing, failed) to check progress
+- Calls `VideoService.increment_view(video)` only when `status=ready`
 
 ### `VideoDeleteView` — `DELETE /videos/<video_id>/delete/`
 - `permission_classes = [IsAuthenticated, IsVendor]`
@@ -209,7 +223,7 @@ Celery Beat daily task. Calls `VideoService.expire_old_videos()`, logs count.
 
 ### Change max video duration
 `.env` → `VIDEO_MAX_DURATION_SECONDS=90`  (currently 60)
-Add server-side validation in `VideoConfirmUploadView` if enforcement is needed.
+`VideoConfirmUploadView` already enforces this — returns 400 if `duration_seconds` exceeds the limit.
 
 ### Change FFmpeg encoding quality
 `tasks.py` → `transcode_video` → change `-crf 23` (lower = better quality, larger file) or `-preset fast` to `medium`.
