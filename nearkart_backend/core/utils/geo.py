@@ -48,6 +48,41 @@ def get_nearby_stores(lat: float, lng: float,
     return result
 
 
+def get_nearby_products(lat: float, lng: float,
+                        radius_km: int = 2, category: str = None,
+                        limit: int = 50) -> list:
+    """
+    Find active, visible products from stores within radius.
+    Only returns products with at least one variant in stock.
+    """
+    from apps.products.models import Product
+    from core.utils.cache import CacheService
+
+    cache_key = CacheService.nearby_products_key(lat, lng, radius_km, category or 'all')
+    cached = CacheService.get(cache_key)
+    if cached is not None:
+        return cached
+
+    user_point = build_point(lat, lng)
+    qs = Product.objects.filter(
+        status='active',
+        is_visible=True,
+        store__is_active=True,
+        store__is_verified=True,
+        store__location__dwithin=(user_point, D(km=radius_km)),
+        variants__stock_quantity__gt=0,
+    ).annotate(
+        distance=Distance('store__location', user_point)
+    ).order_by('distance').distinct()
+
+    if category:
+        qs = qs.filter(category=category)
+
+    result = list(qs[:limit])
+    CacheService.set(cache_key, result, timeout=CacheService.TTL_PRODUCT_SEARCH)
+    return result
+
+
 def reverse_geocode(lat: float, lng: float) -> str:
     """
     Convert lat/lng to locality name using Google Maps Geocoding API.

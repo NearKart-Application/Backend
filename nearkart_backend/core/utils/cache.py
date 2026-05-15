@@ -37,6 +37,12 @@ class CacheService:
     def store_detail_key(store_id: str) -> str:
         return f'store:detail:{store_id}'
 
+    @staticmethod
+    def nearby_products_key(lat: float, lng: float,
+                            radius: int, category: str = 'all') -> str:
+        raw = f'products:nearby:{round(lat,3)}:{round(lng,3)}:{radius}:{category}'
+        return hashlib.md5(raw.encode()).hexdigest()
+
     # ── GET / SET ─────────────────────────────────────────────
     @staticmethod
     def get(key: str):
