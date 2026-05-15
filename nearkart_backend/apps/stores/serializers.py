@@ -2,6 +2,7 @@
 NearKart — Store Serializers
 """
 from rest_framework import serializers
+from drf_spectacular.utils import extend_schema_field
 from .models import Store, StoreHours, StoreFollow, StoreReview
 
 
@@ -39,15 +40,19 @@ class StoreSerializer(serializers.ModelSerializer):
             'qr_code_url', 'locality', 'created_at',
         ]
 
+    @extend_schema_field(serializers.FloatField(allow_null=True))
     def get_lat(self, obj):
         return obj.location.y if obj.location else None
 
+    @extend_schema_field(serializers.FloatField(allow_null=True))
     def get_lng(self, obj):
         return obj.location.x if obj.location else None
 
+    @extend_schema_field(serializers.IntegerField())
     def get_follower_count(self, obj):
         return obj.followers.count()
 
+    @extend_schema_field(serializers.FloatField(allow_null=True))
     def get_distance_km(self, obj):
         if hasattr(obj, 'distance') and obj.distance:
             return round(obj.distance.km, 2)
@@ -68,12 +73,15 @@ class StoreListSerializer(serializers.ModelSerializer):
             'performance_score', 'lat', 'lng', 'distance_km',
         ]
 
+    @extend_schema_field(serializers.FloatField(allow_null=True))
     def get_lat(self, obj):
         return obj.location.y if obj.location else None
 
+    @extend_schema_field(serializers.FloatField(allow_null=True))
     def get_lng(self, obj):
         return obj.location.x if obj.location else None
 
+    @extend_schema_field(serializers.FloatField(allow_null=True))
     def get_distance_km(self, obj):
         if hasattr(obj, 'distance') and obj.distance:
             return round(obj.distance.km, 2)

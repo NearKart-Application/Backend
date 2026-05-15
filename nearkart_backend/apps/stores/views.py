@@ -119,6 +119,7 @@ class StoreFollowView(APIView):
     @extend_schema(
         tags=[_TAG],
         summary='Follow / unfollow store',
+        request=None,
         responses={200: OpenApiResponse(
             response=inline_serializer('FollowResponse', fields={
                 'followed': s.BooleanField(),

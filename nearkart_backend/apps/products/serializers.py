@@ -2,6 +2,7 @@
 NearKart — Product Serializers
 """
 from rest_framework import serializers
+from drf_spectacular.utils import extend_schema_field
 from .models import Product, ProductVariant, ProductImage, Wishlist
 
 
@@ -39,11 +40,13 @@ class ProductSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['id', 'store_id', 'store_name', 'created_at', 'last_updated_at']
 
+    @extend_schema_field(serializers.FloatField(allow_null=True))
     def get_distance_km(self, obj):
         if hasattr(obj, 'distance') and obj.distance:
             return round(obj.distance.km, 2)
         return None
 
+    @extend_schema_field(serializers.BooleanField())
     def get_is_wishlisted(self, obj):
         request = self.context.get('request')
         if request and request.user.is_authenticated:
@@ -77,15 +80,18 @@ class ProductListSerializer(serializers.ModelSerializer):
             'distance_km', 'status',
         ]
 
+    @extend_schema_field(serializers.URLField(allow_null=True))
     def get_primary_image(self, obj):
         img = obj.images.filter(is_primary=True).first() or obj.images.first()
         return img.image_url if img else None
 
+    @extend_schema_field(serializers.FloatField(allow_null=True))
     def get_distance_km(self, obj):
         if hasattr(obj, 'distance') and obj.distance:
             return round(obj.distance.km, 2)
         return None
 
+    @extend_schema_field(serializers.CharField())
     def get_min_price(self, obj):
         variant = obj.variants.order_by('price').first()
         return str(variant.price) if variant else str(obj.base_price)

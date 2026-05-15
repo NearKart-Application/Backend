@@ -151,6 +151,7 @@ class ProductWishlistView(APIView):
     @extend_schema(
         tags=[_TAG],
         summary='Add / remove product from wishlist',
+        request=None,
         responses={200: OpenApiResponse(
             response=inline_serializer('WishlistResponse', fields={
                 'wishlisted': s.BooleanField(),
