@@ -9,6 +9,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, IsAdminUser
 from drf_spectacular.utils import extend_schema, OpenApiParameter
+from drf_spectacular.types import OpenApiTypes
 
 from apps.stores.models import Store
 from apps.auth_app.models import User
@@ -28,6 +29,7 @@ class PlatformStatsView(APIView):
         summary='Platform Statistics',
         description='Returns aggregated platform metrics. Staff access only.',
         tags=['Admin Panel'],
+        responses={200: OpenApiTypes.OBJECT},
     )
     def get(self, request):
         user_counts = User.objects.aggregate(
@@ -104,6 +106,7 @@ class AdminStoreListView(APIView):
             OpenApiParameter('is_verified', bool, description='Filter by verified status'),
             OpenApiParameter('category',    str,  description='Filter by category slug'),
         ],
+        responses={200: AdminStoreSerializer(many=True)},
     )
     def get(self, request):
         qs = Store.objects.select_related('owner').order_by('-created_at')
@@ -139,6 +142,7 @@ class AdminStoreUpdateView(APIView):
         description='Update is_verified, is_active, or is_open for any store. Staff access only.',
         tags=['Admin Panel'],
         request=AdminStoreUpdateSerializer,
+        responses={200: AdminStoreSerializer},
     )
     def patch(self, request, store_id):
         try:
@@ -168,6 +172,7 @@ class AdminUserListView(APIView):
             OpenApiParameter('role',      str,  description='Filter by role: vendor, customer, admin'),
             OpenApiParameter('is_active', bool, description='Filter by active status'),
         ],
+        responses={200: AdminUserSerializer(many=True)},
     )
     def get(self, request):
         qs = User.objects.order_by('-created_at')
@@ -198,6 +203,8 @@ class AdminUserToggleActiveView(APIView):
         summary='Toggle User Active (Admin)',
         description='Flips is_active on a user account. Cannot disable your own account.',
         tags=['Admin Panel'],
+        request=None,
+        responses={200: OpenApiTypes.OBJECT},
     )
     def post(self, request, user_id):
         try:

@@ -2,6 +2,7 @@
 NearKart — Admin Panel Serializers
 """
 from rest_framework import serializers
+from drf_spectacular.utils import extend_schema_field
 
 from apps.stores.models import Store
 from apps.auth_app.models import User
@@ -29,9 +30,11 @@ class AdminStoreSerializer(serializers.ModelSerializer):
             'wallet_balance', 'performance_score', 'created_at',
         ]
 
+    @extend_schema_field(serializers.IntegerField())
     def get_product_count(self, obj):
         return obj.products.count()
 
+    @extend_schema_field(serializers.IntegerField())
     def get_video_count(self, obj):
         return obj.videos.count()
 
@@ -54,6 +57,7 @@ class AdminUserSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = fields
 
+    @extend_schema_field(serializers.CharField(allow_null=True))
     def get_store_name(self, obj):
         if obj.role == 'vendor':
             try:

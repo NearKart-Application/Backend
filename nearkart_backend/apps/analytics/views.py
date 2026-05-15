@@ -10,6 +10,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from drf_spectacular.utils import extend_schema, OpenApiParameter
+from drf_spectacular.types import OpenApiTypes
 
 from core.permissions import IsVendor
 from apps.videos.models import Video
@@ -28,6 +29,7 @@ class VendorDashboardView(APIView):
         summary='Vendor Dashboard',
         description='Returns a full performance summary for the authenticated vendor\'s store.',
         tags=['Analytics'],
+        responses={200: OpenApiTypes.OBJECT},
     )
     def get(self, request):
         try:
@@ -120,6 +122,7 @@ class VendorVideoStatsView(APIView):
         summary='Vendor Video Stats',
         description='Returns all vendor videos with view and like counts, ordered by most views.',
         tags=['Analytics'],
+        responses={200: VideoStatSerializer(many=True)},
     )
     def get(self, request):
         try:
@@ -139,6 +142,7 @@ class VendorProductStatsView(APIView):
         summary='Vendor Product Stats',
         description='Returns all vendor products with wishlist counts, ordered by most wishlisted.',
         tags=['Analytics'],
+        responses={200: ProductStatSerializer(many=True)},
     )
     def get(self, request):
         try:

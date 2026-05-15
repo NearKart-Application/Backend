@@ -212,6 +212,7 @@ class ReservationCancelView(APIView):
         tags=[_TAG],
         summary='Cancel reservation (customer)',
         description='Customer can cancel only their own pending reservation.',
+        request=None,
         responses={200: ReservationSerializer},
     )
     def post(self, request, reservation_id):
