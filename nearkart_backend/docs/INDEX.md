@@ -20,6 +20,7 @@
 | S4 — Video | [sprint_4_video/](sprint_4_video/README.md) | Done ✅ | [TESTING_CHECKLIST.md](sprint_4_video/TESTING_CHECKLIST.md) |
 | S5 — Chat | [sprint_5_chat/](sprint_5_chat/README.md) | Done ✅ | [TESTING_CHECKLIST.md](sprint_5_chat/TESTING_CHECKLIST.md) |
 | S6 — Blacklist | [sprint_6_blacklist/](sprint_6_blacklist/README.md) | Done ✅ | [TESTING_CHECKLIST.md](sprint_6_blacklist/TESTING_CHECKLIST.md) |
+| S7 — Billing + Wallet | [sprint_7_billing/](sprint_7_billing/README.md) | Done ✅ | [TESTING_CHECKLIST.md](sprint_7_billing/TESTING_CHECKLIST.md) |
 
 ---
 

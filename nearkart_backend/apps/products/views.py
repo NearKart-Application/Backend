@@ -17,6 +17,7 @@ from drf_spectacular.utils import extend_schema, OpenApiExample, OpenApiParamete
 import rest_framework.serializers as s
 
 from core.permissions import IsVendor, IsStoreOwner
+from apps.billing.services import BillingService
 from .models import Product
 from .serializers import ProductSerializer, ProductListSerializer
 from .services import ProductService
@@ -148,6 +149,12 @@ class ProductCreateView(APIView):
             return Response(
                 {'error': 'validation_error', 'message': 'Create a store first before adding products.'},
                 status=status.HTTP_400_BAD_REQUEST,
+            )
+        allowed, msg = BillingService.check_product_limit(request.user.store)
+        if not allowed:
+            return Response(
+                {'error': 'plan_limit_reached', 'message': msg},
+                status=status.HTTP_403_FORBIDDEN,
             )
         serializer = ProductSerializer(data=request.data, context={'request': request})
         serializer.is_valid(raise_exception=True)

@@ -23,6 +23,7 @@ from rest_framework.views import APIView
 import rest_framework.serializers as s
 
 from core.permissions import IsVendor
+from apps.billing.services import BillingService
 from .models import Video
 from .serializers import VideoSerializer, VideoUploadRequestSerializer
 from .services import VideoService
@@ -70,6 +71,12 @@ class VideoUploadRequestView(APIView):
             return Response(
                 {'error': 'validation_error', 'message': 'Create a store first before uploading videos.'},
                 status=status.HTTP_400_BAD_REQUEST,
+            )
+        allowed, msg = BillingService.check_video_limit(request.user.store)
+        if not allowed:
+            return Response(
+                {'error': 'plan_limit_reached', 'message': msg},
+                status=status.HTTP_403_FORBIDDEN,
             )
         serializer = VideoUploadRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)

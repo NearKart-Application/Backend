@@ -151,6 +151,15 @@ CELERY_TASK_TRACK_STARTED = True
 CELERY_TASK_TIME_LIMIT = 600
 CELERY_WORKER_PREFETCH_MULTIPLIER = 1
 
+# ── CELERY BEAT SCHEDULE ───────────────────────────────────────
+from celery.schedules import crontab
+CELERY_BEAT_SCHEDULE = {
+    'expire-subscriptions-daily': {
+        'task':     'billing.expire_subscriptions',
+        'schedule': crontab(hour=0, minute=0),  # midnight IST daily
+    },
+}
+
 # ── AUTH ───────────────────────────────────────────────────────
 AUTH_USER_MODEL = 'auth_app.User'
 
