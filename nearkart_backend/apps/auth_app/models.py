@@ -3,12 +3,20 @@ NearKart — Auth Models
 User, OTPToken, DeviceToken
 """
 import hashlib
+import random
+import string
 import uuid
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
 from django.contrib.gis.db import models as gis_models
 from django.db import models
 from django.utils import timezone
 from datetime import timedelta
+
+
+def _generate_profile_id() -> str:
+    chars = string.ascii_uppercase + string.digits
+    suffix = ''.join(random.choices(chars, k=8))
+    return f'NK-{suffix}'
 
 from core.models import BaseModel
 
@@ -23,6 +31,12 @@ class UserManager(BaseUserManager):
     def create_user(self, phone_number, role=UserRole.CUSTOMER, **extra_fields):
         if not phone_number:
             raise ValueError('Phone number is required')
+        if not extra_fields.get('profile_id'):
+            while True:
+                pid = _generate_profile_id()
+                if not self.model.objects.filter(profile_id=pid).exists():
+                    extra_fields['profile_id'] = pid
+                    break
         user = self.model(phone_number=phone_number, role=role, **extra_fields)
         user.set_unusable_password()
         user.save(using=self._db)
@@ -37,9 +51,10 @@ class UserManager(BaseUserManager):
 
 class User(AbstractBaseUser, PermissionsMixin, BaseModel):
     phone_number = models.CharField(max_length=15, unique=True, db_index=True)
-    role = models.CharField(max_length=10, choices=UserRole.choices, default=UserRole.CUSTOMER)
-    full_name = models.CharField(max_length=150, blank=True)
-    email = models.EmailField(blank=True)
+    profile_id   = models.CharField(max_length=12, unique=True, db_index=True, blank=True, default='')
+    role         = models.CharField(max_length=10, choices=UserRole.choices, default=UserRole.CUSTOMER)
+    full_name    = models.CharField(max_length=150, blank=True)
+    email        = models.EmailField(blank=True)
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
     registered_location = gis_models.PointField(

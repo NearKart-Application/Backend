@@ -5,6 +5,7 @@ from rest_framework import serializers
 from drf_spectacular.utils import extend_schema_field
 
 from apps.products.models import Product
+from core.validators import validate_no_external_links
 from .models import Group, GroupMember, GroupSharedProduct, GroupType
 
 
@@ -20,18 +21,18 @@ class GroupCreateSerializer(serializers.Serializer):
 
 
 class GroupMemberSerializer(serializers.ModelSerializer):
-    user_id      = serializers.UUIDField(source='user.id', read_only=True)
-    phone_number = serializers.CharField(source='user.phone_number', read_only=True)
-    full_name    = serializers.CharField(source='user.full_name', read_only=True)
+    user_id    = serializers.UUIDField(source='user.id',         read_only=True)
+    profile_id = serializers.CharField(source='user.profile_id', read_only=True)
+    full_name  = serializers.CharField(source='user.full_name',  read_only=True)
 
     class Meta:
         model  = GroupMember
-        fields = ['id', 'user_id', 'phone_number', 'full_name', 'role', 'created_at']
+        fields = ['id', 'user_id', 'profile_id', 'full_name', 'role', 'created_at']
 
 
 class GroupSerializer(serializers.ModelSerializer):
-    created_by_name  = serializers.CharField(source='created_by.full_name', read_only=True)
-    created_by_phone = serializers.CharField(source='created_by.phone_number', read_only=True)
+    created_by_name  = serializers.CharField(source='created_by.full_name',   read_only=True)
+    created_by_profile_id = serializers.CharField(source='created_by.profile_id', read_only=True)
     store_name       = serializers.SerializerMethodField()
     member_count     = serializers.SerializerMethodField()
 
@@ -39,7 +40,7 @@ class GroupSerializer(serializers.ModelSerializer):
         model  = Group
         fields = [
             'id', 'name', 'group_type', 'is_active',
-            'created_by_name', 'created_by_phone',
+            'created_by_name', 'created_by_profile_id',
             'store_name', 'member_count', 'created_at',
         ]
 
@@ -60,24 +61,34 @@ class GroupDetailSerializer(GroupSerializer):
 
 
 class AddMemberSerializer(serializers.Serializer):
-    phone_number = serializers.CharField(max_length=15)
+    """
+    Customer groups: provide profile_id.
+    Vendor groups: provide user_id (UUID from eligible-members list).
+    """
+    profile_id = serializers.CharField(max_length=12, required=False, allow_blank=True)
+    user_id    = serializers.UUIDField(required=False)
+
+    def validate(self, attrs):
+        if not attrs.get('profile_id') and not attrs.get('user_id'):
+            raise serializers.ValidationError('Provide either profile_id or user_id.')
+        return attrs
 
 
 class SharedProductSerializer(serializers.ModelSerializer):
-    product_id    = serializers.UUIDField(source='product.id', read_only=True)
-    product_name  = serializers.CharField(source='product.name', read_only=True)
+    product_id    = serializers.UUIDField(source='product.id',         read_only=True)
+    product_name  = serializers.CharField(source='product.name',       read_only=True)
     product_price = serializers.DecimalField(source='product.base_price', max_digits=10, decimal_places=2, read_only=True)
     store_name    = serializers.CharField(source='product.store.name', read_only=True)
-    shared_by_name  = serializers.CharField(source='shared_by.full_name', read_only=True)
-    shared_by_phone = serializers.CharField(source='shared_by.phone_number', read_only=True)
-    finalized_by_name = serializers.SerializerMethodField()
+    shared_by_name       = serializers.CharField(source='shared_by.full_name',   read_only=True)
+    shared_by_profile_id = serializers.CharField(source='shared_by.profile_id',  read_only=True)
+    finalized_by_name    = serializers.SerializerMethodField()
 
     class Meta:
         model  = GroupSharedProduct
         fields = [
             'id', 'product_id', 'product_name', 'product_price', 'store_name',
             'note', 'is_finalized', 'finalized_by_name',
-            'shared_by_name', 'shared_by_phone', 'created_at',
+            'shared_by_name', 'shared_by_profile_id', 'created_at',
         ]
 
     @extend_schema_field(serializers.CharField(allow_null=True))
@@ -93,3 +104,13 @@ class ShareProductSerializer(serializers.Serializer):
         if not Product.objects.filter(id=value, status='active', is_visible=True).exists():
             raise serializers.ValidationError('Product not found or not available.')
         return value
+
+    def validate_note(self, value):
+        return validate_no_external_links(value)
+
+
+class EligibleMemberSerializer(serializers.Serializer):
+    """Follower who is not yet in the group — shown in vendor eligible-members list."""
+    user_id    = serializers.UUIDField()
+    profile_id = serializers.CharField()
+    full_name  = serializers.CharField()

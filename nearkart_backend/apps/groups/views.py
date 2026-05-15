@@ -7,7 +7,7 @@ import logging
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
-from drf_spectacular.utils import extend_schema, OpenApiExample
+from drf_spectacular.utils import extend_schema, OpenApiExample, OpenApiParameter
 from drf_spectacular.types import OpenApiTypes
 
 from apps.auth_app.models import User
@@ -21,6 +21,7 @@ from .serializers import (
     AddMemberSerializer,
     ShareProductSerializer,
     SharedProductSerializer,
+    EligibleMemberSerializer,
 )
 
 logger = logging.getLogger(__name__)
@@ -28,7 +29,6 @@ _TAG = 'Groups'
 
 
 class GroupCreateListView(APIView):
-    """POST /groups/ — create | GET /groups/ — list my groups."""
     permission_classes = [IsAuthenticated]
 
     @extend_schema(
@@ -52,7 +52,6 @@ class GroupCreateListView(APIView):
 
         group_type = ser.validated_data['group_type']
         store = None
-
         if group_type == GroupType.VENDOR:
             try:
                 store = request.user.store
@@ -79,7 +78,6 @@ class GroupCreateListView(APIView):
 
 
 class GroupDetailView(APIView):
-    """GET /groups/<id>/ — detail with members | DELETE — delete group."""
     permission_classes = [IsAuthenticated]
 
     def _get_group(self, group_id, user):
@@ -106,7 +104,7 @@ class GroupDetailView(APIView):
     @extend_schema(
         tags=[_TAG],
         summary='Delete group',
-        description='Permanently deactivates the group. Only the group creator (admin) can do this.',
+        description='Permanently deactivates the group. Only the group creator can do this.',
         request=None,
         responses={200: OpenApiTypes.OBJECT},
     )
@@ -114,31 +112,30 @@ class GroupDetailView(APIView):
         group = self._get_group(group_id, request.user)
         if not group:
             return Response({'error': 'not_found', 'message': 'Group not found.'}, status=404)
-
         if group.created_by_id != request.user.id:
             return Response({'error': 'forbidden', 'message': 'Only the group creator can delete the group.'}, status=403)
-
         group.is_active = False
         group.save(update_fields=['is_active', 'updated_at'])
         return Response({'message': 'Group deleted.'})
 
 
 class GroupAddMemberView(APIView):
-    """POST /groups/<id>/members/add/ — add a member by phone number."""
     permission_classes = [IsAuthenticated]
 
     @extend_schema(
         tags=[_TAG],
         summary='Add member',
         description=(
-            'Admin adds a member by phone number. '
-            'For vendor groups, the user must follow the store. '
-            'For customer groups, the user just needs a NearKart account.'
+            'Admin adds a member. '
+            '**Customer groups:** provide `profile_id` (e.g. NK-A3X9K2). '
+            '**Vendor groups:** provide `user_id` (UUID from eligible-members list). '
+            'For vendor groups, the user must follow the store.'
         ),
         request=AddMemberSerializer,
         responses={201: OpenApiTypes.OBJECT},
         examples=[
-            OpenApiExample('Add friend', value={'phone_number': '+919876543210'}, request_only=True),
+            OpenApiExample('By Profile ID (customer group)', value={'profile_id': 'NK-A3X9K2'}, request_only=True),
+            OpenApiExample('By User ID (vendor group)',      value={'user_id': '{{user_id}}'},    request_only=True),
         ],
     )
     def post(self, request, group_id):
@@ -154,10 +151,19 @@ class GroupAddMemberView(APIView):
         if not ser.is_valid():
             return Response(ser.errors, status=400)
 
-        try:
-            user_to_add = User.objects.get(phone_number=ser.validated_data['phone_number'], is_active=True)
-        except User.DoesNotExist:
-            return Response({'error': 'not_found', 'message': 'No active user found with this phone number.'}, status=404)
+        # Resolve user — by profile_id for customer groups, by user_id for vendor groups
+        user_to_add = None
+        if ser.validated_data.get('profile_id'):
+            pid = ser.validated_data['profile_id'].strip().upper()
+            try:
+                user_to_add = User.objects.get(profile_id=pid, is_active=True)
+            except User.DoesNotExist:
+                return Response({'error': 'not_found', 'message': 'No user found with this Profile ID.'}, status=404)
+        else:
+            try:
+                user_to_add = User.objects.get(id=ser.validated_data['user_id'], is_active=True)
+            except User.DoesNotExist:
+                return Response({'error': 'not_found', 'message': 'User not found.'}, status=404)
 
         try:
             GroupService.add_member(group, user_to_add)
@@ -167,11 +173,10 @@ class GroupAddMemberView(APIView):
             return Response({'error': 'already_member', 'message': str(e)}, status=400)
 
         logger.info(f'[groups] user {user_to_add.id} added to group {group.id} by {request.user.id}')
-        return Response({'message': f'{user_to_add.full_name or user_to_add.phone_number} added to group.'}, status=201)
+        return Response({'message': f'{user_to_add.full_name or user_to_add.profile_id} added to group.'}, status=201)
 
 
 class GroupRemoveMemberView(APIView):
-    """DELETE /groups/<id>/members/<user_id>/remove/ — admin removes a member."""
     permission_classes = [IsAuthenticated]
 
     @extend_schema(
@@ -204,7 +209,6 @@ class GroupRemoveMemberView(APIView):
 
 
 class GroupLeaveView(APIView):
-    """POST /groups/<id>/leave/ — member leaves the group."""
     permission_classes = [IsAuthenticated]
 
     @extend_schema(
@@ -228,8 +232,99 @@ class GroupLeaveView(APIView):
         return Response({'message': 'You have left the group.'})
 
 
+class GroupMakeAdminView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        tags=[_TAG],
+        summary='Make member an admin',
+        description='Any admin can promote another member to admin. Groups can have multiple admins.',
+        request=None,
+        responses={200: OpenApiTypes.OBJECT},
+    )
+    def post(self, request, group_id, user_id):
+        try:
+            group = Group.objects.get(id=group_id, is_active=True)
+        except Group.DoesNotExist:
+            return Response({'error': 'not_found', 'message': 'Group not found.'}, status=404)
+
+        if not GroupService.is_admin(group, request.user):
+            return Response({'error': 'forbidden', 'message': 'Only group admin can promote members.'}, status=403)
+
+        try:
+            user_to_promote = User.objects.get(id=user_id)
+        except User.DoesNotExist:
+            return Response({'error': 'not_found', 'message': 'User not found.'}, status=404)
+
+        try:
+            GroupService.make_admin(group, user_to_promote)
+        except (ValueError, PermissionError) as e:
+            return Response({'error': 'invalid', 'message': str(e)}, status=400)
+
+        return Response({'message': f'{user_to_promote.full_name or user_to_promote.profile_id} is now an admin.'})
+
+
+class GroupRemoveAdminView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        tags=[_TAG],
+        summary='Remove admin role',
+        description='Demote an admin back to member. Cannot demote the group creator.',
+        request=None,
+        responses={200: OpenApiTypes.OBJECT},
+    )
+    def post(self, request, group_id, user_id):
+        try:
+            group = Group.objects.get(id=group_id, is_active=True)
+        except Group.DoesNotExist:
+            return Response({'error': 'not_found', 'message': 'Group not found.'}, status=404)
+
+        if not GroupService.is_admin(group, request.user):
+            return Response({'error': 'forbidden', 'message': 'Only group admin can demote admins.'}, status=403)
+
+        try:
+            user_to_demote = User.objects.get(id=user_id)
+        except User.DoesNotExist:
+            return Response({'error': 'not_found', 'message': 'User not found.'}, status=404)
+
+        try:
+            GroupService.remove_admin(group, user_to_demote)
+        except (ValueError, PermissionError) as e:
+            return Response({'error': 'invalid', 'message': str(e)}, status=400)
+
+        return Response({'message': f'{user_to_demote.full_name or user_to_demote.profile_id} is no longer an admin.'})
+
+
+class GroupEligibleMembersView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        tags=[_TAG],
+        summary='Eligible members (vendor groups)',
+        description=(
+            'Returns store followers who are not yet in the group. '
+            'Only available for vendor groups. Use the returned user_id to add members.'
+        ),
+        responses={200: EligibleMemberSerializer(many=True)},
+    )
+    def get(self, request, group_id):
+        try:
+            group = Group.objects.select_related('store').get(id=group_id, is_active=True)
+        except Group.DoesNotExist:
+            return Response({'error': 'not_found', 'message': 'Group not found.'}, status=404)
+
+        if not GroupService.is_admin(group, request.user):
+            return Response({'error': 'forbidden', 'message': 'Only group admin can view eligible members.'}, status=403)
+
+        if group.group_type != GroupType.VENDOR:
+            return Response({'error': 'invalid', 'message': 'Eligible members only available for vendor groups.'}, status=400)
+
+        eligible = GroupService.get_eligible_members(group)
+        return Response(EligibleMemberSerializer(eligible, many=True).data)
+
+
 class GroupProductListView(APIView):
-    """GET /groups/<id>/products/ | POST — share a product."""
     permission_classes = [IsAuthenticated]
 
     def _get_group(self, group_id, user):
@@ -251,14 +346,16 @@ class GroupProductListView(APIView):
         group = self._get_group(group_id, request.user)
         if not group:
             return Response({'error': 'not_found', 'message': 'Group not found.'}, status=404)
-
         shared = GroupService.get_shared_products(group)
         return Response(SharedProductSerializer(shared, many=True).data)
 
     @extend_schema(
         tags=[_TAG],
         summary='Share a product',
-        description='Any group member can share a product by product_id. The product must be active.',
+        description=(
+            'Any group member can share a product. '
+            'The note must not contain external links — only NearKart app links are allowed.'
+        ),
         request=ShareProductSerializer,
         responses={201: SharedProductSerializer},
         examples=[
@@ -289,13 +386,12 @@ class GroupProductListView(APIView):
 
 
 class GroupFinalizeProductView(APIView):
-    """POST /groups/<id>/products/<sp_id>/finalize/ — admin finalizes a shared product."""
     permission_classes = [IsAuthenticated]
 
     @extend_schema(
         tags=[_TAG],
         summary='Finalize shared product',
-        description='Group admin marks a shared product as finalized (the group\'s final choice).',
+        description='Group admin marks a shared product as the group\'s final choice.',
         request=None,
         responses={200: SharedProductSerializer},
     )

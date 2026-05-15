@@ -23,6 +23,7 @@ from .serializers import (
     OTPSendSerializer,
     OTPVerifySerializer,
     UserSerializer,
+    UserSearchSerializer,
     LocationUpdateSerializer,
 )
 from .services import OTPService, JWTService
@@ -317,6 +318,34 @@ class LocationUpdateView(APIView):
             serializer.validated_data['longitude'],
         )
         return Response({'message': 'Location updated'}, status=status.HTTP_200_OK)
+
+
+class UserSearchView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        tags=[_TAG],
+        summary='Search user by Profile ID',
+        description=(
+            'Search for a NearKart user by their Profile ID (e.g. NK-A3X9K2). '
+            'Returns name and profile_id only — phone number is never exposed. '
+            'Used to find a friend before adding them to a group.'
+        ),
+        responses={
+            200: UserSearchSerializer,
+            404: OpenApiResponse(description='No user found with this Profile ID'),
+        },
+    )
+    def get(self, request):
+        profile_id = request.query_params.get('profile_id', '').strip().upper()
+        if not profile_id:
+            return Response({'error': 'missing_param', 'message': 'profile_id query param is required.'}, status=400)
+        try:
+            from .models import User
+            user = User.objects.get(profile_id=profile_id, is_active=True)
+        except User.DoesNotExist:
+            return Response({'error': 'not_found', 'message': 'No user found with this Profile ID.'}, status=404)
+        return Response(UserSearchSerializer(user).data)
 
 
 class LogoutView(APIView):

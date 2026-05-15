@@ -34,8 +34,16 @@ class OTPVerifySerializer(serializers.Serializer):
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ['id', 'phone_number', 'role', 'full_name', 'email', 'created_at']
-        read_only_fields = ['id', 'phone_number', 'role', 'created_at']
+        fields = ['id', 'profile_id', 'phone_number', 'role', 'full_name', 'email', 'created_at']
+        read_only_fields = ['id', 'profile_id', 'phone_number', 'role', 'created_at']
+
+
+class UserSearchSerializer(serializers.ModelSerializer):
+    """Public search result — exposes name and profile_id only. No phone number."""
+    class Meta:
+        model = User
+        fields = ['id', 'profile_id', 'full_name']
+        read_only_fields = fields
 
 
 class LocationUpdateSerializer(serializers.Serializer):
