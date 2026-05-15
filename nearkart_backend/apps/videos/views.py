@@ -2,8 +2,10 @@
 NearKart — Video Views
 POST /api/v1/videos/request-upload/
 POST /api/v1/videos/<id>/confirm-upload/
+GET  /api/v1/videos/my-videos/
 GET  /api/v1/videos/feed/
 GET  /api/v1/videos/<id>/
+PATCH /api/v1/videos/<id>/
 DELETE /api/v1/videos/<id>/delete/
 POST /api/v1/videos/<id>/like/
 """
@@ -132,13 +134,92 @@ class VideoConfirmUploadView(APIView):
                 {'error': 'invalid_state', 'message': f'Video is already in "{video.status}" state.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        duration = int(request.data.get('duration_seconds', 0))
+        max_duration = getattr(settings, 'VIDEO_MAX_DURATION_SECONDS', 60)
+        try:
+            duration = int(request.data.get('duration_seconds', 0))
+        except (TypeError, ValueError):
+            duration = 0
+        if duration > max_duration:
+            return Response(
+                {'error': 'validation_error',
+                 'message': f'duration_seconds cannot exceed {max_duration} seconds.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         video = VideoService.confirm_upload(video, duration_seconds=duration)
         return Response({
             'video_id': video.id,
             'status':   video.status,
             'message':  'Transcoding queued. Check GET /videos/<id>/ for status updates.',
         })
+
+
+class MyVideosView(APIView):
+    permission_classes = [IsAuthenticated, IsVendor]
+
+    @extend_schema(
+        tags=[_TAG],
+        summary='List all my videos — all statuses (vendor only)',
+        description=(
+            'Returns all videos for the vendor\'s store, including `pending_upload`, '
+            '`processing`, `failed`, `ready`, and `expired`.\n\n'
+            'Use this to check transcoding status after confirm-upload, '
+            'or to manage your full video library.'
+        ),
+        parameters=[
+            OpenApiParameter('status', str,
+                description='Filter by status: pending_upload | processing | ready | failed | expired',
+                required=False),
+        ],
+        responses={200: VideoSerializer(many=True)},
+    )
+    def get(self, request):
+        if not hasattr(request.user, 'store'):
+            return Response([], status=status.HTTP_200_OK)
+        qs = Video.objects.filter(store=request.user.store).order_by('-created_at')
+        status_filter = request.query_params.get('status')
+        if status_filter:
+            qs = qs.filter(status=status_filter)
+        return Response(VideoSerializer(qs, many=True, context={'request': request}).data)
+
+
+class VideoUpdateView(APIView):
+    permission_classes = [IsAuthenticated, IsVendor]
+
+    @extend_schema(
+        tags=[_TAG],
+        summary='Update video title / description / visibility (vendor only)',
+        description='Partial update — send only the fields you want to change.',
+        request=inline_serializer('VideoUpdateRequest', fields={
+            'title':       s.CharField(required=False, max_length=200),
+            'description': s.CharField(required=False, allow_blank=True),
+            'is_visible':  s.BooleanField(required=False),
+        }),
+        responses={200: VideoSerializer},
+        examples=[
+            OpenApiExample('Update title and visibility', request_only=True, value={
+                'title': 'Revised Summer Collection',
+                'is_visible': False,
+            }),
+        ],
+    )
+    def patch(self, request, video_id):
+        try:
+            video = Video.objects.get(id=video_id, store=request.user.store)
+        except Video.DoesNotExist:
+            return Response(
+                {'error': 'not_found', 'message': 'Video not found.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        allowed = {'title', 'description', 'is_visible'}
+        update_fields = []
+        for field in allowed:
+            if field in request.data:
+                setattr(video, field, request.data[field])
+                update_fields.append(field)
+        if update_fields:
+            update_fields.append('updated_at')
+            video.save(update_fields=update_fields)
+        return Response(VideoSerializer(video, context={'request': request}).data)
 
 
 class VideoFeedView(APIView):
@@ -183,21 +264,35 @@ class VideoDetailView(APIView):
     @extend_schema(
         tags=[_TAG],
         summary='Get video detail + increment view count (public)',
-        description='Returns full video detail. Increments view_count by 1 on each call.',
+        description=(
+            'Returns full video detail. Increments view_count by 1 on each call.\n\n'
+            'Public users only see `ready` + `is_visible=true` videos.\n\n'
+            'The store owner (vendor) can see their own video at any status '
+            '(pending_upload, processing, failed, etc.) to check transcoding progress.'
+        ),
         responses={200: VideoSerializer},
         auth=[],
     )
     def get(self, request, video_id):
         try:
-            video = Video.objects.select_related('store').get(
-                id=video_id, status=Video.STATUS_READY, is_visible=True,
-            )
+            video = Video.objects.select_related('store').get(id=video_id)
         except Video.DoesNotExist:
             return Response(
                 {'error': 'not_found', 'message': 'Video not found.'},
                 status=status.HTTP_404_NOT_FOUND,
             )
-        VideoService.increment_view(video)
+        is_owner = (
+            request.user.is_authenticated
+            and hasattr(request.user, 'store')
+            and video.store_id == request.user.store.id
+        )
+        if not is_owner and (video.status != Video.STATUS_READY or not video.is_visible):
+            return Response(
+                {'error': 'not_found', 'message': 'Video not found.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        if video.status == Video.STATUS_READY:
+            VideoService.increment_view(video)
         return Response(VideoSerializer(video, context={'request': request}).data)
 
 
