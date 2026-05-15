@@ -60,16 +60,16 @@ built in later sprints. Right now you can only test via:
 
 | Sprint | Module | Status | Folder |
 |--------|--------|--------|--------|
-| S0 | Environment Setup | Done | `docs/sprint_0_environment/` |
-| S1 | Django Foundation | Done | `docs/sprint_1_django_foundation/` |
-| S2 | Auth Module | Done | `docs/sprint_2_auth_module/` |
-| S3 | Store + Product | Not started | `docs/sprint_3_store_product/` |
-| S4 | Video Module | Not started | `docs/sprint_4_video/` |
-| S5 | Chat (WebSocket) | Not started | `docs/sprint_5_chat/` |
-| S6 | Blacklist Engine | Not started | `docs/sprint_6_blacklist/` |
-| S7 | Billing + Wallet | Not started | `docs/sprint_7_billing/` |
-| S8 | Analytics + Admin | Not started | `docs/sprint_8_analytics/` |
-| S9 | Customer Mobile App | Not started | `docs/sprint_9_customer_app/` |
-| S10 | Vendor Mobile App | Not started | `docs/sprint_10_vendor_app/` |
-| S11 | Vendor Web Dashboard | Not started | `docs/sprint_11_web_dashboard/` |
+| S0 | Environment Setup | Done ✅ | `docs/sprint_0_environment/` |
+| S1 | Django Foundation | Done ✅ | `docs/sprint_1_django_foundation/` |
+| S2 | Auth Module | Done ✅ | `docs/sprint_2_auth_module/` |
+| S3 | Store + Product | Done ✅ | `docs/sprint_3_store_product/` |
+| S4 | Video Module | Done ✅ | `docs/sprint_4_video/` |
+| S5 | Chat (WebSocket) | Done ✅ | `docs/sprint_5_chat/` |
+| S6 | Blacklist Engine | Done ✅ | `docs/sprint_6_blacklist/` |
+| S7 | Billing + Wallet | Done ✅ | `docs/sprint_7_billing/` |
+| S8 | Analytics + Admin | Done ✅ | `docs/sprint_8_analytics/` |
+| S9 | Reservations | Done ✅ | `docs/sprint_9_reservations/` |
+| S10 | Groups | Not started | `docs/sprint_10_groups/` |
+| S11 | Notifications | Not started | `docs/sprint_11_notifications/` |
 | S12 | Staging + Production | Not started | `docs/sprint_12_production/` |
