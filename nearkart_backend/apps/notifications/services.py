@@ -122,6 +122,15 @@ class NotificationService:
         )
 
     @staticmethod
+    def notify_video_expiring_soon(vendor, video_title: str, video_id: str, expires_at: str):
+        NotificationService.send(
+            vendor, NotificationType.VIDEO_EXPIRING_SOON,
+            title='Video Expiring in 2 Days',
+            body=f'Your video "{video_title}" will be deleted in 2 days. Download it now if you want to keep a copy.',
+            data={'video_id': video_id, 'expires_at': expires_at, 'action': 'download_prompt'},
+        )
+
+    @staticmethod
     def notify_wallet_topup(vendor, amount: str):
         NotificationService.send(
             vendor, NotificationType.WALLET_TOPUP,

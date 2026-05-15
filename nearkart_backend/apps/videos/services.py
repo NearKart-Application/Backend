@@ -54,6 +54,25 @@ class AWSService:
             return ''
 
     @staticmethod
+    def generate_presigned_download_url(s3_key: str, expiry_seconds: int = 3600) -> str:
+        """Presigned GET URL so vendor can download the original MP4 locally."""
+        if _is_dev_aws():
+            return f'https://mock-s3.dev/{s3_key}?download=true&dev=true'
+        try:
+            return AWSService._client().generate_presigned_url(
+                'get_object',
+                Params={
+                    'Bucket': settings.AWS_S3_BUCKET,
+                    'Key': s3_key,
+                    'ResponseContentDisposition': 'attachment',
+                },
+                ExpiresIn=expiry_seconds,
+            )
+        except ClientError as exc:
+            logger.error('S3 presigned download URL error: %s', exc)
+            return ''
+
+    @staticmethod
     def cdn_url(s3_key: str) -> str:
         if not s3_key:
             return ''

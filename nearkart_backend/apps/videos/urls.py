@@ -4,6 +4,7 @@ from .views import (
     VideoConfirmUploadView,
     VideoDeleteView,
     VideoDetailView,
+    VideoDownloadView,
     VideoFeedView,
     VideoLikeView,
     MyVideosView,
@@ -20,4 +21,5 @@ urlpatterns = [
     path('<uuid:video_id>/update/',         VideoUpdateView.as_view(),          name='video-update'),
     path('<uuid:video_id>/delete/',         VideoDeleteView.as_view(),          name='video-delete'),
     path('<uuid:video_id>/like/',           VideoLikeView.as_view(),            name='video-like'),
+    path('<uuid:video_id>/download/',       VideoDownloadView.as_view(),        name='video-download'),
 ]
