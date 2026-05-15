@@ -158,6 +158,10 @@ CELERY_BEAT_SCHEDULE = {
         'task':     'billing.expire_subscriptions',
         'schedule': crontab(hour=0, minute=0),  # midnight IST daily
     },
+    'expire-reservations-hourly': {
+        'task':     'reservations.expire_reservations',
+        'schedule': crontab(minute=0),           # top of every hour
+    },
 }
 
 # ── AUTH ───────────────────────────────────────────────────────

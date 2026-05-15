@@ -1,0 +1,232 @@
+"""
+NearKart — Reservation Views
+Customers create/cancel reservations. Vendors confirm/reject/complete them.
+"""
+import logging
+
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
+from drf_spectacular.utils import extend_schema, OpenApiExample
+
+from core.permissions import IsVendor
+from apps.stores.models import Store
+from apps.products.models import Product
+from apps.blacklist.services import BlacklistService
+from .models import Reservation, ReservationStatus
+from .services import ReservationService
+from .serializers import (
+    ReservationSerializer,
+    ReservationCreateSerializer,
+    ReservationStatusUpdateSerializer,
+)
+
+logger = logging.getLogger(__name__)
+_TAG = 'Reservations'
+
+
+class ReservationCreateView(APIView):
+    """POST /reservations/ — customer creates a reservation (hold for 2h)."""
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        tags=[_TAG],
+        summary='Create reservation',
+        description='Customer reserves a product at a store. Hold lasts 2 hours.',
+        request=ReservationCreateSerializer,
+        responses={201: ReservationSerializer},
+        examples=[
+            OpenApiExample(
+                'Reserve 2 kurtas',
+                value={
+                    'store_id':   '{{store_id}}',
+                    'product_id': '{{product_id}}',
+                    'quantity':   2,
+                    'note':       'Please keep ready by 6 PM',
+                },
+                request_only=True,
+            ),
+        ],
+    )
+    def post(self, request):
+        ser = ReservationCreateSerializer(data=request.data)
+        if not ser.is_valid():
+            return Response(ser.errors, status=400)
+
+        data = ser.validated_data
+
+        # Resolve store
+        try:
+            store = Store.objects.get(id=data['store_id'], is_active=True)
+        except Store.DoesNotExist:
+            return Response({'error': 'not_found', 'message': 'Store not found.'}, status=404)
+
+        # Resolve product (must belong to the store and be active)
+        try:
+            product = Product.objects.get(
+                id=data['product_id'], store=store, status='active', is_visible=True
+            )
+        except Product.DoesNotExist:
+            return Response({'error': 'not_found', 'message': 'Product not found or not available.'}, status=404)
+
+        # Blacklist check — blocked customers cannot reserve
+        if request.user.role == 'customer' and BlacklistService.is_blocked(store, request.user):
+            return Response({'error': 'blacklisted', 'message': 'You cannot reserve from this store.'}, status=403)
+
+        reservation = ReservationService.create(
+            customer=request.user,
+            store=store,
+            product=product,
+            quantity=data['quantity'],
+            note=data.get('note', ''),
+        )
+        return Response(ReservationSerializer(reservation).data, status=201)
+
+
+class ReservationListView(APIView):
+    """GET /reservations/ — list reservations for the authenticated user."""
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        tags=[_TAG],
+        summary='List reservations',
+        description=(
+            'Customers see their own reservations. '
+            'Vendors see all reservations for their store.'
+        ),
+        responses={200: ReservationSerializer(many=True)},
+    )
+    def get(self, request):
+        user = request.user
+        if user.role == 'vendor':
+            try:
+                store = user.store
+            except Exception:
+                return Response({'error': 'no_store', 'message': 'Create a store first.'}, status=400)
+            qs = ReservationService.get_for_store(store)
+        else:
+            qs = ReservationService.get_for_customer(user)
+
+        return Response(ReservationSerializer(qs, many=True).data)
+
+
+class ReservationDetailView(APIView):
+    """GET /reservations/<id>/ — detail view (customer or store vendor only)."""
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        tags=[_TAG],
+        summary='Reservation detail',
+        responses={200: ReservationSerializer},
+    )
+    def get(self, request, reservation_id):
+        reservation = self._get_reservation(request.user, reservation_id)
+        if reservation is None:
+            return Response({'error': 'not_found', 'message': 'Reservation not found.'}, status=404)
+        return Response(ReservationSerializer(reservation).data)
+
+    def _get_reservation(self, user, reservation_id):
+        try:
+            r = Reservation.objects.select_related('store', 'product', 'customer').get(id=reservation_id)
+        except Reservation.DoesNotExist:
+            return None
+        if user.role == 'vendor':
+            try:
+                if r.store.owner_id != user.id:
+                    return None
+            except Exception:
+                return None
+        else:
+            if r.customer_id != user.id:
+                return None
+        return r
+
+
+class ReservationStatusView(APIView):
+    """PATCH /reservations/<id>/status/ — vendor updates status."""
+    permission_classes = [IsAuthenticated, IsVendor]
+
+    @extend_schema(
+        tags=[_TAG],
+        summary='Update reservation status (vendor)',
+        description='Vendor can confirm, cancel, or mark a reservation as completed.',
+        request=ReservationStatusUpdateSerializer,
+        responses={200: ReservationSerializer},
+        examples=[
+            OpenApiExample('Confirm', value={'status': 'confirmed', 'vendor_note': 'Ready for pickup!'}, request_only=True),
+            OpenApiExample('Cancel',  value={'status': 'cancelled', 'vendor_note': 'Out of stock, sorry.'}, request_only=True),
+            OpenApiExample('Complete', value={'status': 'completed'}, request_only=True),
+        ],
+    )
+    def patch(self, request, reservation_id):
+        try:
+            store = request.user.store
+        except Exception:
+            return Response({'error': 'no_store', 'message': 'Create a store first.'}, status=400)
+
+        try:
+            reservation = Reservation.objects.select_related('store', 'product', 'customer').get(
+                id=reservation_id, store=store
+            )
+        except Reservation.DoesNotExist:
+            return Response({'error': 'not_found', 'message': 'Reservation not found.'}, status=404)
+
+        ser = ReservationStatusUpdateSerializer(data=request.data)
+        if not ser.is_valid():
+            return Response(ser.errors, status=400)
+
+        new_status  = ser.validated_data['status']
+        vendor_note = ser.validated_data.get('vendor_note', '')
+
+        # Only pending reservations can be confirmed/cancelled
+        if new_status in [ReservationStatus.CONFIRMED, ReservationStatus.CANCELLED]:
+            if reservation.status != ReservationStatus.PENDING:
+                return Response(
+                    {'error': 'invalid_status', 'message': f'Cannot {new_status} a {reservation.status} reservation.'},
+                    status=400,
+                )
+
+        # Only confirmed reservations can be completed
+        if new_status == ReservationStatus.COMPLETED:
+            if reservation.status != ReservationStatus.CONFIRMED:
+                return Response(
+                    {'error': 'invalid_status', 'message': 'Only confirmed reservations can be marked completed.'},
+                    status=400,
+                )
+
+        if new_status == ReservationStatus.CONFIRMED:
+            reservation = ReservationService.confirm(reservation, vendor_note)
+        elif new_status == ReservationStatus.CANCELLED:
+            reservation = ReservationService.cancel(reservation, vendor_note)
+        elif new_status == ReservationStatus.COMPLETED:
+            reservation = ReservationService.complete(reservation)
+
+        return Response(ReservationSerializer(reservation).data)
+
+
+class ReservationCancelView(APIView):
+    """POST /reservations/<id>/cancel/ — customer cancels their own pending reservation."""
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        tags=[_TAG],
+        summary='Cancel reservation (customer)',
+        description='Customer can cancel only their own pending reservation.',
+        responses={200: ReservationSerializer},
+    )
+    def post(self, request, reservation_id):
+        try:
+            reservation = Reservation.objects.select_related('store', 'product', 'customer').get(
+                id=reservation_id, customer=request.user
+            )
+        except Reservation.DoesNotExist:
+            return Response({'error': 'not_found', 'message': 'Reservation not found.'}, status=404)
+
+        if reservation.status != ReservationStatus.PENDING:
+            return Response(
+                {'error': 'invalid_status', 'message': f'Cannot cancel a {reservation.status} reservation.'},
+                status=400,
+            )
+
+        reservation = ReservationService.cancel(reservation)
+        return Response(ReservationSerializer(reservation).data)
