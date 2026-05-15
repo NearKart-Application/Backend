@@ -6,6 +6,7 @@
 |-----|---------------|
 | [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md) | Architecture, what Docker shows, sprint roadmap |
 | [HOW_TO_RUN_AND_TEST.md](HOW_TO_RUN_AND_TEST.md) | Setup venv, run Docker, test in Postman |
+| [sprint_12_production/GOING_TO_PRODUCTION.md](sprint_12_production/GOING_TO_PRODUCTION.md) | **Every dummy value to replace before going live — read this before launch** |
 
 ---
 
@@ -25,7 +26,7 @@
 | S9 — Reservations | [sprint_9_reservations/](sprint_9_reservations/README.md) | Done ✅ | [TESTING_CHECKLIST.md](sprint_9_reservations/TESTING_CHECKLIST.md) |
 | S10 — Groups | [sprint_10_groups/](sprint_10_groups/README.md) | Done ✅ | [TESTING_CHECKLIST.md](sprint_10_groups/TESTING_CHECKLIST.md) |
 | S11 — Notifications | [sprint_11_notifications/](sprint_11_notifications/README.md) | Done ✅ | [TESTING_CHECKLIST.md](sprint_11_notifications/TESTING_CHECKLIST.md) |
-| S12 — Production + Razorpay | [sprint_12_production/](sprint_12_production/README.md) | Done ✅ | [TESTING_CHECKLIST.md](sprint_12_production/TESTING_CHECKLIST.md) · [DEPLOY_CHECKLIST.md](sprint_12_production/DEPLOY_CHECKLIST.md) · [POSTMAN_GUIDE.md](sprint_12_production/POSTMAN_GUIDE.md) |
+| S12 — Production + Razorpay | [sprint_12_production/](sprint_12_production/README.md) | Done ✅ | [TESTING_CHECKLIST.md](sprint_12_production/TESTING_CHECKLIST.md) · [DEPLOY_CHECKLIST.md](sprint_12_production/DEPLOY_CHECKLIST.md) · [POSTMAN_GUIDE.md](sprint_12_production/POSTMAN_GUIDE.md) · [GOING_TO_PRODUCTION.md](sprint_12_production/GOING_TO_PRODUCTION.md) |
 
 ---
 
