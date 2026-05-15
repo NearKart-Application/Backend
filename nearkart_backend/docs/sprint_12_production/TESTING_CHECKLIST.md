@@ -69,7 +69,36 @@
 
 ---
 
-## E — Full Happy Path (end to end)
+## E — Video Expiry Notification + Download
+
+- [ ] Upload a video and note its `video_id`
+- [ ] In Django Admin (or shell): set `expires_at = now + 25 hours` on that video
+- [ ] Run task manually in shell:
+  ```python
+  from apps.videos.tasks import notify_expiring_videos
+  notify_expiring_videos()
+  ```
+  Expected: returns `1` (one video notified)
+- [ ] `GET /api/v1/notifications/` with vendor token
+  - Expected: notification with `notification_type: "video_expiring_soon"` in inbox
+  - `data.action` = `"download_prompt"`, `data.video_id` = correct UUID
+- [ ] `GET /api/v1/videos/<id>/download/` with vendor token
+  - Expected: `200` with `download_url` and `expires_in: 3600`
+  - Dev: URL contains `mock-s3.dev` and `download=true`
+- [ ] Same endpoint with a different vendor's token → `404` (cannot download other vendor's video)
+- [ ] Same endpoint with customer token → `403`
+- [ ] Video with no `raw_s3_key` → `409` — no raw file available
+- [ ] Set `expires_at = now - 1 hour` on a ready video, run:
+  ```python
+  from apps.videos.tasks import delete_expired_videos
+  delete_expired_videos()
+  ```
+  Expected: returns `1`, video `status = expired`, `is_visible = False`
+- [ ] `GET /api/v1/videos/feed/` — expired video no longer in feed
+
+---
+
+## G — Full Happy Path (end to end)
 
 - [ ] `GET /billing/plans/` — see all 3 plans and prices
 - [ ] `GET /billing/wallet/` — balance = 0.00
@@ -84,7 +113,7 @@
 
 ---
 
-## F — Production Stack (local simulation)
+## H — Production Stack (local simulation)
 
 - [ ] `cp .env.example .env.production` and fill values
 - [ ] `make prod-up` — stack starts with production settings
@@ -95,7 +124,7 @@
 
 ---
 
-## G — CI/CD (GitHub Actions)
+## I — CI/CD (GitHub Actions)
 
 - [ ] Push to `sprint-12-production` branch → Actions runs lint + test jobs
 - [ ] `main` branch push → lint → test → build → deploy-staging auto-triggers
@@ -104,7 +133,7 @@
 
 ---
 
-## H — Django Admin Checks
+## J — Django Admin Checks
 
 - [ ] Admin → Billing → Transactions — shows topup and subscription records
 - [ ] Admin → Billing → Subscriptions — shows active subscription with correct plan and expiry
@@ -124,3 +153,6 @@
 | `webhook` — duplicate payment | `already_processed` | `200` |
 | Any billing endpoint — no store | `not_found` | `404` |
 | Any billing endpoint — customer token | Forbidden | `403` |
+| `download` — other vendor's video | `not_found` | `404` |
+| `download` — no raw_s3_key | `conflict` | `409` |
+| `download` — customer token | Forbidden | `403` |

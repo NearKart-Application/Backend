@@ -16,6 +16,7 @@ Completes the production-readiness of the NearKart Backend:
 - CI/CD pipeline fixes (Python 3.13, sprint branches, staging→prod deploy gate)
 - `.env.example` with all required variables documented
 - **Razorpay payment flow** — initiate order → verify HMAC → fund wallet → activate subscription + webhook backup
+- **Video expiry notification + download** — 2-day warning push to vendor before 30-day auto-delete, with presigned download link
 
 ---
 
@@ -65,8 +66,14 @@ PostgreSQL + PostGIS  |  Redis  |  AWS S3  |  Firebase FCM
 | `apps/billing/razorpay_service.py` | New — RazorpayService with dev-mode bypass; create_order, verify signatures |
 | `apps/billing/views.py` | Added PaymentInitiateView, PaymentVerifyView, PaymentWebhookView |
 | `apps/billing/urls.py` | Added /payment/initiate/, /payment/verify/, /payment/webhook/ routes |
-| `config/settings/base.py` | Added RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET, RAZORPAY_WEBHOOK_SECRET |
+| `config/settings/base.py` | Added RAZORPAY keys + 2 new Celery Beat tasks (notify + delete expiring videos) |
 | `requirements/base.txt` | Added razorpay>=1.4 |
+| `apps/notifications/models.py` | Added VIDEO_EXPIRING_SOON notification type |
+| `apps/notifications/services.py` | Added notify_video_expiring_soon() helper |
+| `apps/videos/tasks.py` | Added notify_expiring_videos + named delete_expired_videos tasks |
+| `apps/videos/services.py` | Added AWSService.generate_presigned_download_url() |
+| `apps/videos/views.py` | Added VideoDownloadView |
+| `apps/videos/urls.py` | Added /videos/<id>/download/ route |
 
 ---
 
@@ -113,6 +120,64 @@ Set `RAZORPAY_KEY_ID=rzp_test_PLACEHOLDER` in `.env` (default).
 3. Register webhook URL in Razorpay Dashboard → Settings → Webhooks:
    `https://api.nearkart.in/api/v1/billing/payment/webhook/`
    Events: `payment.captured`
+
+---
+
+## Video Expiry — Notify + Download Flow
+
+Videos auto-expire 30 days after upload (`VIDEO_EXPIRY_DAYS=30`). Two Celery Beat tasks handle the full lifecycle:
+
+| Task | Schedule | What it does |
+|------|----------|-------------|
+| `videos.notify_expiring_videos` | 9:10 AM daily | Finds videos expiring in 24–48 h → sends push + in-app notification to vendor |
+| `videos.delete_expired_videos` | 12:30 AM daily | Marks past-expiry videos `expired`, `is_visible=False` — hides from feed |
+
+### Notification payload
+
+When a video has 2 days left the vendor receives:
+
+```json
+{
+  "notification_type": "video_expiring_soon",
+  "title": "Video Expiring in 2 Days",
+  "body": "Your video \"Summer Sale\" will be deleted in 2 days. Download it now if you want to keep a copy.",
+  "data": {
+    "video_id": "uuid",
+    "expires_at": "2026-06-14T00:30:00+05:30",
+    "action": "download_prompt"
+  }
+}
+```
+
+### Download endpoint
+
+| Method | Endpoint | Auth | Response |
+|--------|----------|------|---------|
+| GET | `/api/v1/videos/<id>/download/` | JWT + Vendor (own video only) | `{download_url, expires_in: 3600}` |
+
+- Returns a **1-hour presigned S3 GET URL** for the original MP4
+- Only the store owner can call this — other vendors get `404`
+- Dev mode: returns a mock URL
+
+### Mobile App Flow
+
+```
+Day 28 — 9:10 AM
+  Celery fires notify_expiring_videos
+  Vendor receives push: "Video expiring in 2 days — download?"
+
+Vendor taps notification
+  App calls: GET /api/v1/videos/<id>/download/
+  Response: { download_url: "https://s3.../original.mp4?X-Amz-...", expires_in: 3600 }
+  Vendor downloads the original MP4 locally (link valid for 1 hour)
+
+Vendor ignores → no action needed
+
+Day 30 — 12:30 AM
+  Celery fires delete_expired_videos
+  Video: status = expired, is_visible = False
+  Disappears from customer feed permanently
+```
 
 ---
 

@@ -1,8 +1,8 @@
-# Sprint 12 — Razorpay Payment Flow Postman Guide
+# Sprint 12 — Razorpay Payments + Video Download Postman Guide
 
 ## Collection Setup
 
-Add a new folder inside your existing Postman collection: **"12 — Razorpay Payments"**
+Add a new folder inside your existing Postman collection: **"12 — Razorpay Payments + Video Download"**
 
 Variables needed (should already be set from earlier sprints):
 
@@ -188,3 +188,91 @@ Expected (if payment already processed): `200 {"status": "already_processed"}`
 | `subscription_failed` | Wallet top-up OK but subscribe errored | Check logs — plan may have changed |
 | `invalid_signature` (webhook) | Webhook secret mismatch | Set correct `RAZORPAY_WEBHOOK_SECRET` in `.env` |
 | `already_processed` (webhook) | Payment already handled by verify | Not an error — idempotency guard working correctly |
+| `conflict` (download) | No raw file for this video | Video was never fully uploaded or raw key missing |
+
+---
+
+## Video Download (After Expiry Notification)
+
+### Step 1 — Get Download URL
+
+When vendor receives a `video_expiring_soon` push notification, the app reads `data.video_id` and calls:
+
+```
+GET {{base_url}}/videos/{{video_id}}/download/
+Authorization: Bearer {{vendor_token}}
+```
+
+Expected response:
+```json
+{
+  "video_id":    "uuid",
+  "title":       "Summer Sale Promo",
+  "download_url": "https://mock-s3.dev/videos/raw/.../original.mp4?download=true&dev=true",
+  "expires_in":  3600
+}
+```
+
+> **Dev mode:** URL contains `mock-s3.dev` — no real S3 call.
+> **Production:** URL is a real presigned S3 GET URL valid for 1 hour. Open in browser or use `curl -L <download_url> -o video.mp4` to save locally.
+
+Add this to the **Tests** tab:
+```javascript
+pm.test("Status is 200", () => pm.response.to.have.status(200));
+const data = pm.response.json();
+pm.test("Download URL present", () => pm.expect(data.download_url).to.be.a('string').and.not.empty);
+pm.test("Expires in 1 hour", () => pm.expect(data.expires_in).to.equal(3600));
+```
+
+---
+
+### Step 2 — Simulate Expiry Notification (manual test)
+
+To test the full flow without waiting 28 days, update the video in Django Admin or shell:
+
+```python
+# Django shell
+from apps.videos.models import Video
+from django.utils import timezone
+from datetime import timedelta
+
+v = Video.objects.get(id='<your-video-id>')
+v.expires_at = timezone.now() + timedelta(hours=25)
+v.save(update_fields=['expires_at'])
+
+# Trigger the notification task
+from apps.videos.tasks import notify_expiring_videos
+notify_expiring_videos()
+# Returns: 1 (one notification sent)
+```
+
+Then check the vendor's notification inbox:
+
+```
+GET {{base_url}}/notifications/
+Authorization: Bearer {{vendor_token}}
+```
+
+Look for `notification_type: "video_expiring_soon"` with `data.action: "download_prompt"`.
+
+---
+
+### Step 3 — Simulate Auto-Delete
+
+```python
+# Django shell — set video as past expiry
+v.expires_at = timezone.now() - timedelta(hours=1)
+v.save(update_fields=['expires_at'])
+
+from apps.videos.tasks import delete_expired_videos
+delete_expired_videos()
+# Returns: 1 (one video expired)
+```
+
+Confirm the video is gone from feed:
+
+```
+GET {{base_url}}/videos/feed/?lat=12.97&lng=77.59
+```
+
+The expired video must NOT appear.
