@@ -18,6 +18,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.stores.models import Store
+from apps.blacklist.services import BlacklistService
 from .models import Conversation
 from .serializers import ConversationSerializer, MessageSerializer
 from .services import ConversationService
@@ -96,6 +97,11 @@ class ConversationStartView(APIView):
                 return Response(
                     {'error': 'not_found', 'message': 'Store not found.'},
                     status=status.HTTP_404_NOT_FOUND,
+                )
+            if BlacklistService.is_blocked(store, customer):
+                return Response(
+                    {'error': 'blacklisted', 'message': 'You cannot start a conversation with this store.'},
+                    status=status.HTTP_403_FORBIDDEN,
                 )
 
         conversation, created = ConversationService.get_or_create(customer=customer, store=store)

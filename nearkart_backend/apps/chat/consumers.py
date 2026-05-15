@@ -10,6 +10,7 @@ import logging
 from channels.db import database_sync_to_async
 from channels.generic.websocket import AsyncJsonWebsocketConsumer
 
+from apps.blacklist.services import BlacklistService
 from .models import Conversation
 from .services import ConversationService, FCMService
 
@@ -82,6 +83,9 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
         except Conversation.DoesNotExist:
             return None
         if not ConversationService.user_belongs_to_conversation(self.user, conv):
+            return None
+        # Blocked customer cannot connect to this store's conversations
+        if self.user.role == 'customer' and BlacklistService.is_blocked(conv.store, self.user):
             return None
         return conv
 

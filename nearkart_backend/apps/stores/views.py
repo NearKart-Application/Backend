@@ -18,6 +18,7 @@ import rest_framework.serializers as s
 
 from core.permissions import IsVendor, IsStoreOwner
 from core.utils.cache import CacheService
+from apps.blacklist.services import BlacklistService
 from .models import Store
 from .serializers import StoreSerializer, StoreListSerializer, StoreReviewSerializer
 from .services import StoreService, QRService
@@ -148,6 +149,11 @@ class StoreFollowView(APIView):
             store = Store.objects.get(id=store_id, is_active=True)
         except Store.DoesNotExist:
             return Response({'error': 'not_found', 'message': 'Store not found.'}, status=status.HTTP_404_NOT_FOUND)
+        if request.user.role == 'customer' and BlacklistService.is_blocked(store, request.user):
+            return Response(
+                {'error': 'blacklisted', 'message': 'You cannot follow this store.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         followed = StoreService.toggle_follow(request.user, store)
         msg = 'Following store.' if followed else 'Unfollowed store.'
         return Response({'followed': followed, 'message': msg})
@@ -179,6 +185,11 @@ class StoreReviewView(APIView):
             store = Store.objects.get(id=store_id, is_active=True)
         except Store.DoesNotExist:
             return Response({'error': 'not_found', 'message': 'Store not found.'}, status=status.HTTP_404_NOT_FOUND)
+        if request.user.role == 'customer' and BlacklistService.is_blocked(store, request.user):
+            return Response(
+                {'error': 'blacklisted', 'message': 'You cannot review this store.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         serializer = StoreReviewSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         review = StoreService.add_review(

@@ -19,6 +19,7 @@
 | S3 — Store + Product | [sprint_3_store_product/](sprint_3_store_product/README.md) | Done ✅ | [TESTING_CHECKLIST.md](sprint_3_store_product/TESTING_CHECKLIST.md) |
 | S4 — Video | [sprint_4_video/](sprint_4_video/README.md) | Done ✅ | [TESTING_CHECKLIST.md](sprint_4_video/TESTING_CHECKLIST.md) |
 | S5 — Chat | [sprint_5_chat/](sprint_5_chat/README.md) | Done ✅ | [TESTING_CHECKLIST.md](sprint_5_chat/TESTING_CHECKLIST.md) |
+| S6 — Blacklist | [sprint_6_blacklist/](sprint_6_blacklist/README.md) | Done ✅ | [TESTING_CHECKLIST.md](sprint_6_blacklist/TESTING_CHECKLIST.md) |
 
 ---
 
