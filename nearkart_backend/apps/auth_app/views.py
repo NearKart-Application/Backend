@@ -40,10 +40,25 @@ class OTPSendView(APIView):
         tags=[_TAG],
         summary='Send OTP',
         description=(
-            'Send a 6-digit OTP to the given Indian mobile number (+91XXXXXXXXXX).\n\n'
+            'Send a 6-digit OTP to the given Indian mobile number.\n\n'
+            '**Format:** `+91XXXXXXXXXX` — must start with `+91` followed by 10 digits (first digit must be 6–9).\n\n'
+            '**Valid examples:** `+919999999999`, `+916543210987`\n\n'
+            '**Invalid examples:** `9999999999` (no +91), `+91 9999999999` (no spaces), `919999999999` (missing +)\n\n'
             '**Dev mode:** OTP is always `123456` — no real SMS is sent.'
         ),
         request=OTPSendSerializer,
+        examples=[
+            OpenApiExample(
+                'Vendor phone',
+                request_only=True,
+                value={'phone_number': '+919999999999'},
+            ),
+            OpenApiExample(
+                'Customer phone',
+                request_only=True,
+                value={'phone_number': '+916000000001'},
+            ),
+        ],
         responses={
             200: OpenApiResponse(
                 description='OTP sent successfully',
@@ -55,10 +70,16 @@ class OTPSendView(APIView):
             400: OpenApiResponse(
                 description='Invalid phone number format',
                 response=inline_serializer('OTPSendError', fields={
-                    'phone_number': s.ListField(child=s.CharField()),
+                    'error': s.CharField(),
+                    'message': s.CharField(),
+                    'code': s.CharField(),
+                    'details': s.DictField(),
                 }),
                 examples=[OpenApiExample('Bad phone', value={
-                    'phone_number': ['Enter a valid Indian mobile number in +91XXXXXXXXXX format.']
+                    'error': 'validation_error',
+                    'message': 'Enter a valid Indian mobile number in +91XXXXXXXXXX format.',
+                    'code': 'ERROR',
+                    'details': {'phone_number': ['Enter a valid Indian mobile number in +91XXXXXXXXXX format.']},
                 })],
             ),
         },
@@ -81,10 +102,25 @@ class OTPVerifyView(APIView):
         summary='Verify OTP and login',
         description=(
             'Verify the OTP and get JWT access + refresh tokens.\n\n'
-            '**Dev mode:** Use OTP `123456` (set by `DEV_FIXED_OTP` in `.env`).\n\n'
-            'New users are created automatically on first login.'
+            '**Step 1:** Call `/auth/otp/send/` first to generate an OTP.\n\n'
+            '**Step 2:** Enter the phone number and OTP here.\n\n'
+            '**Dev mode:** OTP is always `123456` — use that in the example below.\n\n'
+            'New users are created automatically on first login.\n\n'
+            '**After success:** Copy the `access` token and click **Authorize** (top of page) → paste as `Bearer <token>`'
         ),
         request=OTPVerifySerializer,
+        examples=[
+            OpenApiExample(
+                'Vendor login (dev)',
+                request_only=True,
+                value={'phone_number': '+919999999999', 'otp': '123456'},
+            ),
+            OpenApiExample(
+                'Customer login (dev)',
+                request_only=True,
+                value={'phone_number': '+916000000001', 'otp': '123456'},
+            ),
+        ],
         responses={
             200: OpenApiResponse(
                 description='Login successful — returns JWT tokens',
@@ -149,10 +185,21 @@ class TokenRefreshView(APIView):
     @extend_schema(
         tags=[_TAG],
         summary='Refresh access token',
-        description='Exchange a valid refresh token for a new access token.',
+        description=(
+            'Exchange a valid refresh token for a new access token.\n\n'
+            '**When to use:** Access token expires after 1 hour. Use this to get a new one without re-entering OTP.\n\n'
+            '**Get your refresh token from:** `POST /auth/otp/verify/` response → `refresh` field.'
+        ),
         request=inline_serializer('TokenRefreshRequest', fields={
-            'refresh': s.CharField(help_text='Your refresh token from /otp/verify/'),
+            'refresh': s.CharField(help_text='Your refresh token from /otp/verify/ response'),
         }),
+        examples=[
+            OpenApiExample(
+                'Refresh token example',
+                request_only=True,
+                value={'refresh': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoicmVmcmVzaCJ9...'},
+            ),
+        ],
         responses={
             200: OpenApiResponse(
                 description='New access token',
