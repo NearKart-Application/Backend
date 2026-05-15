@@ -25,6 +25,7 @@
 | S9 — Reservations | [sprint_9_reservations/](sprint_9_reservations/README.md) | Done ✅ | [TESTING_CHECKLIST.md](sprint_9_reservations/TESTING_CHECKLIST.md) |
 | S10 — Groups | [sprint_10_groups/](sprint_10_groups/README.md) | Done ✅ | [TESTING_CHECKLIST.md](sprint_10_groups/TESTING_CHECKLIST.md) |
 | S11 — Notifications | [sprint_11_notifications/](sprint_11_notifications/README.md) | Done ✅ | [TESTING_CHECKLIST.md](sprint_11_notifications/TESTING_CHECKLIST.md) |
+| S12 — Production | [sprint_12_production/](sprint_12_production/README.md) | Done ✅ | [DEPLOY_CHECKLIST.md](sprint_12_production/DEPLOY_CHECKLIST.md) |
 
 ---
 

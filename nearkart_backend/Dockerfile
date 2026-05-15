@@ -69,6 +69,9 @@ COPY --from=builder /venv /venv
 # Copy app code
 COPY . .
 
+# Make entrypoint executable
+RUN chmod +x scripts/entrypoint.sh
+
 # Non-root user
 RUN useradd --create-home --shell /bin/bash appuser && \
     chown -R appuser:appuser /app /venv
@@ -76,13 +79,9 @@ USER appuser
 
 ENV PATH="/venv/bin:$PATH"
 ENV VIRTUAL_ENV="/venv"
+ENV DJANGO_SETTINGS_MODULE="config.settings.production"
 
 EXPOSE 8000 8001
 
-CMD ["gunicorn", "config.wsgi:application", \
-     "--bind", "0.0.0.0:8000", \
-     "--worker-class", "uvicorn.workers.UvicornWorker", \
-     "--workers", "4", \
-     "--timeout", "120", \
-     "--access-logfile", "-", \
-     "--error-logfile", "-"]
+# Entrypoint runs migrate + collectstatic then starts gunicorn
+ENTRYPOINT ["scripts/entrypoint.sh"]

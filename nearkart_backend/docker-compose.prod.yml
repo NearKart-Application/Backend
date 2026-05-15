@@ -1,0 +1,143 @@
+# NearKart — Production Docker Compose
+# Usage: docker compose -f docker-compose.prod.yml up -d
+#
+# Differences from docker-compose.yml (dev):
+# - Uses 'production' build target (no dev deps, no code volume mount)
+# - DJANGO_SETTINGS_MODULE points to production settings
+# - No ports exposed directly — traffic comes through nginx only
+# - Resource limits on all services
+# - No --reload flag on gunicorn
+
+services:
+
+  # ── DJANGO + CELERY WORKER (ASGI, handles HTTP + WS) ───────
+  django:
+    build:
+      context: .
+      target: production
+    env_file:
+      - .env.production
+    environment:
+      - DJANGO_SETTINGS_MODULE=config.settings.production
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # ── CELERY WORKER ──────────────────────────────────────────
+  celery:
+    build:
+      context: .
+      target: production
+    command: ["/venv/bin/celery", "-A", "config", "worker",
+              "--loglevel=warning", "--concurrency=2"]
+    env_file:
+      - .env.production
+    environment:
+      - DJANGO_SETTINGS_MODULE=config.settings.production
+    depends_on:
+      - postgres
+      - redis
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+    restart: unless-stopped
+
+  # ── CELERY BEAT SCHEDULER ──────────────────────────────────
+  celery-beat:
+    build:
+      context: .
+      target: production
+    command: ["/venv/bin/celery", "-A", "config", "beat",
+              "--loglevel=warning",
+              "--scheduler", "django_celery_beat.schedulers:DatabaseScheduler"]
+    env_file:
+      - .env.production
+    environment:
+      - DJANGO_SETTINGS_MODULE=config.settings.production
+    depends_on:
+      - postgres
+      - redis
+      - django
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 128M
+    restart: unless-stopped
+
+  # ── POSTGRESQL + POSTGIS ───────────────────────────────────
+  postgres:
+    image: postgis/postgis:15-3.3
+    environment:
+      POSTGRES_DB: ${DB_NAME:-nearkart}
+      POSTGRES_USER: ${DB_USER:-nearkart}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init_db.sql:/docker-entrypoint-initdb.d/init_db.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-nearkart} -d ${DB_NAME:-nearkart}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+    restart: unless-stopped
+
+  # ── REDIS ──────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    command: redis-server --save 300 1 --loglevel warning --maxmemory 256mb --maxmemory-policy allkeys-lru --requirepass ${REDIS_PASSWORD}
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 300M
+    restart: unless-stopped
+
+  # ── NGINX (reverse proxy — SSL terminated at AWS ALB) ──────
+  nginx:
+    image: nginx:alpine
+    volumes:
+      - ./nginx/nginx.prod.conf:/etc/nginx/conf.d/default.conf:ro
+    ports:
+      - "80:80"
+    depends_on:
+      django:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 64M
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:

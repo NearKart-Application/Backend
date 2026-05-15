@@ -1,7 +1,8 @@
 # NearKart Backend — Developer Commands
 # Usage: make <command>
 
-.PHONY: help install test test-auth run shell migrate docker-up docker-down lint format
+.PHONY: help install test test-auth run shell migrate docker-up docker-down lint format \
+        prod-up prod-down prod-logs check-env
 
 help:
 	@echo ""
@@ -13,8 +14,12 @@ help:
 	@echo "  make run          Start Django dev server (no Docker)"
 	@echo "  make shell        Open Django shell"
 	@echo "  make migrate      Run database migrations"
-	@echo "  make docker-up    Start full stack with Docker"
-	@echo "  make docker-down  Stop Docker services"
+	@echo "  make docker-up    Start full stack with Docker (dev)"
+	@echo "  make docker-down  Stop Docker services (dev)"
+	@echo "  make prod-up      Start production stack"
+	@echo "  make prod-down    Stop production stack"
+	@echo "  make prod-logs    Tail production Django logs"
+	@echo "  make check-env    Validate .env.production has required vars"
 	@echo "  make lint         Check code style"
 	@echo "  make format       Auto-format code with black"
 	@echo ""
@@ -56,6 +61,26 @@ docker-down:
 
 docker-logs:
 	docker compose logs -f django
+
+# ── PRODUCTION DOCKER ─────────────────────────────────────────
+
+prod-up:
+	docker compose -f docker-compose.prod.yml up -d --build
+
+prod-down:
+	docker compose -f docker-compose.prod.yml down
+
+prod-logs:
+	docker compose -f docker-compose.prod.yml logs -f django
+
+check-env:
+	@echo "Checking .env.production for required variables..."
+	@for var in SECRET_KEY DB_PASSWORD REDIS_PASSWORD AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY \
+	            TWILIO_ACCOUNT_SID TWILIO_AUTH_TOKEN FIREBASE_CREDENTIALS_JSON SENDGRID_API_KEY \
+	            SENTRY_DSN; do \
+	    grep -q "^$$var=" .env.production 2>/dev/null || echo "  MISSING: $$var"; \
+	done
+	@echo "Done."
 
 # ── CODE QUALITY ──────────────────────────────────────────────
 
