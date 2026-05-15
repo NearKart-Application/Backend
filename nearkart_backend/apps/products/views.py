@@ -13,7 +13,7 @@ from rest_framework import status
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiResponse, inline_serializer
+from drf_spectacular.utils import extend_schema, OpenApiExample, OpenApiParameter, OpenApiResponse, inline_serializer
 import rest_framework.serializers as s
 
 from core.permissions import IsVendor, IsStoreOwner
@@ -106,7 +106,43 @@ class ProductDetailView(APIView):
 class ProductCreateView(APIView):
     permission_classes = [IsAuthenticated, IsVendor]
 
-    @extend_schema(tags=[_TAG], summary='Create product (vendor only)', request=ProductSerializer, responses={201: ProductSerializer})
+    @extend_schema(
+        tags=[_TAG],
+        summary='Create product (vendor only)',
+        request=ProductSerializer,
+        responses={201: ProductSerializer},
+        examples=[
+            OpenApiExample(
+                'Kurta with variants',
+                request_only=True,
+                value={
+                    'name': 'Cotton Kurta',
+                    'description': 'Handwoven cotton kurta for men, available in multiple sizes.',
+                    'category': 'fashion',
+                    'base_price': '499.00',
+                    'status': 'active',
+                    'is_visible': True,
+                    'variants': [
+                        {'name': 'Size S', 'sku': 'KT-S-001', 'price': '499.00', 'stock_quantity': 10},
+                        {'name': 'Size M', 'sku': 'KT-M-001', 'price': '499.00', 'stock_quantity': 15},
+                        {'name': 'Size L', 'sku': 'KT-L-001', 'price': '499.00', 'stock_quantity': 8},
+                    ],
+                },
+            ),
+            OpenApiExample(
+                'Simple product (no variants)',
+                request_only=True,
+                value={
+                    'name': 'Handmade Pickle — Mango',
+                    'description': 'Traditional homemade mango pickle, 500g jar.',
+                    'category': 'food',
+                    'base_price': '149.00',
+                    'status': 'active',
+                    'is_visible': True,
+                },
+            ),
+        ],
+    )
     def post(self, request):
         if not hasattr(request.user, 'store'):
             return Response(
@@ -122,7 +158,24 @@ class ProductCreateView(APIView):
 class ProductUpdateView(APIView):
     permission_classes = [IsAuthenticated, IsStoreOwner]
 
-    @extend_schema(tags=[_TAG], summary='Update product (owner only)', request=ProductSerializer, responses={200: ProductSerializer})
+    @extend_schema(
+        tags=[_TAG],
+        summary='Update product (owner only)',
+        request=ProductSerializer,
+        responses={200: ProductSerializer},
+        examples=[
+            OpenApiExample(
+                'Update price and visibility',
+                request_only=True,
+                value={'base_price': '549.00', 'is_visible': True},
+            ),
+            OpenApiExample(
+                'Mark product inactive',
+                request_only=True,
+                value={'status': 'inactive', 'is_visible': False},
+            ),
+        ],
+    )
     def put(self, request, product_id):
         try:
             product = Product.objects.get(id=product_id)

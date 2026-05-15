@@ -220,12 +220,20 @@ SPECTACULAR_SETTINGS = {
     'TITLE': 'NearKart API',
     'DESCRIPTION': (
         "India's first hyperlocal video commerce platform.\n\n"
-        "## Authentication\n"
-        "1. Call **POST /auth/otp/send/** with your phone number\n"
-        "2. Call **POST /auth/otp/verify/** with OTP `123456` (dev fixed OTP)\n"
-        "3. Copy the `access` token from the response\n"
-        "4. Click **Authorize** (top right), enter: `Bearer <paste token here>`\n"
-        "5. All protected endpoints will now work"
+        "## How to Authenticate\n"
+        "1. Expand **Auth → POST /auth/otp/send/** → click **Try it out** → click **Execute**\n"
+        "   - Sample phone is pre-filled: `+919999999999`\n"
+        "2. Expand **Auth → POST /auth/otp/verify/** → click **Try it out** → click **Execute**\n"
+        "   - Sample phone + OTP `123456` are pre-filled\n"
+        "3. Copy the `access` value from the response (long string starting with `eyJ...`)\n"
+        "4. Click **Authorize** (lock icon, top right)\n"
+        "5. Paste **just the token** in the Value field — do NOT add `Bearer ` prefix\n"
+        "6. Click **Authorize** → **Close** — all protected endpoints are now unlocked\n\n"
+        "> **Tip:** `persistAuthorization` is on — your token survives page refresh.\n\n"
+        "## Dev Notes\n"
+        "- Fixed OTP is always `123456` in dev mode — no real SMS sent\n"
+        "- S3 uploads return mock URLs in dev — skip the real PUT and call confirm-upload directly\n"
+        "- WebSocket endpoints (`/ws/...`) cannot be tested in Swagger — use Postman or wscat"
     ),
     'VERSION': '1.0.0',
     'SERVE_INCLUDE_SCHEMA': False,
@@ -235,6 +243,8 @@ SPECTACULAR_SETTINGS = {
         'persistAuthorization': True,
         'displayRequestDuration': True,
         'filter': True,
+        'tryItOutEnabled': True,
+        'defaultModelsExpandDepth': -1,
     },
     'APPEND_COMPONENTS': {
         'securitySchemes': {

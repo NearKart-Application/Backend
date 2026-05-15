@@ -13,7 +13,7 @@ from rest_framework import status
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiResponse, inline_serializer
+from drf_spectacular.utils import extend_schema, OpenApiExample, OpenApiParameter, OpenApiResponse, inline_serializer
 import rest_framework.serializers as s
 
 from core.permissions import IsVendor, IsStoreOwner
@@ -84,6 +84,22 @@ class StoreCreateView(APIView):
         summary='Create store (vendor only)',
         request=StoreSerializer,
         responses={201: StoreSerializer},
+        examples=[
+            OpenApiExample(
+                'Sample store (Chennai)',
+                request_only=True,
+                value={
+                    'name': 'Ravi Fashion House',
+                    'description': 'Latest collections in kurtas, sarees, and ethnic wear.',
+                    'category': 'fashion',
+                    'phone': '+919876543210',
+                    'address': '12, MG Road, T Nagar, Chennai',
+                    'latitude': 13.0827,
+                    'longitude': 80.2707,
+                    'is_open': True,
+                },
+            ),
+        ],
     )
     def post(self, request):
         if hasattr(request.user, 'store'):
@@ -140,7 +156,24 @@ class StoreFollowView(APIView):
 class StoreReviewView(APIView):
     permission_classes = [IsAuthenticated]
 
-    @extend_schema(tags=[_TAG], summary='Add or update review', request=StoreReviewSerializer, responses={200: StoreReviewSerializer})
+    @extend_schema(
+        tags=[_TAG],
+        summary='Add or update review',
+        request=StoreReviewSerializer,
+        responses={200: StoreReviewSerializer},
+        examples=[
+            OpenApiExample(
+                'Five-star review',
+                request_only=True,
+                value={'rating': 5, 'comment': 'Great store, quality products and fast service!'},
+            ),
+            OpenApiExample(
+                'Three-star review',
+                request_only=True,
+                value={'rating': 3, 'comment': 'Good products but delivery was slow.'},
+            ),
+        ],
+    )
     def post(self, request, store_id):
         try:
             store = Store.objects.get(id=store_id, is_active=True)
