@@ -54,7 +54,8 @@ class NearbyProductsView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         products = ProductService.get_nearby(lat, lng, radius_km=radius, category=category)
-        return Response(ProductListSerializer(products, many=True, context={'request': request}).data)
+        data = ProductListSerializer(products, many=True, context={'request': request}).data
+        return Response({'count': len(data), 'next': None, 'previous': None, 'results': data})
 
 
 class ProductSearchView(APIView):

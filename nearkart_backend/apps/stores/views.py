@@ -58,7 +58,8 @@ class NearbyStoresView(APIView):
             )
 
         stores = StoreService.get_nearby(lat, lng, radius_km=radius, category=category)
-        return Response(StoreListSerializer(stores, many=True).data)
+        data = StoreListSerializer(stores, many=True).data
+        return Response({'count': len(data), 'next': None, 'previous': None, 'results': data})
 
 
 class StoreDetailView(APIView):

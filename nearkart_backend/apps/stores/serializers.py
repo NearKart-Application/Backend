@@ -60,7 +60,9 @@ class StoreSerializer(serializers.ModelSerializer):
 
 
 class StoreListSerializer(serializers.ModelSerializer):
-    """Compact serializer for list/nearby endpoints."""
+    """Compact serializer for list/nearby endpoints — mobile-compatible field names."""
+    avatar       = serializers.URLField(source='logo_url', read_only=True)
+    cover_image  = serializers.URLField(source='banner_url', read_only=True)
     lat          = serializers.SerializerMethodField()
     lng          = serializers.SerializerMethodField()
     distance_km  = serializers.SerializerMethodField()
@@ -69,7 +71,7 @@ class StoreListSerializer(serializers.ModelSerializer):
         model  = Store
         fields = [
             'id', 'name', 'category', 'locality',
-            'logo_url', 'is_open', 'is_verified',
+            'avatar', 'cover_image', 'is_open', 'is_verified',
             'performance_score', 'lat', 'lng', 'distance_km',
         ]
 
