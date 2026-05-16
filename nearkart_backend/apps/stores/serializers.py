@@ -100,3 +100,86 @@ class StoreReviewSerializer(serializers.ModelSerializer):
         if not 1 <= value <= 5:
             raise serializers.ValidationError('Rating must be between 1 and 5.')
         return value
+
+
+class StoreMobileDetailSerializer(serializers.ModelSerializer):
+    """Mobile-compatible store detail serializer (C9 screen)."""
+    avatar           = serializers.URLField(source='logo_url', read_only=True)
+    cover_image      = serializers.URLField(source='banner_url', read_only=True)
+    location         = serializers.CharField(source='locality', read_only=True)
+    distance_km      = serializers.SerializerMethodField()
+    follower_count   = serializers.SerializerMethodField()
+    is_followed      = serializers.SerializerMethodField()
+    rating           = serializers.SerializerMethodField()
+    review_count     = serializers.SerializerMethodField()
+    open_status_label = serializers.SerializerMethodField()
+    todays_hours     = serializers.SerializerMethodField()
+    closes_at        = serializers.SerializerMethodField()
+    next_open        = serializers.SerializerMethodField()
+
+    class Meta:
+        model  = Store
+        fields = [
+            'id', 'name', 'avatar', 'cover_image', 'category',
+            'location', 'distance_km',
+            'is_open', 'open_status_label', 'todays_hours', 'closes_at', 'next_open',
+            'rating', 'review_count', 'follower_count', 'is_followed',
+        ]
+
+    @extend_schema_field(serializers.FloatField(allow_null=True))
+    def get_distance_km(self, obj):
+        if hasattr(obj, 'distance') and obj.distance:
+            return round(obj.distance.km, 2)
+        return 0.0
+
+    @extend_schema_field(serializers.IntegerField())
+    def get_follower_count(self, obj):
+        return obj.followers.count()
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_is_followed(self, obj):
+        request = self.context.get('request')
+        if request and request.user.is_authenticated:
+            return obj.followers.filter(user=request.user).exists()
+        return False
+
+    @extend_schema_field(serializers.FloatField())
+    def get_rating(self, obj):
+        reviews = obj.reviews.all()
+        if not reviews.exists():
+            return 0.0
+        total = sum(r.rating for r in reviews)
+        return round(total / reviews.count(), 1)
+
+    @extend_schema_field(serializers.IntegerField())
+    def get_review_count(self, obj):
+        return obj.reviews.count()
+
+    @extend_schema_field(serializers.CharField())
+    def get_open_status_label(self, obj):
+        if obj.is_open:
+            hours = obj.hours.filter(is_closed=False).first()
+            if hours:
+                return f'Open · Closes at {hours.close_time.strftime("%I:%M %p")}'
+            return 'Open'
+        return 'Closed'
+
+    @extend_schema_field(serializers.CharField())
+    def get_todays_hours(self, obj):
+        from datetime import date
+        day = date.today().weekday()
+        hours = obj.hours.filter(day=day, is_closed=False).first()
+        if hours:
+            return f'{hours.open_time.strftime("%H:%M")}-{hours.close_time.strftime("%H:%M")}'
+        return ''
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_closes_at(self, obj):
+        from datetime import date
+        day = date.today().weekday()
+        hours = obj.hours.filter(day=day, is_closed=False).first()
+        return hours.close_time.strftime('%H:%M') if hours else None
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_next_open(self, obj):
+        return None

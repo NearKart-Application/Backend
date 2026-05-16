@@ -21,7 +21,7 @@ from core.permissions import IsVendor, IsStoreOwner
 from core.utils.cache import CacheService
 from apps.blacklist.services import BlacklistService
 from .models import Store, StoreHours
-from .serializers import StoreSerializer, StoreListSerializer, StoreReviewSerializer, StoreHoursSerializer
+from .serializers import StoreSerializer, StoreListSerializer, StoreReviewSerializer, StoreHoursSerializer, StoreMobileDetailSerializer
 from .services import StoreService, QRService
 
 logger = logging.getLogger(__name__)
@@ -70,11 +70,10 @@ class StoreDetailView(APIView):
         if cached:
             return Response(cached)
         try:
-            store = Store.objects.prefetch_related('hours', 'reviews').get(id=store_id, is_active=True)
+            store = Store.objects.prefetch_related('hours', 'reviews', 'followers').get(id=store_id, is_active=True)
         except Store.DoesNotExist:
             return Response({'error': 'not_found', 'message': 'Store not found.'}, status=status.HTTP_404_NOT_FOUND)
-        data = StoreSerializer(store).data
-        CacheService.set(CacheService.store_detail_key(str(store_id)), data, timeout=CacheService.TTL_STORE_DETAIL)
+        data = StoreMobileDetailSerializer(store, context={'request': request}).data
         return Response(data)
 
 

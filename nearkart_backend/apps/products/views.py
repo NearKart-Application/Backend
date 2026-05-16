@@ -19,7 +19,7 @@ import rest_framework.serializers as s
 from core.permissions import IsVendor, IsStoreOwner
 from apps.billing.services import BillingService
 from .models import Product
-from .serializers import ProductSerializer, ProductListSerializer
+from .serializers import ProductSerializer, ProductListSerializer, MobileProductDetailSerializer
 from .services import ProductService
 
 logger = logging.getLogger(__name__)
@@ -87,7 +87,8 @@ class ProductSearchView(APIView):
             lat = lng = None
             radius = 5
         products = ProductService.search(query, lat, lng, radius)
-        return Response(ProductListSerializer(products, many=True, context={'request': request}).data)
+        serialized = ProductListSerializer(products, many=True, context={'request': request}).data
+        return Response({'count': len(serialized), 'next': None, 'previous': None, 'results': serialized})
 
 
 class ProductDetailView(APIView):
@@ -101,7 +102,7 @@ class ProductDetailView(APIView):
             )
         except Product.DoesNotExist:
             return Response({'error': 'not_found', 'message': 'Product not found.'}, status=status.HTTP_404_NOT_FOUND)
-        return Response(ProductSerializer(product, context={'request': request}).data)
+        return Response(MobileProductDetailSerializer(product, context={'request': request}).data)
 
 
 class ProductCreateView(APIView):
