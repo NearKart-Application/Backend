@@ -288,10 +288,16 @@ class Command(BaseCommand):
             phone = store_data['phone']
 
             # Create or get vendor user
-            user, created = User.objects.get_or_create(
-                phone_number=phone,
-                defaults={'role': 'vendor', 'full_name': store_data['name'] + ' Owner'},
-            )
+            try:
+                user = User.objects.get(phone_number=phone)
+                created = False
+            except User.DoesNotExist:
+                user = User.objects.create_user(
+                    phone_number=phone,
+                    role='vendor',
+                    full_name=store_data['name'] + ' Owner',
+                )
+                created = True
             if not created and hasattr(user, 'store'):
                 self.stdout.write(f'  Skipping {store_data["name"]} — already exists')
                 img_index += len(store_data['products'])
