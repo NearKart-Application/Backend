@@ -210,16 +210,11 @@ class ProductUpdateView(APIView):
 class ProductWishlistView(APIView):
     permission_classes = [IsAuthenticated]
 
-    @extend_schema(
-        tags=[_TAG],
-        summary='Add / remove product from wishlist',
+    @extend_schema(tags=[_TAG], summary='Add / remove product from wishlist',
         request=None,
-        responses={200: OpenApiResponse(
-            response=inline_serializer('WishlistResponse', fields={
-                'wishlisted': s.BooleanField(),
-                'message': s.CharField(),
-            })
-        )},
+        responses={200: OpenApiResponse(response=inline_serializer('WishlistResponse', fields={
+            'wishlisted': s.BooleanField(), 'message': s.CharField(),
+        }))},
     )
     def post(self, request, product_id):
         try:
@@ -229,3 +224,18 @@ class ProductWishlistView(APIView):
         added = ProductService.toggle_wishlist(request.user, product)
         msg = 'Added to wishlist.' if added else 'Removed from wishlist.'
         return Response({'wishlisted': added, 'message': msg})
+
+
+class WishlistListView(APIView):
+    """GET /api/v1/products/wishlist/ — return the authenticated user's saved products."""
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(tags=[_TAG], summary='List wishlist products',
+        responses={200: ProductListSerializer(many=True)},
+    )
+    def get(self, request):
+        from apps.products.models import Wishlist
+        product_ids = Wishlist.objects.filter(user=request.user).values_list('product_id', flat=True)
+        products = Product.objects.filter(id__in=product_ids, is_visible=True).select_related('store')
+        serializer = ProductListSerializer(products, many=True, context={'request': request})
+        return Response({'results': serializer.data, 'count': len(serializer.data)})
