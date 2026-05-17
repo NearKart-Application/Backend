@@ -82,7 +82,7 @@ class ProductListSerializer(serializers.ModelSerializer):
     class Meta:
         model  = Product
         fields = [
-            'id', 'store_name', 'name', 'category',
+            'id', 'store_name', 'name', 'category', 'subcategory',
             'base_price', 'min_price', 'primary_image',
             'distance_km', 'status',
             # mobile-compatible fields
@@ -147,7 +147,7 @@ class MobileProductDetailSerializer(serializers.ModelSerializer):
     class Meta:
         model  = Product
         fields = [
-            'id', 'name', 'description', 'category',
+            'id', 'name', 'description', 'category', 'subcategory',
             'price', 'sale_price', 'images', 'store',
             'distance_km', 'sizes', 'colors',
             'stock_count', 'is_on_sale', 'is_wishlisted',
