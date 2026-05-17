@@ -50,15 +50,16 @@ def get_nearby_stores(lat: float, lng: float,
 
 def get_nearby_products(lat: float, lng: float,
                         radius_km: int = 2, category: str = None,
-                        limit: int = 50) -> list:
+                        store_id: str = None, limit: int = 50) -> list:
     """
     Find active, visible products from stores within radius.
-    Only returns products with at least one variant in stock.
+    Optionally filter to a single store (store_id) or category.
     """
     from apps.products.models import Product
     from core.utils.cache import CacheService
 
-    cache_key = CacheService.nearby_products_key(lat, lng, radius_km, category or 'all')
+    store_suffix = store_id or 'all'
+    cache_key = CacheService.nearby_products_key(lat, lng, radius_km, category or 'all') + f'_store_{store_suffix}'
     cached = CacheService.get(cache_key)
     if cached is not None:
         return cached
@@ -69,11 +70,15 @@ def get_nearby_products(lat: float, lng: float,
         is_visible=True,
         store__is_active=True,
         store__is_verified=True,
-        store__location__dwithin=(user_point, D(km=radius_km)),
         variants__stock_quantity__gt=0,
     ).annotate(
         distance=Distance('store__location', user_point)
     ).order_by('distance').distinct()
+
+    if store_id:
+        qs = qs.filter(store_id=store_id)
+    else:
+        qs = qs.filter(store__location__dwithin=(user_point, D(km=radius_km)))
 
     if category:
         qs = qs.filter(category=category)

@@ -34,8 +34,8 @@ class ProductService:
         return product
 
     @staticmethod
-    def get_nearby(lat: float, lng: float, radius_km: int = 2, category: str = None):
-        return get_nearby_products(lat, lng, radius_km, category)
+    def get_nearby(lat: float, lng: float, radius_km: int = 2, category: str = None, store_id: str = None):
+        return get_nearby_products(lat, lng, radius_km, category, store_id=store_id)
 
     @staticmethod
     def search(query: str, lat: float = None, lng: float = None, radius_km: int = 5):

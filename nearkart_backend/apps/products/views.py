@@ -48,12 +48,13 @@ class NearbyProductsView(APIView):
             lng      = float(request.query_params['lng'])
             radius   = int(request.query_params.get('radius', 2))
             category = request.query_params.get('category')
+            store_id = request.query_params.get('store')
         except (KeyError, ValueError):
             return Response(
                 {'error': 'validation_error', 'message': 'lat and lng are required numbers.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        products = ProductService.get_nearby(lat, lng, radius_km=radius, category=category)
+        products = ProductService.get_nearby(lat, lng, radius_km=radius, category=category, store_id=store_id)
         data = ProductListSerializer(products, many=True, context={'request': request}).data
         return Response({'count': len(data), 'next': None, 'previous': None, 'results': data})
 
