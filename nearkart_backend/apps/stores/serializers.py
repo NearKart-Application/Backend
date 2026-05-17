@@ -4,7 +4,7 @@ NearKart — Store Serializers
 from django.db import models
 from rest_framework import serializers
 from drf_spectacular.utils import extend_schema_field
-from .models import Store, StoreHours, StoreFollow, StoreReview
+from .models import Store, StoreHours, StoreFollow, StoreReview, StoreOffer
 
 
 class StoreHoursSerializer(serializers.ModelSerializer):
@@ -72,6 +72,7 @@ class StoreListSerializer(serializers.ModelSerializer):
     review_count      = serializers.SerializerMethodField()
     follower_count    = serializers.SerializerMethodField()
     has_offer         = serializers.SerializerMethodField()
+    top_offer_label   = serializers.SerializerMethodField()
     open_status_label = serializers.SerializerMethodField()
     todays_hours      = serializers.SerializerMethodField()
     top_subcategories = serializers.SerializerMethodField()
@@ -83,7 +84,7 @@ class StoreListSerializer(serializers.ModelSerializer):
             'avatar', 'cover_image', 'is_open', 'is_verified',
             'performance_score', 'lat', 'lng', 'distance_km',
             'rating', 'review_count', 'follower_count',
-            'has_offer', 'open_status_label', 'todays_hours',
+            'has_offer', 'top_offer_label', 'open_status_label', 'todays_hours',
             'top_subcategories',
         ]
 
@@ -118,11 +119,17 @@ class StoreListSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.BooleanField())
     def get_has_offer(self, obj):
-        from apps.products.models import Product
-        return obj.products.filter(
-            status='active', is_visible=True,
-            variants__price__lt=models.F('base_price'),
-        ).exists()
+        return obj.offers.filter(is_active=True).exists()
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_top_offer_label(self, obj):
+        offer = obj.offers.filter(is_active=True).order_by('-created_at').first()
+        if not offer:
+            return None
+        label = offer.title
+        if offer.discount_pct:
+            label += f' · {offer.discount_pct}% off'
+        return label
 
     @extend_schema_field(serializers.CharField())
     def get_open_status_label(self, obj):
@@ -164,6 +171,31 @@ class StoreReviewSerializer(serializers.ModelSerializer):
         if not 1 <= value <= 5:
             raise serializers.ValidationError('Rating must be between 1 and 5.')
         return value
+
+
+class StoreReviewListSerializer(serializers.ModelSerializer):
+    """Read-only review for public list endpoint — shows user initials instead of phone."""
+    user_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model  = StoreReview
+        fields = ['id', 'user_name', 'rating', 'comment', 'created_at']
+
+    @extend_schema_field(serializers.CharField())
+    def get_user_name(self, obj):
+        name = getattr(obj.user, 'full_name', '') or ''
+        if name:
+            parts = name.split()
+            return f'{parts[0]} {"*" * (len(parts[1]) if len(parts) > 1 else 0)}'.strip()
+        phone = obj.user.phone_number or ''
+        return phone[:4] + '****' + phone[-2:] if len(phone) >= 6 else '****'
+
+
+class StoreOfferSerializer(serializers.ModelSerializer):
+    class Meta:
+        model  = StoreOffer
+        fields = ['id', 'title', 'description', 'discount_pct', 'valid_till', 'image_url', 'is_active', 'created_at']
+        read_only_fields = ['id', 'created_at']
 
 
 class StoreMobileDetailSerializer(serializers.ModelSerializer):

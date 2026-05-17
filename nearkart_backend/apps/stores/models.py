@@ -98,3 +98,20 @@ class StoreReview(BaseModel):
 
     def __str__(self):
         return f'{self.store.name} — {self.rating}★'
+
+
+class StoreOffer(BaseModel):
+    store        = models.ForeignKey(Store, on_delete=models.CASCADE, related_name='offers')
+    title        = models.CharField(max_length=200)
+    description  = models.TextField(blank=True)
+    discount_pct = models.PositiveSmallIntegerField(null=True, blank=True)  # e.g. 20 = 20% off
+    valid_till   = models.DateField(null=True, blank=True)
+    image_url    = models.URLField(blank=True)
+    is_active    = models.BooleanField(default=True, db_index=True)
+
+    class Meta:
+        db_table = 'store_offers'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'{self.store.name} — {self.title}'
