@@ -3,6 +3,7 @@ NearKart — Base Django Settings
 Shared across all environments (development, staging, production)
 """
 import os
+import platform
 from pathlib import Path
 import environ
 import sentry_sdk
@@ -12,6 +13,18 @@ from sentry_sdk.integrations.redis import RedisIntegration
 
 # ── PATHS ──────────────────────────────────────────────────────
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
+
+# ── GDAL / GEOS (macOS Homebrew) ───────────────────────────────
+if platform.system() == "Darwin":
+    _brew_prefix = "/opt/homebrew"  # Apple Silicon; Intel uses /usr/local
+    GDAL_LIBRARY_PATH = os.environ.get(
+        "GDAL_LIBRARY_PATH",
+        f"{_brew_prefix}/lib/libgdal.dylib",
+    )
+    GEOS_LIBRARY_PATH = os.environ.get(
+        "GEOS_LIBRARY_PATH",
+        f"{_brew_prefix}/lib/libgeos_c.dylib",
+    )
 
 # ── ENVIRONMENT ────────────────────────────────────────────────
 env = environ.Env()

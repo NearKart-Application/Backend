@@ -35,11 +35,13 @@ class OTPService:
             phone_number=phone_number,
             defaults={'role': UserRole.CUSTOMER},
         )
+        from django.conf import settings
         otp = cls.generate_otp()
         OTPToken.create_for_user(user, otp)
 
-        from apps.auth_app.tasks import send_otp_sms
-        send_otp_sms.delay(phone_number, otp)
+        if not getattr(settings, 'DEV_FIXED_OTP', None):
+            from apps.auth_app.tasks import send_otp_sms
+            send_otp_sms.delay(phone_number, otp)
 
         return otp
 
