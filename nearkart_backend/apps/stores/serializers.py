@@ -1,6 +1,7 @@
 """
 NearKart — Store Serializers
 """
+from django.db import models
 from rest_framework import serializers
 from drf_spectacular.utils import extend_schema_field
 from .models import Store, StoreHours, StoreFollow, StoreReview
@@ -61,18 +62,29 @@ class StoreSerializer(serializers.ModelSerializer):
 
 class StoreListSerializer(serializers.ModelSerializer):
     """Compact serializer for list/nearby endpoints — mobile-compatible field names."""
-    avatar       = serializers.URLField(source='logo_url', read_only=True)
-    cover_image  = serializers.URLField(source='banner_url', read_only=True)
-    lat          = serializers.SerializerMethodField()
-    lng          = serializers.SerializerMethodField()
-    distance_km  = serializers.SerializerMethodField()
+    avatar            = serializers.URLField(source='logo_url', read_only=True)
+    cover_image       = serializers.URLField(source='banner_url', read_only=True)
+    location          = serializers.CharField(source='locality', read_only=True)
+    lat               = serializers.SerializerMethodField()
+    lng               = serializers.SerializerMethodField()
+    distance_km       = serializers.SerializerMethodField()
+    rating            = serializers.SerializerMethodField()
+    review_count      = serializers.SerializerMethodField()
+    follower_count    = serializers.SerializerMethodField()
+    has_offer         = serializers.SerializerMethodField()
+    open_status_label = serializers.SerializerMethodField()
+    todays_hours      = serializers.SerializerMethodField()
+    top_subcategories = serializers.SerializerMethodField()
 
     class Meta:
         model  = Store
         fields = [
-            'id', 'name', 'category', 'locality',
+            'id', 'name', 'category', 'locality', 'location',
             'avatar', 'cover_image', 'is_open', 'is_verified',
             'performance_score', 'lat', 'lng', 'distance_km',
+            'rating', 'review_count', 'follower_count',
+            'has_offer', 'open_status_label', 'todays_hours',
+            'top_subcategories',
         ]
 
     @extend_schema_field(serializers.FloatField(allow_null=True))
@@ -88,6 +100,56 @@ class StoreListSerializer(serializers.ModelSerializer):
         if hasattr(obj, 'distance') and obj.distance:
             return round(obj.distance.km, 2)
         return None
+
+    @extend_schema_field(serializers.FloatField())
+    def get_rating(self, obj):
+        reviews = obj.reviews.all()
+        if not reviews.exists():
+            return 0.0
+        return round(sum(r.rating for r in reviews) / reviews.count(), 1)
+
+    @extend_schema_field(serializers.IntegerField())
+    def get_review_count(self, obj):
+        return obj.reviews.count()
+
+    @extend_schema_field(serializers.IntegerField())
+    def get_follower_count(self, obj):
+        return obj.followers.count()
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_has_offer(self, obj):
+        from apps.products.models import Product
+        return obj.products.filter(
+            status='active', is_visible=True,
+            variants__price__lt=models.F('base_price'),
+        ).exists()
+
+    @extend_schema_field(serializers.CharField())
+    def get_open_status_label(self, obj):
+        if obj.is_open:
+            hours = obj.hours.filter(is_closed=False).first()
+            if hours:
+                return f'Closes {hours.close_time.strftime("%-I:%M %p")}'
+            return 'Open now'
+        return 'Closed'
+
+    @extend_schema_field(serializers.CharField())
+    def get_todays_hours(self, obj):
+        from datetime import date
+        day = date.today().weekday()
+        hours = obj.hours.filter(day=day, is_closed=False).first()
+        if hours:
+            return f'{hours.open_time.strftime("%-I %p")}–{hours.close_time.strftime("%-I %p")}'
+        return ''
+
+    @extend_schema_field(serializers.ListField(child=serializers.CharField()))
+    def get_top_subcategories(self, obj):
+        return list(
+            obj.products.filter(status='active', is_visible=True)
+            .exclude(subcategory='')
+            .values_list('subcategory', flat=True)
+            .distinct()[:4]
+        )
 
 
 class StoreReviewSerializer(serializers.ModelSerializer):
