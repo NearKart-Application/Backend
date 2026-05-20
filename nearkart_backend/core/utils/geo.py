@@ -32,12 +32,22 @@ def get_nearby_stores(lat: float, lng: float,
         return cached
 
     user_point = build_point(lat, lng)
+
+    from apps.stores.models import StoreHours, StoreOffer
+    from django.db.models import Count, Avg, Prefetch
+
     qs = Store.objects.filter(
         is_active=True,
         is_verified=True,
         location__dwithin=(user_point, D(km=radius_km))
     ).annotate(
-        distance=Distance('location', user_point)
+        distance=Distance('location', user_point),
+        follower_count=Count('followers', distinct=True),
+        avg_rating=Avg('reviews__rating'),
+        review_count_ann=Count('reviews', distinct=True),
+    ).prefetch_related(
+        Prefetch('hours', queryset=StoreHours.objects.filter(is_closed=False)),
+        Prefetch('offers', queryset=StoreOffer.objects.filter(is_active=True).order_by('-created_at')),
     ).order_by('distance')
 
     if category and category != 'all':
@@ -71,7 +81,7 @@ def get_nearby_products(lat: float, lng: float,
         store__is_active=True,
         store__is_verified=True,
         variants__stock_quantity__gt=0,
-    ).annotate(
+    ).select_related('store').prefetch_related('variants', 'images').annotate(
         distance=Distance('store__location', user_point)
     ).order_by('distance').distinct()
 

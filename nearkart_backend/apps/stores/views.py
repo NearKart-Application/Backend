@@ -10,6 +10,7 @@ GET  /api/v1/stores/<id>/qr-code/
 PUT  /api/v1/stores/<id>/hours/
 """
 import logging
+import threading
 from django.db import models
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated, AllowAny
@@ -32,6 +33,26 @@ from .services import StoreService, QRService
 logger = logging.getLogger(__name__)
 
 _TAG = 'Stores'
+
+
+def _dispatch_store_opened(follower_ids: list, store_name: str, store_id: str):
+    """Fire-and-forget: notify followers a store opened (avoids blocking the API response)."""
+    def _run():
+        from apps.auth_app.models import User
+        from apps.notifications.services import NotificationService
+        followers = list(User.objects.filter(id__in=follower_ids))
+        NotificationService.notify_store_opened(followers, store_name, store_id)
+    threading.Thread(target=_run, daemon=True).start()
+
+
+def _dispatch_new_offer(follower_ids: list, store_name: str, offer_label: str, store_id: str):
+    """Fire-and-forget: notify followers about a new offer."""
+    def _run():
+        from apps.auth_app.models import User
+        from apps.notifications.services import NotificationService
+        followers = list(User.objects.filter(id__in=follower_ids))
+        NotificationService.notify_new_offer(followers, store_name, offer_label, store_id)
+    threading.Thread(target=_run, daemon=True).start()
 
 
 class NearbyStoresView(APIView):
@@ -76,7 +97,16 @@ class StoreDetailView(APIView):
         if cached:
             return Response(cached)
         try:
-            store = Store.objects.prefetch_related('hours', 'reviews', 'followers').get(id=store_id, is_active=True)
+            from django.db.models import Count, Avg, Prefetch
+            from .models import StoreHours
+            store = Store.objects.prefetch_related(
+                Prefetch('hours', queryset=StoreHours.objects.all()),
+                'followers',
+            ).annotate(
+                follower_count=Count('followers', distinct=True),
+                avg_rating=Avg('reviews__rating'),
+                review_count_ann=Count('reviews', distinct=True),
+            ).get(id=store_id, is_active=True)
         except Store.DoesNotExist:
             return Response({'error': 'not_found', 'message': 'Store not found.'}, status=status.HTTP_404_NOT_FOUND)
         data = StoreMobileDetailSerializer(store, context={'request': request}).data
@@ -136,11 +166,8 @@ class StoreUpdateView(APIView):
         store = StoreService.update(store, serializer.validated_data)
         if not was_open and store.is_open:
             from apps.stores.models import StoreFollow
-            from apps.auth_app.models import User
-            from apps.notifications.services import NotificationService
-            follower_ids = StoreFollow.objects.filter(store=store).values_list('user_id', flat=True)
-            followers = list(User.objects.filter(id__in=follower_ids))
-            NotificationService.notify_store_opened(followers, store.name, str(store.id))
+            follower_ids = list(StoreFollow.objects.filter(store=store).values_list('user_id', flat=True))
+            _dispatch_store_opened(follower_ids, store.name, str(store.id))
         return Response(StoreSerializer(store).data)
 
 
@@ -355,15 +382,11 @@ class StoreOfferView(APIView):
         serializer = StoreOfferSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         offer = StoreOffer.objects.create(store=store, **serializer.validated_data)
-        # Notify followers
         from apps.stores.models import StoreFollow
-        from apps.auth_app.models import User
-        from apps.notifications.services import NotificationService
-        follower_ids = StoreFollow.objects.filter(store=store).values_list('user_id', flat=True)
-        followers = list(User.objects.filter(id__in=follower_ids))
-        if followers:
+        follower_ids = list(StoreFollow.objects.filter(store=store).values_list('user_id', flat=True))
+        if follower_ids:
             disc = f' — {offer.discount_pct}% off' if offer.discount_pct else ''
-            NotificationService.notify_new_offer(followers, store.name, offer.title + disc, str(store.id))
+            _dispatch_new_offer(follower_ids, store.name, offer.title + disc, str(store.id))
         return Response(StoreOfferSerializer(offer).data, status=status.HTTP_201_CREATED)
 
 

@@ -99,7 +99,7 @@ class ProductDetailView(APIView):
     @extend_schema(tags=[_TAG], summary='Get product detail', responses={200: ProductSerializer}, auth=[])
     def get(self, request, product_id):
         try:
-            product = Product.objects.prefetch_related('variants', 'images').get(
+            product = Product.objects.select_related('store').prefetch_related('variants', 'images').get(
                 id=product_id, is_visible=True, status='active',
             )
         except Product.DoesNotExist:
@@ -237,6 +237,7 @@ class WishlistListView(APIView):
     def get(self, request):
         from apps.products.models import Wishlist
         product_ids = Wishlist.objects.filter(user=request.user).values_list('product_id', flat=True)
-        products = Product.objects.filter(id__in=product_ids, is_visible=True).select_related('store')
+        products = Product.objects.filter(id__in=product_ids, is_visible=True)\
+            .select_related('store').prefetch_related('variants', 'images')
         serializer = ProductListSerializer(products, many=True, context={'request': request})
         return Response({'results': serializer.data, 'count': len(serializer.data)})

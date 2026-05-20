@@ -89,10 +89,20 @@ class ProductListSerializer(serializers.ModelSerializer):
             'price', 'sale_price', 'image', 'store', 'is_on_sale',
         ]
 
+    def _primary_image(self, obj):
+        """Returns first primary (or any) image using prefetch cache — zero DB hit."""
+        images = list(obj.images.all())
+        img = next((i for i in images if i.is_primary), None) or (images[0] if images else None)
+        return img.image_url if img else None
+
+    def _cheapest_variant(self, obj):
+        """Returns lowest-price variant using prefetch cache — zero DB hit."""
+        variants = list(obj.variants.all())
+        return min(variants, key=lambda v: v.price, default=None)
+
     @extend_schema_field(serializers.URLField(allow_null=True))
     def get_primary_image(self, obj):
-        img = obj.images.filter(is_primary=True).first() or obj.images.first()
-        return img.image_url if img else None
+        return self._primary_image(obj)
 
     @extend_schema_field(serializers.FloatField(allow_null=True))
     def get_distance_km(self, obj):
@@ -102,19 +112,18 @@ class ProductListSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.CharField())
     def get_min_price(self, obj):
-        variant = obj.variants.order_by('price').first()
-        return str(variant.price) if variant else str(obj.base_price)
+        v = self._cheapest_variant(obj)
+        return str(v.price) if v else str(obj.base_price)
 
     @extend_schema_field(serializers.URLField(allow_null=True))
     def get_image(self, obj):
-        img = obj.images.filter(is_primary=True).first() or obj.images.first()
-        return img.image_url if img else None
+        return self._primary_image(obj)
 
     @extend_schema_field(serializers.FloatField(allow_null=True))
     def get_sale_price(self, obj):
-        variant = obj.variants.order_by('price').first()
-        if variant and float(variant.price) < float(obj.base_price):
-            return float(variant.price)
+        v = self._cheapest_variant(obj)
+        if v and float(v.price) < float(obj.base_price):
+            return float(v.price)
         return None
 
     @extend_schema_field(serializers.DictField())
@@ -127,8 +136,8 @@ class ProductListSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.BooleanField())
     def get_is_on_sale(self, obj):
-        variant = obj.variants.order_by('price').first()
-        return bool(variant and float(variant.price) < float(obj.base_price))
+        v = self._cheapest_variant(obj)
+        return bool(v and float(v.price) < float(obj.base_price))
 
 
 class MobileProductDetailSerializer(serializers.ModelSerializer):
@@ -162,7 +171,8 @@ class MobileProductDetailSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.ListField(child=serializers.URLField()))
     def get_images(self, obj):
-        return [img.image_url for img in obj.images.order_by('order')]
+        # Sort prefetched images in Python — avoids bypassing the prefetch cache
+        return [img.image_url for img in sorted(obj.images.all(), key=lambda i: i.order)]
 
     @extend_schema_field(serializers.DictField())
     def get_store(self, obj):
@@ -180,16 +190,12 @@ class MobileProductDetailSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.ListField())
     def get_sizes(self, obj):
-        sizes = []
-        seen = set()
-        for v in obj.variants.order_by('name'):
+        # Compute from prefetched variants in Python — eliminates N sub-queries per size
+        stock_by_size: dict = {}
+        for v in sorted(obj.variants.all(), key=lambda v: v.name):
             size = v.name.split('/')[0].strip()
-            if size not in seen:
-                seen.add(size)
-                stock = obj.variants.filter(name__startswith=size).aggregate(
-                    total=models.Sum('stock_quantity'))['total'] or 0
-                sizes.append({'size': size, 'stock': stock})
-        return sizes
+            stock_by_size[size] = stock_by_size.get(size, 0) + (v.stock_quantity or 0)
+        return [{'size': s, 'stock': cnt} for s, cnt in stock_by_size.items()]
 
     @extend_schema_field(serializers.ListField(child=serializers.CharField()))
     def get_colors(self, obj):

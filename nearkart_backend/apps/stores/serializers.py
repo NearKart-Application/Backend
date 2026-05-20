@@ -104,26 +104,27 @@ class StoreListSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.FloatField())
     def get_rating(self, obj):
-        reviews = obj.reviews.all()
-        if not reviews.exists():
-            return 0.0
-        return round(sum(r.rating for r in reviews) / reviews.count(), 1)
+        # Uses annotated avg_rating from get_nearby_stores queryset — zero DB hit
+        avg = getattr(obj, 'avg_rating', None)
+        return round(float(avg), 1) if avg else 0.0
 
     @extend_schema_field(serializers.IntegerField())
     def get_review_count(self, obj):
-        return obj.reviews.count()
+        return getattr(obj, 'review_count_ann', None) or 0
 
     @extend_schema_field(serializers.IntegerField())
     def get_follower_count(self, obj):
-        return obj.followers.count()
+        return getattr(obj, 'follower_count', None) or 0
 
     @extend_schema_field(serializers.BooleanField())
     def get_has_offer(self, obj):
-        return obj.offers.filter(is_active=True).exists()
+        # Uses prefetched active offers — zero DB hit
+        return any(True for _ in obj.offers.all())
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_top_offer_label(self, obj):
-        offer = obj.offers.filter(is_active=True).order_by('-created_at').first()
+        # Uses prefetched active offers sorted by -created_at — zero DB hit
+        offer = next(iter(obj.offers.all()), None)
         if not offer:
             return None
         label = offer.title
@@ -134,7 +135,10 @@ class StoreListSerializer(serializers.ModelSerializer):
     @extend_schema_field(serializers.CharField())
     def get_open_status_label(self, obj):
         if obj.is_open:
-            hours = obj.hours.filter(is_closed=False).first()
+            from datetime import date
+            day = date.today().weekday()
+            # Uses prefetched non-closed hours — zero DB hit
+            hours = next((h for h in obj.hours.all() if h.day == day), None)
             if hours:
                 return f'Closes {hours.close_time.strftime("%-I:%M %p")}'
             return 'Open now'
@@ -144,7 +148,8 @@ class StoreListSerializer(serializers.ModelSerializer):
     def get_todays_hours(self, obj):
         from datetime import date
         day = date.today().weekday()
-        hours = obj.hours.filter(day=day, is_closed=False).first()
+        # Uses prefetched non-closed hours — zero DB hit
+        hours = next((h for h in obj.hours.all() if h.day == day), None)
         if hours:
             return f'{hours.open_time.strftime("%-I %p")}–{hours.close_time.strftime("%-I %p")}'
         return ''
@@ -230,7 +235,8 @@ class StoreMobileDetailSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.IntegerField())
     def get_follower_count(self, obj):
-        return obj.followers.count()
+        # Uses annotated follower_count if available, falls back to DB count
+        return getattr(obj, 'follower_count', None) or obj.followers.count()
 
     @extend_schema_field(serializers.BooleanField())
     def get_is_followed(self, obj):
@@ -241,20 +247,19 @@ class StoreMobileDetailSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.FloatField())
     def get_rating(self, obj):
-        reviews = obj.reviews.all()
-        if not reviews.exists():
-            return 0.0
-        total = sum(r.rating for r in reviews)
-        return round(total / reviews.count(), 1)
+        avg = getattr(obj, 'avg_rating', None)
+        return round(float(avg), 1) if avg else 0.0
 
     @extend_schema_field(serializers.IntegerField())
     def get_review_count(self, obj):
-        return obj.reviews.count()
+        return getattr(obj, 'review_count_ann', None) or obj.reviews.count()
 
     @extend_schema_field(serializers.CharField())
     def get_open_status_label(self, obj):
         if obj.is_open:
-            hours = obj.hours.filter(is_closed=False).first()
+            from datetime import date
+            day = date.today().weekday()
+            hours = next((h for h in obj.hours.all() if h.day == day and not h.is_closed), None)
             if hours:
                 return f'Open · Closes at {hours.close_time.strftime("%I:%M %p")}'
             return 'Open'
@@ -264,7 +269,7 @@ class StoreMobileDetailSerializer(serializers.ModelSerializer):
     def get_todays_hours(self, obj):
         from datetime import date
         day = date.today().weekday()
-        hours = obj.hours.filter(day=day, is_closed=False).first()
+        hours = next((h for h in obj.hours.all() if h.day == day and not h.is_closed), None)
         if hours:
             return f'{hours.open_time.strftime("%H:%M")}-{hours.close_time.strftime("%H:%M")}'
         return ''
@@ -273,7 +278,7 @@ class StoreMobileDetailSerializer(serializers.ModelSerializer):
     def get_closes_at(self, obj):
         from datetime import date
         day = date.today().weekday()
-        hours = obj.hours.filter(day=day, is_closed=False).first()
+        hours = next((h for h in obj.hours.all() if h.day == day and not h.is_closed), None)
         return hours.close_time.strftime('%H:%M') if hours else None
 
     @extend_schema_field(serializers.CharField(allow_null=True))

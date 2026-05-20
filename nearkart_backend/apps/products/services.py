@@ -45,7 +45,7 @@ class ProductService:
             is_visible=True,
             store__is_active=True,
             store__is_verified=True,
-        ).annotate(
+        ).select_related('store').prefetch_related('variants', 'images').annotate(
             similarity=TrigramSimilarity('name', query)
         ).filter(
             similarity__gt=0.2
