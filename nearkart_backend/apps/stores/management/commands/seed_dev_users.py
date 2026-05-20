@@ -219,16 +219,24 @@ class Command(BaseCommand):
             self.stdout.write(self.style.WARNING(f'Cleared {deleted} dev user records (cascade).'))
 
         # ── 1. Create users ───────────────────────────────────────────────────
+        # Must use create_user() (not get_or_create) so the custom UserManager
+        # generates a unique profile_id — plain create() leaves it as '' which
+        # hits the unique constraint if more than one user is created this way.
         kukatpally = Point(78.3996, 17.4948, srid=4326)  # (lng, lat)
         users = {}
         for phone, full_name, role in DEV_USERS:
-            user, created = User.objects.get_or_create(
-                phone_number=phone,
-                defaults={'full_name': full_name, 'role': role},
-            )
-            if not created:
-                user.full_name = full_name
-                user.role = role
+            try:
+                user = User.objects.get(phone_number=phone)
+                created = False
+            except User.DoesNotExist:
+                user = User.objects.create_user(
+                    phone_number=phone,
+                    role=role,
+                    full_name=full_name,
+                )
+                created = True
+            user.full_name = full_name
+            user.role = role
             user.registered_location = kukatpally
             user.save(update_fields=['full_name', 'role', 'registered_location'])
             users[phone] = user
