@@ -20,6 +20,10 @@ class ProductService:
         product = Product.objects.create(store=store, **validated_data)
         for v in variants_data:
             product.variants.create(**v)
+        CacheService.invalidate_store_caches(
+            store.location.y,
+            store.location.x,
+        )
         return product
 
     @staticmethod

@@ -382,6 +382,7 @@ class StoreOfferView(APIView):
         serializer = StoreOfferSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         offer = StoreOffer.objects.create(store=store, **serializer.validated_data)
+        CacheService.delete(CacheService.store_detail_key(str(store.id)))
         from apps.stores.models import StoreFollow
         follower_ids = list(StoreFollow.objects.filter(store=store).values_list('user_id', flat=True))
         if follower_ids:

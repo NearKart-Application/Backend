@@ -54,6 +54,12 @@ DEV_VENDOR_STORES = {
         'logo':   'https://picsum.photos/seed/dev-sneha-logo/200/200',
         'banner': 'https://picsum.photos/seed/dev-sneha-banner/800/300',
         'offer': ('Festival Sale — 20% Off', 'Get 20% off on all ethnic wear this season.', 20),
+        'videos': [
+            ('New Collection Arrived! 🎉', 'Check out our latest ethnic wear collection — kurtas, suits, and more.',
+             'https://picsum.photos/seed/dev-sneha-v1/400/700', 45, 120, 18),
+            ('Festival Sale Preview 🛍️', '20% off on all ethnic wear. Come visit us at KPHB Phase 2!',
+             'https://picsum.photos/seed/dev-sneha-v2/400/700', 32, 87, 12),
+        ],
         'products': [
             # (name, category, subcategory, base_price, sale_price, sizes)
             ('Blue Embroidered Kurta',  'clothing', 'kurta',   750,  None, ['S', 'M', 'L', 'XL']),
@@ -74,6 +80,12 @@ DEV_VENDOR_STORES = {
         'logo':   'https://picsum.photos/seed/dev-vikram-logo/200/200',
         'banner': 'https://picsum.photos/seed/dev-vikram-banner/800/300',
         'offer': ('Weekend Deal — Flat ₹100 Off', 'Flat ₹100 off on all accessories above ₹499.', None),
+        'videos': [
+            ('Best Wireless Earphones Under ₹900 🎧', 'Crystal clear sound, 30-hour battery — now at Vikram Electronics.',
+             'https://picsum.photos/seed/dev-vikram-v1/400/700', 38, 203, 31),
+            ('Power Bank Review — Worth It? ⚡', 'Portable 10000mAh power bank — honest review from our store.',
+             'https://picsum.photos/seed/dev-vikram-v2/400/700', 55, 156, 24),
+        ],
         'products': [
             ('Wireless Earphones',     'electronics', 'audio',       899,  749,  []),
             ('USB-C Fast Charger',     'electronics', 'chargers',    349,  None, []),
@@ -93,6 +105,12 @@ DEV_VENDOR_STORES = {
         'logo':   'https://picsum.photos/seed/dev-kiran-logo/200/200',
         'banner': 'https://picsum.photos/seed/dev-kiran-banner/800/300',
         'offer': ('Buy 2 Get 10% Off', 'Buy any 2 footwear and get 10% off the second pair.', 10),
+        'videos': [
+            ('White Sneakers — Try On 👟', 'Our most popular white canvas sneakers. See how they look!',
+             'https://picsum.photos/seed/dev-kiran-v1/400/700', 29, 94, 11),
+            ('New Arrivals This Week 👠', 'Block heels, kolhapuri chappals and formals — just arrived.',
+             'https://picsum.photos/seed/dev-kiran-v2/400/700', 41, 67, 8),
+        ],
         'products': [
             ('White Canvas Sneakers',   'footwear', 'sneakers', 699,  549,  ['6', '7', '8', '9', '10']),
             ('Brown Leather Sandals',   'footwear', 'sandals',  849,  None, ['5', '6', '7', '8']),
@@ -112,6 +130,12 @@ DEV_VENDOR_STORES = {
         'logo':   'https://picsum.photos/seed/dev-divya-logo/200/200',
         'banner': 'https://picsum.photos/seed/dev-divya-banner/800/300',
         'offer': ('Festive Collection Live', 'New festive jewellery collection now available in store!', None),
+        'videos': [
+            ('Festive Jewellery Collection 💍', 'Gold jhumkas, pearl necklaces and kundan sets — perfect for every occasion.',
+             'https://picsum.photos/seed/dev-divya-v1/400/700', 52, 178, 27),
+            ('Silver Bangles — Unboxing ✨', 'Beautiful 925 silver bangle set at just ₹399. Limited stock!',
+             'https://picsum.photos/seed/dev-divya-v2/400/700', 35, 112, 19),
+        ],
         'products': [
             ('Gold Jhumka Earrings',   'jewellery', 'earrings',  1199, None, []),
             ('Silver Bangle Set',      'jewellery', 'bangles',   499,  399,  []),
@@ -210,6 +234,7 @@ class Command(BaseCommand):
         from apps.reservations.models import Reservation
         from apps.chat.models import Conversation, Message
         from apps.notifications.models import Notification
+        from apps.videos.models import Video
 
         all_phones = [p for p, _, _ in DEV_USERS]
 
@@ -339,8 +364,26 @@ class Command(BaseCommand):
                             stock_quantity=10,
                         )
 
+                # Videos (2 per vendor store, status=ready so they appear in video feed)
+                for v_idx, (title, desc, thumb, duration, views, likes) in enumerate(store_data.get('videos', [])):
+                    Video.objects.get_or_create(
+                        store=store,
+                        title=title,
+                        defaults=dict(
+                            description=desc,
+                            thumbnail_url=thumb,
+                            video_url='https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8',
+                            status=Video.STATUS_READY,
+                            duration_seconds=duration,
+                            view_count=views,
+                            like_count=likes,
+                            is_visible=True,
+                        ),
+                    )
+
                 self.stdout.write(self.style.SUCCESS(
-                    f'  ✅ created  {store.name} ({store.locality}) — {len(store_data["products"])} products'
+                    f'  ✅ created  {store.name} ({store.locality}) — '
+                    f'{len(store_data["products"])} products, {len(store_data.get("videos", []))} videos'
                 ))
 
             stores[vendor_phone] = store
