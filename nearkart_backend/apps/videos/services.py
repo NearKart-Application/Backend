@@ -132,6 +132,47 @@ class VideoService:
         return qs[:50]
 
     @staticmethod
+    def get_following_feed(user):
+        """Return videos from stores the user follows, newest first."""
+        from apps.stores.models import StoreFollow
+        followed_store_ids = StoreFollow.objects.filter(user=user).values_list('store_id', flat=True)
+        return (
+            Video.objects
+            .filter(
+                store_id__in=followed_store_ids,
+                status=Video.STATUS_READY,
+                is_visible=True,
+                expires_at__gt=timezone.now(),
+            )
+            .select_related('store')
+            .order_by('-created_at')[:50]
+        )
+
+    @staticmethod
+    def get_trending_feed():
+        """Return globally trending videos (no radius limit) by combined view + like score."""
+        return (
+            Video.objects
+            .filter(
+                status=Video.STATUS_READY,
+                is_visible=True,
+                expires_at__gt=timezone.now(),
+            )
+            .select_related('store')
+            .order_by('-view_count', '-like_count', '-created_at')[:50]
+        )
+
+    @staticmethod
+    def toggle_save(user, video: Video) -> bool:
+        """Toggle save (bookmark). Returns True if saved, False if unsaved."""
+        from .models import VideoSave
+        save, created = VideoSave.objects.get_or_create(user=user, video=video)
+        if not created:
+            save.delete()
+            return False
+        return True
+
+    @staticmethod
     def increment_view(video: Video) -> None:
         Video.objects.filter(id=video.id).update(view_count=F('view_count') + 1)
 

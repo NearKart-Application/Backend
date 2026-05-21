@@ -262,8 +262,9 @@ class VideoFeedView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         store_id = request.query_params.get('store_id')
-        videos = VideoService.get_feed(lat, lng, radius_km=radius, store_id=store_id)
-        return Response(VideoSerializer(videos, many=True, context={'request': request}).data)
+        videos   = list(VideoService.get_feed(lat, lng, radius_km=radius, store_id=store_id))
+        data     = VideoSerializer(videos, many=True, context={'request': request}).data
+        return Response({'count': len(data), 'next': None, 'previous': None, 'results': data})
 
 
 class VideoDetailView(APIView):
@@ -398,7 +399,7 @@ class VideoDownloadView(APIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        if not video.raw_s3_key:
+        if not video.raw_s3_key:  # noqa: E501
             return Response(
                 {'error': 'conflict', 'message': 'No raw file available for this video.'},
                 status=status.HTTP_409_CONFLICT,
@@ -415,3 +416,60 @@ class VideoDownloadView(APIView):
             'download_url': download_url,
             'expires_in':  expiry_seconds,
         })
+
+
+class VideoFollowingFeedView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        tags=[_TAG],
+        summary='Videos from stores the customer follows',
+        description='Returns ready, visible, non-expired videos from all stores the logged-in user follows, newest first.',
+        responses={200: VideoSerializer(many=True)},
+    )
+    def get(self, request):
+        videos = list(VideoService.get_following_feed(request.user))
+        data   = VideoSerializer(videos, many=True, context={'request': request}).data
+        return Response({'count': len(data), 'next': None, 'previous': None, 'results': data})
+
+
+class VideoTrendingFeedView(APIView):
+    permission_classes = [AllowAny]
+
+    @extend_schema(
+        tags=[_TAG],
+        summary='Globally trending videos (no radius limit)',
+        description='Returns the top 50 ready, visible videos sorted by view_count then like_count. No location filter.',
+        responses={200: VideoSerializer(many=True)},
+        auth=[],
+    )
+    def get(self, request):
+        videos = list(VideoService.get_trending_feed())
+        data   = VideoSerializer(videos, many=True, context={'request': request}).data
+        return Response({'count': len(data), 'next': None, 'previous': None, 'results': data})
+
+
+class VideoSaveView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        tags=[_TAG],
+        summary='Save / unsave video (toggle)',
+        request=None,
+        responses={200: OpenApiResponse(
+            response=inline_serializer('VideoSaveResponse', fields={
+                'saved':   s.BooleanField(),
+                'message': s.CharField(),
+            })
+        )},
+    )
+    def post(self, request, video_id):
+        try:
+            video = Video.objects.get(id=video_id, status=Video.STATUS_READY, is_visible=True)
+        except Video.DoesNotExist:
+            return Response(
+                {'error': 'not_found', 'message': 'Video not found.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        saved = VideoService.toggle_save(request.user, video)
+        return Response({'saved': saved, 'message': 'Saved.' if saved else 'Unsaved.'})
