@@ -59,3 +59,9 @@ razorpay>=1.4
 python-dateutil>=2.8
 pytz>=2024.1
 requests>=2.31
+
+# ── GEOSPATIAL ───────────────────────────────────────────────
+h3>=3.7
+
+# ── IN-PROCESS CACHE ─────────────────────────────────────────
+cachetools>=5.3
