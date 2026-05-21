@@ -74,3 +74,4 @@ built in later sprints. Right now you can only test via:
 | S10 | Groups | Done ✅ | `docs/sprint_10_groups/` |
 | S11 | Notifications | Done ✅ | `docs/sprint_11_notifications/` |
 | S12 | Staging + Production + Razorpay | Done ✅ | `docs/sprint_12_production/` |
+| S13 | Performance Algorithms + Test Infrastructure | Done ✅ | `docs/sprint_13_tests/` |
