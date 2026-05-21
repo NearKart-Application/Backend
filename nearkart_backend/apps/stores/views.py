@@ -93,8 +93,12 @@ class StoreDetailView(APIView):
 
     @extend_schema(tags=[_TAG], summary='Get store detail', responses={200: StoreSerializer}, auth=[])
     def get(self, request, store_id):
-        cached = CacheService.get(CacheService.store_detail_key(str(store_id)))
+        key    = CacheService.store_detail_key(str(store_id))
+        cached = CacheService.get(key)
         if cached:
+            # Algorithm 5 — HyperLogLog: count unique visitors even on cache hits
+            if request.user and request.user.is_authenticated:
+                CacheService.record_store_visit(str(store_id), str(request.user.id))
             return Response(cached)
         try:
             from django.db.models import Count, Avg, Prefetch
@@ -110,6 +114,11 @@ class StoreDetailView(APIView):
         except Store.DoesNotExist:
             return Response({'error': 'not_found', 'message': 'Store not found.'}, status=status.HTTP_404_NOT_FOUND)
         data = StoreMobileDetailSerializer(store, context={'request': request}).data
+        # Cache the serialised response so subsequent requests are served from Redis
+        CacheService.set(key, data, timeout=CacheService.TTL_STORE_DETAIL)
+        # Algorithm 5 — HyperLogLog unique visitor tracking
+        if request.user and request.user.is_authenticated:
+            CacheService.record_store_visit(str(store_id), str(request.user.id))
         return Response(data)
 
 

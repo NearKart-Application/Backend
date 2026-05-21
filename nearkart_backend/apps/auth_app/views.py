@@ -35,7 +35,7 @@ _TAG = 'Auth'
 
 class OTPSendView(APIView):
     permission_classes = [AllowAny]
-    throttle_scope = 'otp_send'
+    # throttle_scope replaced by sliding-window rate limiter (see post() below)
 
     @extend_schema(
         tags=[_TAG],
@@ -90,13 +90,21 @@ class OTPSendView(APIView):
         serializer = OTPSendSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         phone_number = serializer.validated_data['phone_number']
+
+        # Algorithm 6 — Sliding window: 5 OTPs per phone per hour
+        from core.utils.cache import CacheService
+        if CacheService.is_rate_limited(f'otp:{phone_number}', max_requests=5, window_secs=3600):
+            return Response(
+                {'error': 'rate_limited', 'message': 'Too many OTP requests. Please try again later.'},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+
         OTPService.generate_and_send(phone_number)
         return Response({'message': 'OTP sent successfully'}, status=status.HTTP_200_OK)
 
 
 class OTPVerifyView(APIView):
     permission_classes = [AllowAny]
-    throttle_scope = 'otp_verify'
 
     @extend_schema(
         tags=[_TAG],

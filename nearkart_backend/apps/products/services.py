@@ -43,17 +43,42 @@ class ProductService:
 
     @staticmethod
     def search(query: str, lat: float = None, lng: float = None, radius_km: int = 5):
+        """
+        Algorithm 7 — BM25 hybrid search.
+
+        Combines PostgreSQL full-text ranking (ts_rank_cd, BM25 approximation)
+        with trigram similarity for typo tolerance. Uses 'simple' text config
+        so Indian brand names are not stemmed.
+
+        Hybrid score = 0.6 × BM25_rank + 0.4 × trigram_similarity
+        """
         from .models import Product
+        from django.contrib.postgres.search import (
+            SearchVector, SearchQuery, SearchRank, TrigramSimilarity,
+        )
+        from django.db.models import F, ExpressionWrapper, FloatField, Q
+
+        search_vector = (
+            SearchVector('name', weight='A', config='simple') +
+            SearchVector('description', weight='B', config='simple')
+        )
+        search_query = SearchQuery(query, search_type='plain', config='simple')
+
         qs = Product.objects.filter(
             status='active',
             is_visible=True,
             store__is_active=True,
             store__is_verified=True,
         ).select_related('store').prefetch_related('variants', 'images').annotate(
-            similarity=TrigramSimilarity('name', query)
+            bm25_rank=SearchRank(search_vector, search_query, cover_density=True),
+            trigram_score=TrigramSimilarity('name', query),
+            hybrid_score=ExpressionWrapper(
+                F('bm25_rank') * 0.6 + F('trigram_score') * 0.4,
+                output_field=FloatField(),
+            ),
         ).filter(
-            similarity__gt=0.2
-        ).order_by('-similarity')
+            Q(bm25_rank__gt=0.01) | Q(trigram_score__gt=0.2)
+        ).order_by('-hybrid_score')
 
         if lat is not None and lng is not None:
             from django.contrib.gis.geos import Point
