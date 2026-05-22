@@ -16,7 +16,7 @@ services:
           --bind 0.0.0.0:8000
           --worker-class uvicorn.workers.UvicornWorker
           --workers 9
-          --worker-connections 1000
+          --worker-connections 2000
           --timeout 30
           --keepalive 5
           --max-requests 1000
@@ -94,17 +94,19 @@ services:
     image: postgis/postgis:15-3.3
     command: >
       postgres
-        -c max_connections=200
-        -c shared_buffers=256MB
-        -c effective_cache_size=768MB
-        -c work_mem=8MB
-        -c maintenance_work_mem=64MB
+        -c max_connections=300
+        -c shared_buffers=512MB
+        -c effective_cache_size=1536MB
+        -c work_mem=16MB
+        -c maintenance_work_mem=128MB
         -c checkpoint_completion_target=0.9
-        -c wal_buffers=16MB
+        -c wal_buffers=32MB
         -c default_statistics_target=100
         -c random_page_cost=1.1
         -c effective_io_concurrency=200
         -c statement_timeout=10000
+        -c max_parallel_workers_per_gather=2
+        -c max_parallel_workers=4
     environment:
       POSTGRES_DB: nearkart
       POSTGRES_USER: nearkart
@@ -125,7 +127,9 @@ services:
   # Sits between Django (9 workers × N coroutines) and Postgres.
   # Transaction pooling: each Django request borrows a real DB connection
   # only while executing SQL, then returns it to the pool immediately.
-  # This allows 10,000 app connections to share 20 real DB connections.
+  # This allows 25,000 app connections to share 50 real DB connections.
+  # Pool math: 50 conns × (1000ms / 20ms avg query) = 2,500 DB ops/sec
+  # At 20% DB hit rate from 10,000 users = 2,000 ops/sec → fits safely.
   pgbouncer:
     image: bitnami/pgbouncer:latest
     environment:
@@ -136,14 +140,14 @@ services:
       POSTGRESQL_PASSWORD: ${DB_PASSWORD}
       PGBOUNCER_DATABASE: nearkart
       PGBOUNCER_POOL_MODE: transaction
-      PGBOUNCER_MAX_CLIENT_CONN: 10000
-      PGBOUNCER_DEFAULT_POOL_SIZE: 20
-      PGBOUNCER_MIN_POOL_SIZE: 5
-      PGBOUNCER_RESERVE_POOL_SIZE: 5
+      PGBOUNCER_MAX_CLIENT_CONN: 25000
+      PGBOUNCER_DEFAULT_POOL_SIZE: 50
+      PGBOUNCER_MIN_POOL_SIZE: 10
+      PGBOUNCER_RESERVE_POOL_SIZE: 10
       PGBOUNCER_RESERVE_POOL_TIMEOUT: 3
       PGBOUNCER_SERVER_IDLE_TIMEOUT: 600
       PGBOUNCER_CLIENT_IDLE_TIMEOUT: 0
-      PGBOUNCER_MAX_DB_CONNECTIONS: 50
+      PGBOUNCER_MAX_DB_CONNECTIONS: 100
       PGBOUNCER_IGNORE_STARTUP_PARAMETERS: extra_float_digits
     ports:
       - "6432:6432"
@@ -161,7 +165,7 @@ services:
     image: redis:7-alpine
     command: >
       redis-server
-        --maxmemory 512mb
+        --maxmemory 1gb
         --maxmemory-policy allkeys-lru
         --save ""
         --appendonly no
