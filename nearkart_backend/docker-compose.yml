@@ -8,21 +8,10 @@ services:
     build:
       context: .
       target: development
-    command: >
-      bash -c "
-        /venv/bin/python manage.py migrate &&
-        /venv/bin/python manage.py collectstatic --noinput &&
-        /venv/bin/gunicorn config.asgi:application
-          --bind 0.0.0.0:8000
-          --worker-class uvicorn.workers.UvicornWorker
-          --workers 9
-          --worker-connections 2000
-          --timeout 30
-          --keepalive 5
-          --max-requests 1000
-          --max-requests-jitter 100
-          --reload
-      "
+    command: >-
+      bash -c "/venv/bin/python manage.py migrate &&
+      /venv/bin/python manage.py collectstatic --noinput &&
+      /venv/bin/daphne -b 0.0.0.0 -p 8000 config.asgi:application"
     volumes:
       - .:/app
     ports:
@@ -131,24 +120,25 @@ services:
   # Pool math: 50 conns × (1000ms / 20ms avg query) = 2,500 DB ops/sec
   # At 20% DB hit rate from 10,000 users = 2,000 ops/sec → fits safely.
   pgbouncer:
-    image: bitnami/pgbouncer:latest
+    image: edoburu/pgbouncer:latest
     environment:
-      POSTGRESQL_HOST: postgres
-      POSTGRESQL_PORT: 5432
-      POSTGRESQL_DATABASE: nearkart
-      POSTGRESQL_USERNAME: nearkart
-      POSTGRESQL_PASSWORD: ${DB_PASSWORD}
-      PGBOUNCER_DATABASE: nearkart
-      PGBOUNCER_POOL_MODE: transaction
-      PGBOUNCER_MAX_CLIENT_CONN: 25000
-      PGBOUNCER_DEFAULT_POOL_SIZE: 50
-      PGBOUNCER_MIN_POOL_SIZE: 10
-      PGBOUNCER_RESERVE_POOL_SIZE: 10
-      PGBOUNCER_RESERVE_POOL_TIMEOUT: 3
-      PGBOUNCER_SERVER_IDLE_TIMEOUT: 600
-      PGBOUNCER_CLIENT_IDLE_TIMEOUT: 0
-      PGBOUNCER_MAX_DB_CONNECTIONS: 100
-      PGBOUNCER_IGNORE_STARTUP_PARAMETERS: extra_float_digits
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: nearkart
+      DB_USER: nearkart
+      DB_PASSWORD: ${DB_PASSWORD}
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: 25000
+      DEFAULT_POOL_SIZE: 50
+      MIN_POOL_SIZE: 10
+      RESERVE_POOL_SIZE: 10
+      RESERVE_POOL_TIMEOUT: 3
+      SERVER_IDLE_TIMEOUT: 600
+      CLIENT_IDLE_TIMEOUT: 0
+      MAX_DB_CONNECTIONS: 100
+      IGNORE_STARTUP_PARAMETERS: extra_float_digits,statement_timeout,options
+      AUTH_TYPE: scram-sha-256
+      LISTEN_PORT: 6432
     ports:
       - "6432:6432"
     depends_on:
