@@ -177,11 +177,12 @@ Run with: `python3 docs/gen_api_guide.py` or `python3 docs/gen_project_journey.p
 
 ---
 
-## Sprint 13 — Tests
+## Sprint 13 — Performance + Tests
 
 | Document | File Path | What it contains |
 |----------|-----------|-----------------|
 | **Test Runner Guide** | `docs/sprint_13_tests/TEST_RUNNER_GUIDE.md` | How to install, run all/single/keyword tests, coverage reports, markers, CI replication, dev-mode bypass explanations |
+| **Server Capability** | `docs/sprint_13_tests/SERVER_CAPABILITY.md` | Concurrent user capacity, layer-by-layer breakdown, cache hit rates, configuration reference, scaling roadmap to 25k+ users, monitoring commands |
 
 ---
 
@@ -206,3 +207,5 @@ Run with: `python3 docs/gen_api_guide.py` or `python3 docs/gen_project_journey.p
 | How to deploy to production | `docs/sprint_12_production/DEPLOY_CHECKLIST.md` |
 | All database tables | `docs/DATABASE_SCHEMA.txt` |
 | How to run the test suite | `docs/sprint_13_tests/TEST_RUNNER_GUIDE.md` |
+| How many users the server can handle | `docs/sprint_13_tests/SERVER_CAPABILITY.md` |
+| How to scale beyond 10,000 users | `docs/sprint_13_tests/SERVER_CAPABILITY.md` |
