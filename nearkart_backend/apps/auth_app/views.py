@@ -190,6 +190,7 @@ class OTPVerifyView(APIView):
         return Response({
             'message': 'Login successful',
             'user': UserSerializer(user).data,
+            'is_new': user.registered_location is None,
             **tokens,
         }, status=status.HTTP_200_OK)
 
