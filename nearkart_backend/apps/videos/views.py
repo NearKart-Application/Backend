@@ -23,6 +23,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 import rest_framework.serializers as s
 
+from core.logging import log_event
 from core.permissions import IsVendor
 from core.utils.cache import CacheService
 from core.utils.upload_tracker import UploadTracker
@@ -104,6 +105,9 @@ class VideoUploadRequestView(APIView):
             title=serializer.validated_data['title'],
             description=serializer.validated_data.get('description', ''),
         )
+        log_event('videos', action='video_upload_requested', video_id=str(video.id),
+                  store_id=str(request.user.store.id), user_id=str(request.user.id),
+                  title=video.title)
         return Response({
             'video_id': video.id,
             'upload_url': upload_url,
@@ -173,6 +177,9 @@ class VideoConfirmUploadView(APIView):
             )
         video = VideoService.confirm_upload(video, duration_seconds=duration)
         CacheService.invalidate_video_feeds()
+        log_event('videos', action='video_upload_confirmed', video_id=str(video_id),
+                  store_id=str(request.user.store.id), user_id=str(request.user.id),
+                  status=video.status, duration_seconds=duration)
         return Response({
             'video_id': video.id,
             'status':   video.status,
@@ -349,8 +356,11 @@ class VideoDeleteView(APIView):
                 {'error': 'not_found', 'message': 'Video not found.'},
                 status=status.HTTP_404_NOT_FOUND,
             )
+        store_id = str(video.store_id)
         video.delete()
         CacheService.invalidate_video_feeds()
+        log_event('videos', action='video_deleted', video_id=str(video_id),
+                  store_id=store_id, user_id=str(request.user.id))
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -387,6 +397,9 @@ class VideoLikeView(APIView):
                 video.title,
                 str(video.id),
             )
+        log_event('videos', action='video_liked' if liked else 'video_unliked',
+                  video_id=str(video_id), store_id=str(video.store_id),
+                  user_id=str(request.user.id))
         return Response({'liked': liked, 'message': 'Liked.' if liked else 'Unliked.'})
 
 

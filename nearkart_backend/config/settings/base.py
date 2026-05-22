@@ -85,6 +85,7 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'core.middleware.RequestLoggingMiddleware',
 ]
 
 ROOT_URLCONF = 'config.urls'
@@ -401,43 +402,122 @@ USE_TZ = True
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # ── LOGGING ────────────────────────────────────────────────────
+_LOG_DIR = BASE_DIR.parent / 'logs'
+_LOG_DIR.mkdir(exist_ok=True)
+
+
+def _rotating(filename: str, formatter: str = 'entity') -> dict:
+    return {
+        'class':       'logging.handlers.RotatingFileHandler',
+        'filename':    str(_LOG_DIR / filename),
+        'maxBytes':    10 * 1024 * 1024,  # rotate at 10 MB
+        'backupCount': 7,                  # keep 7 compressed backups (~70 MB max per log)
+        'encoding':    'utf-8',
+        'formatter':   formatter,
+    }
+
+
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
     'formatters': {
-        'verbose': {
-            'format': '{levelname} {asctime} {module} {process:d} {thread:d} {message}',
-            'style': '{',
+        # Instagram-style: single JSON line per event — query with jq
+        'json': {
+            '()': 'core.logging.JsonFormatter',
+        },
+        # Human-readable key=value lines — for entity-specific log files
+        'entity': {
+            '()': 'core.logging.EntityFormatter',
         },
         'simple': {
             'format': '{levelname} {asctime} {message}',
-            'style': '{',
+            'style':  '{',
         },
     },
     'handlers': {
         'console': {
-            'class': 'logging.StreamHandler',
+            'class':     'logging.StreamHandler',
             'formatter': 'simple',
         },
+        # ── Global JSON stream (all events) ──────────────────────
+        'app_file':         {**_rotating('app.log',          'json')},
+        # ── Errors only (all apps, ERROR+) ───────────────────────
+        'error_file':       {**_rotating('error.log'),       **{'level': 'ERROR'}},
+        # ── Per-entity text logs ──────────────────────────────────
+        'auth_file':         {**_rotating('auth.log')},
+        'stores_file':       {**_rotating('stores.log')},
+        'products_file':     {**_rotating('products.log')},
+        'customers_file':    {**_rotating('customers.log')},
+        'reservations_file': {**_rotating('reservations.log')},
+        'videos_file':       {**_rotating('videos.log')},
+        'billing_file':      {**_rotating('billing.log')},
+        'requests_file':     {**_rotating('requests.log')},
     },
     'root': {
-        'handlers': ['console'],
-        'level': 'INFO',
+        'handlers': ['console', 'error_file'],
+        'level':    'WARNING',
     },
     'loggers': {
         'django': {
-            'handlers': ['console'],
-            'level': 'INFO',
+            'handlers':  ['console', 'error_file'],
+            'level':     'INFO',
             'propagate': False,
         },
         'apps': {
-            'handlers': ['console'],
-            'level': 'DEBUG',
+            'handlers':  ['console'],
+            'level':     'DEBUG',
             'propagate': False,
         },
         'celery': {
-            'handlers': ['console'],
-            'level': 'INFO',
+            'handlers':  ['console'],
+            'level':     'INFO',
+            'propagate': False,
+        },
+        # ── Global JSON stream ────────────────────────────────────
+        'nearkart.app': {
+            'handlers':  ['app_file'],
+            'level':     'DEBUG',
+            'propagate': False,
+        },
+        # ── Entity-specific text loggers ──────────────────────────
+        'nearkart.auth': {
+            'handlers':  ['auth_file'],
+            'level':     'DEBUG',
+            'propagate': False,
+        },
+        'nearkart.stores': {
+            'handlers':  ['stores_file'],
+            'level':     'DEBUG',
+            'propagate': False,
+        },
+        'nearkart.products': {
+            'handlers':  ['products_file'],
+            'level':     'DEBUG',
+            'propagate': False,
+        },
+        'nearkart.customers': {
+            'handlers':  ['customers_file'],
+            'level':     'DEBUG',
+            'propagate': False,
+        },
+        'nearkart.reservations': {
+            'handlers':  ['reservations_file'],
+            'level':     'DEBUG',
+            'propagate': False,
+        },
+        'nearkart.videos': {
+            'handlers':  ['videos_file'],
+            'level':     'DEBUG',
+            'propagate': False,
+        },
+        'nearkart.billing': {
+            'handlers':  ['billing_file'],
+            'level':     'DEBUG',
+            'propagate': False,
+        },
+        'nearkart.requests': {
+            'handlers':  ['requests_file'],
+            'level':     'DEBUG',
             'propagate': False,
         },
     },

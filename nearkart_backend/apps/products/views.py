@@ -17,6 +17,7 @@ from rest_framework.views import APIView
 from drf_spectacular.utils import extend_schema, OpenApiExample, OpenApiParameter, OpenApiResponse, inline_serializer
 import rest_framework.serializers as s
 
+from core.logging import log_event
 from core.permissions import IsVendor, IsStoreOwner
 from core.utils.cache import CacheService
 from core.utils.upload_tracker import UploadTracker
@@ -91,8 +92,11 @@ class ProductSearchView(APIView):
         except ValueError:
             lat = lng = None
             radius = 5
-        products = ProductService.search(query, lat, lng, radius)
+        products   = ProductService.search(query, lat, lng, radius)
         serialized = ProductListSerializer(products, many=True, context={'request': request}).data
+        user = request.user if request.user.is_authenticated else None
+        log_event('customers', action='product_searched', query=query, results=len(serialized),
+                  user_id=str(user.id) if user else None)
         return Response({'count': len(serialized), 'next': None, 'previous': None, 'results': serialized})
 
 
@@ -113,6 +117,9 @@ class ProductDetailView(APIView):
             return Response({'error': 'not_found', 'message': 'Product not found.'}, status=status.HTTP_404_NOT_FOUND)
         data = MobileProductDetailSerializer(product, context={'request': request}).data
         CacheService.set(key, data, timeout=CacheService.TTL_PRODUCT_DETAIL)
+        user = request.user if request.user.is_authenticated else None
+        log_event('products', action='product_viewed', product_id=str(product_id),
+                  store_id=str(product.store_id), user_id=str(user.id) if user else None)
         return Response(data)
 
 
@@ -187,6 +194,9 @@ class ProductCreateView(APIView):
         serializer = ProductSerializer(data=request.data, context={'request': request})
         serializer.is_valid(raise_exception=True)
         product = ProductService.create(request.user.store, serializer.validated_data)
+        log_event('products', action='product_created', product_id=str(product.id),
+                  store_id=str(request.user.store.id), user_id=str(request.user.id),
+                  name=product.name, price=str(product.base_price))
         return Response(ProductSerializer(product, context={'request': request}).data, status=status.HTTP_201_CREATED)
 
 
@@ -221,6 +231,8 @@ class ProductUpdateView(APIView):
         serializer.is_valid(raise_exception=True)
         product = ProductService.update(product, serializer.validated_data)
         CacheService.invalidate_product_detail(str(product_id))
+        log_event('products', action='product_updated', product_id=str(product_id),
+                  store_id=str(product.store_id), user_id=str(request.user.id))
         return Response(ProductSerializer(product, context={'request': request}).data)
 
     @extend_schema(tags=[_TAG], summary='Delete product (owner only)', responses={204: None})
@@ -230,8 +242,11 @@ class ProductUpdateView(APIView):
         except Product.DoesNotExist:
             return Response({'error': 'not_found', 'message': 'Product not found.'}, status=status.HTTP_404_NOT_FOUND)
         self.check_object_permissions(request, product)
+        store_id = str(product.store_id)
         product.delete()
         CacheService.invalidate_product_detail(str(product_id))
+        log_event('products', action='product_deleted', product_id=str(product_id),
+                  store_id=store_id, user_id=str(request.user.id))
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -251,6 +266,9 @@ class ProductWishlistView(APIView):
             return Response({'error': 'not_found', 'message': 'Product not found.'}, status=status.HTTP_404_NOT_FOUND)
         added = ProductService.toggle_wishlist(request.user, product)
         msg = 'Added to wishlist.' if added else 'Removed from wishlist.'
+        log_event('customers', action='product_wishlisted' if added else 'product_unwishlisted',
+                  product_id=str(product_id), store_id=str(product.store_id),
+                  user_id=str(request.user.id))
         return Response({'wishlisted': added, 'message': msg})
 
     @extend_schema(tags=[_TAG], summary='Remove product from wishlist', responses={200: None})

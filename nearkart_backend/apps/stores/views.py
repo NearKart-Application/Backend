@@ -19,6 +19,7 @@ from rest_framework.views import APIView
 from drf_spectacular.utils import extend_schema, OpenApiExample, OpenApiParameter, OpenApiResponse, inline_serializer
 import rest_framework.serializers as s
 
+from core.logging import log_event
 from core.permissions import IsVendor, IsStoreOwner
 from core.utils.cache import CacheService
 from apps.blacklist.services import BlacklistService
@@ -156,6 +157,8 @@ class StoreCreateView(APIView):
         serializer = StoreSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         store = StoreService.create(request.user, serializer.validated_data)
+        log_event('stores', action='store_created', store_id=str(store.id),
+                  user_id=str(request.user.id), name=store.name, category=store.category)
         return Response(StoreSerializer(store).data, status=status.HTTP_201_CREATED)
 
 
@@ -177,6 +180,14 @@ class StoreUpdateView(APIView):
             from apps.stores.models import StoreFollow
             follower_ids = list(StoreFollow.objects.filter(store=store).values_list('user_id', flat=True))
             _dispatch_store_opened(follower_ids, store.name, str(store.id))
+            log_event('stores', action='store_opened', store_id=str(store.id),
+                      user_id=str(request.user.id), name=store.name)
+        elif was_open and not store.is_open:
+            log_event('stores', action='store_closed', store_id=str(store.id),
+                      user_id=str(request.user.id), name=store.name)
+        else:
+            log_event('stores', action='store_updated', store_id=str(store.id),
+                      user_id=str(request.user.id))
         return Response(StoreSerializer(store).data)
 
 
@@ -206,6 +217,10 @@ class StoreFollowView(APIView):
             )
         followed = StoreService.toggle_follow(request.user, store)
         msg = 'Following store.' if followed else 'Unfollowed store.'
+        log_event('stores', action='store_followed' if followed else 'store_unfollowed',
+                  store_id=str(store_id), user_id=str(request.user.id), store_name=store.name)
+        log_event('customers', action='store_followed' if followed else 'store_unfollowed',
+                  user_id=str(request.user.id), store_id=str(store_id))
         return Response({'followed': followed, 'message': msg})
 
     @extend_schema(tags=[_TAG], summary='Unfollow store', responses={200: None})

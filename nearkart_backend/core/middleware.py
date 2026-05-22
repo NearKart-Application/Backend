@@ -1,14 +1,21 @@
 """
-NearKart — JWT Authentication Middleware for WebSocket
+NearKart — Middleware
+  - JWTAuthMiddleware      : authenticates WebSocket connections via JWT query param
+  - RequestLoggingMiddleware: logs every HTTP request to requests.log + app.log
 """
+import time
 from urllib.parse import parse_qs
-from channels.middleware import BaseMiddleware
+
 from channels.db import database_sync_to_async
-from rest_framework_simplejwt.tokens import AccessToken
+from channels.middleware import BaseMiddleware
 from rest_framework_simplejwt.exceptions import TokenError
+from rest_framework_simplejwt.tokens import AccessToken
 import logging
 
 logger = logging.getLogger(__name__)
+
+# Paths we never log — too noisy, zero business value
+_SKIP_PREFIXES = ('/health/', '/static/', '/media/', '/favicon')
 
 
 class JWTAuthMiddleware(BaseMiddleware):
@@ -40,3 +47,46 @@ class JWTAuthMiddleware(BaseMiddleware):
 
 def JWTAuthMiddlewareStack(inner):
     return JWTAuthMiddleware(inner)
+
+
+class RequestLoggingMiddleware:
+    """
+    Logs every HTTP request to requests.log (human-readable) and app.log (JSON).
+
+    Each line captures: method, path, status, duration_ms, user_id, role.
+    Health checks, static files, and media are skipped to keep logs clean.
+    """
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        if any(request.path.startswith(p) for p in _SKIP_PREFIXES):
+            return self.get_response(request)
+
+        start    = time.monotonic()
+        response = self.get_response(request)
+        duration = int((time.monotonic() - start) * 1000)
+
+        user = getattr(request, 'user', None)
+        authed = user is not None and user.is_authenticated
+
+        level = 'info'
+        if response.status_code >= 500:
+            level = 'error'
+        elif response.status_code >= 400:
+            level = 'warning'
+
+        from core.logging import log_event
+        log_event(
+            'requests',
+            level       = level,
+            action      = 'http_request',
+            method      = request.method,
+            path        = request.path,
+            status      = response.status_code,
+            duration_ms = duration,
+            user_id     = str(user.id)   if authed else None,
+            role        = user.role      if authed else None,
+        )
+        return response

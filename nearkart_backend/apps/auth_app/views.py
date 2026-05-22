@@ -19,6 +19,7 @@ from drf_spectacular.utils import extend_schema, OpenApiResponse, OpenApiExample
 from drf_spectacular.openapi import AutoSchema
 import rest_framework.serializers as s
 
+from core.logging import log_event
 from .serializers import (
     OTPSendSerializer,
     OTPVerifySerializer,
@@ -116,6 +117,7 @@ class OTPSendView(APIView):
                 )
 
         OTPService.generate_and_send(phone_number)
+        log_event('auth', action='otp_sent', phone=phone_number, is_signup=is_signup)
         return Response({'message': 'OTP sent successfully'}, status=status.HTTP_200_OK)
 
 
@@ -197,6 +199,8 @@ class OTPVerifyView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         tokens = JWTService.issue_tokens(user)
+        log_event('auth', action='login_success', user_id=str(user.id), role=user.role,
+                  phone=str(user.phone_number), is_new=user.registered_location is None)
         return Response({
             'message': 'Login successful',
             'user': UserSerializer(user).data,
@@ -412,4 +416,5 @@ class LogoutView(APIView):
                 RefreshToken(refresh_token).blacklist()
             except TokenError:
                 pass
+        log_event('auth', action='logout', user_id=str(request.user.id), role=request.user.role)
         return Response({'message': 'Logged out successfully'}, status=status.HTTP_200_OK)
