@@ -3,6 +3,7 @@ NearKart — Base Django Settings
 Shared across all environments (development, staging, production)
 """
 import os
+import platform
 from pathlib import Path
 import environ
 import sentry_sdk
@@ -12,6 +13,18 @@ from sentry_sdk.integrations.redis import RedisIntegration
 
 # ── PATHS ──────────────────────────────────────────────────────
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
+
+# ── GDAL / GEOS (macOS Homebrew) ───────────────────────────────
+if platform.system() == "Darwin":
+    _brew_prefix = "/opt/homebrew"  # Apple Silicon; Intel uses /usr/local
+    GDAL_LIBRARY_PATH = os.environ.get(
+        "GDAL_LIBRARY_PATH",
+        f"{_brew_prefix}/lib/libgdal.dylib",
+    )
+    GEOS_LIBRARY_PATH = os.environ.get(
+        "GEOS_LIBRARY_PATH",
+        f"{_brew_prefix}/lib/libgeos_c.dylib",
+    )
 
 # ── ENVIRONMENT ────────────────────────────────────────────────
 env = environ.Env()
@@ -72,6 +85,7 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'core.middleware.RequestLoggingMiddleware',
 ]
 
 ROOT_URLCONF = 'config.urls'
@@ -102,11 +116,18 @@ DATABASES = {
         'NAME': env('DB_NAME', default='nearkart'),
         'USER': env('DB_USER', default='nearkart'),
         'PASSWORD': env('DB_PASSWORD'),
-        'HOST': env('DB_HOST', default='postgres'),
-        'PORT': env('DB_PORT', default='5432'),
-        'CONN_MAX_AGE': 60,
+        # Point to PgBouncer (port 6432), not Postgres directly.
+        # PgBouncer pools connections so 10,000 app connections share 20 DB connections.
+        'HOST': env('DB_HOST', default='pgbouncer'),
+        'PORT': env('DB_PORT', default='6432'),
+        # CONN_MAX_AGE must be 0 with PgBouncer transaction pooling.
+        # Persistent connections + transaction pooling = stale connection errors.
+        'CONN_MAX_AGE': 0,
         'OPTIONS': {
             'connect_timeout': 10,
+            # Kill any single query that runs longer than 10 s — prevents slow
+            # geo queries from holding DB connections and blocking the pool.
+            'options': '-c statement_timeout=10000',
         },
     }
 }
@@ -150,6 +171,18 @@ CELERY_BEAT_SCHEDULER = 'django_celery_beat.schedulers:DatabaseScheduler'
 CELERY_TASK_TRACK_STARTED = True
 CELERY_TASK_TIME_LIMIT = 600
 CELERY_WORKER_PREFETCH_MULTIPLIER = 1
+
+# ── CELERY QUEUE ROUTING ────────────────────────────────────────
+# transcode_video goes to the dedicated 'transcoding' queue consumed ONLY by
+# celery-transcoding workers (3 FFmpeg processes, max-tasks-per-child=10).
+# Every other task routes to 'default' (4 workers — notifications, SMS,
+# billing, analytics, Beat-triggered jobs).
+# This isolation ensures FFmpeg jobs never starve push notifications or
+# reservation expiry tasks, and vice-versa.
+CELERY_TASK_DEFAULT_QUEUE = 'default'
+CELERY_TASK_ROUTES = {
+    'apps.videos.tasks.transcode_video': {'queue': 'transcoding'},
+}
 
 # ── CELERY BEAT SCHEDULE ───────────────────────────────────────
 from celery.schedules import crontab
@@ -201,7 +234,7 @@ SIMPLE_JWT = {
     'ROTATE_REFRESH_TOKENS': False,
     'BLACKLIST_AFTER_ROTATION': True,
     'ALGORITHM': 'HS256',
-    'SIGNING_KEY': SECRET_KEY,
+    'SIGNING_KEY': env('JWT_SECRET_KEY', default=SECRET_KEY),
     'AUTH_HEADER_TYPES': ('Bearer',),
     'USER_ID_FIELD': 'id',
     'USER_ID_CLAIM': 'user_id',
@@ -210,7 +243,7 @@ SIMPLE_JWT = {
 # ── DRF ────────────────────────────────────────────────────────
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
-        'rest_framework_simplejwt.authentication.JWTAuthentication',
+        'core.authentication.SoftJWTAuthentication',
     ],
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticated',
@@ -296,6 +329,11 @@ AWS_REGION = env('AWS_REGION', default='ap-south-1')
 AWS_S3_BUCKET = env('AWS_S3_BUCKET', default='nearkart-media-dev')
 AWS_CDN_DOMAIN = env('AWS_CDN_DOMAIN', default='')
 AWS_PRESIGNED_URL_EXPIRY = env.int('AWS_PRESIGNED_URL_EXPIRY', default=900)
+# S3 Transfer Acceleration — routes uploads to the nearest AWS edge node.
+# Requires the bucket to have Transfer Acceleration enabled in the AWS console.
+# 50–500% faster for users far from ap-south-1 (Mumbai).
+# Cost: $0.004/GB extra. Enable only in production after enabling on the bucket.
+AWS_S3_USE_ACCELERATE = env.bool('AWS_S3_USE_ACCELERATE', default=False)
 
 # ── RAZORPAY ───────────────────────────────────────────────────
 RAZORPAY_KEY_ID      = env('RAZORPAY_KEY_ID',      default='rzp_test_PLACEHOLDER')
@@ -319,9 +357,22 @@ DEFAULT_FROM_NAME = env('DEFAULT_FROM_NAME', default='NearKart')
 GOOGLE_MAPS_API_KEY = env('GOOGLE_MAPS_API_KEY', default='')
 
 # ── RATE LIMITS ────────────────────────────────────────────────
-OTP_SEND_RATE_LIMIT = env.int('OTP_SEND_RATE_LIMIT', default=5)
-OTP_VERIFY_RATE_LIMIT = env.int('OTP_VERIFY_RATE_LIMIT', default=10)
+OTP_SEND_RATE_LIMIT    = env.int('OTP_SEND_RATE_LIMIT',    default=5)
+OTP_VERIFY_RATE_LIMIT  = env.int('OTP_VERIFY_RATE_LIMIT',  default=10)
 VIDEO_UPLOAD_RATE_LIMIT = env.int('VIDEO_UPLOAD_RATE_LIMIT', default=10)
+
+# ── UPLOAD DAILY LIMITS ─────────────────────────────────────────
+# Per-vendor per-day upload caps enforced by UploadTracker (Redis Lua counter).
+# 0 = unlimited. These are protection limits — BillingService enforces plan
+# quotas (total videos/products stored) separately.
+VIDEO_DAILY_UPLOAD_LIMIT = env.int('VIDEO_DAILY_UPLOAD_LIMIT', default=10)
+PHOTO_DAILY_UPLOAD_LIMIT = env.int('PHOTO_DAILY_UPLOAD_LIMIT', default=50)
+
+# ── DEV OTP BYPASS ─────────────────────────────────────────────
+# When DEBUG=True these phones skip OTP rate limiting entirely so load
+# tests and QA sessions can authenticate freely without hitting the
+# 5-per-hour ceiling. Never populated in production (DEBUG=False).
+DEV_BYPASS_PHONES: set[str] = set(env.list('DEV_BYPASS_PHONES', default=[])) if DEBUG else set()
 
 # ── BUSINESS LOGIC CONSTANTS ───────────────────────────────────
 BLACKLIST_INACTIVE_DAYS = env.int('BLACKLIST_INACTIVE_DAYS', default=30)
@@ -351,43 +402,122 @@ USE_TZ = True
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # ── LOGGING ────────────────────────────────────────────────────
+_LOG_DIR = BASE_DIR.parent / 'logs'
+_LOG_DIR.mkdir(exist_ok=True)
+
+
+def _rotating(filename: str, formatter: str = 'entity') -> dict:
+    return {
+        'class':       'logging.handlers.RotatingFileHandler',
+        'filename':    str(_LOG_DIR / filename),
+        'maxBytes':    10 * 1024 * 1024,  # rotate at 10 MB
+        'backupCount': 7,                  # keep 7 compressed backups (~70 MB max per log)
+        'encoding':    'utf-8',
+        'formatter':   formatter,
+    }
+
+
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
     'formatters': {
-        'verbose': {
-            'format': '{levelname} {asctime} {module} {process:d} {thread:d} {message}',
-            'style': '{',
+        # Instagram-style: single JSON line per event — query with jq
+        'json': {
+            '()': 'core.logging.JsonFormatter',
+        },
+        # Human-readable key=value lines — for entity-specific log files
+        'entity': {
+            '()': 'core.logging.EntityFormatter',
         },
         'simple': {
             'format': '{levelname} {asctime} {message}',
-            'style': '{',
+            'style':  '{',
         },
     },
     'handlers': {
         'console': {
-            'class': 'logging.StreamHandler',
+            'class':     'logging.StreamHandler',
             'formatter': 'simple',
         },
+        # ── Global JSON stream (all events) ──────────────────────
+        'app_file':         {**_rotating('app.log',          'json')},
+        # ── Errors only (all apps, ERROR+) ───────────────────────
+        'error_file':       {**_rotating('error.log'),       **{'level': 'ERROR'}},
+        # ── Per-entity text logs ──────────────────────────────────
+        'auth_file':         {**_rotating('auth.log')},
+        'stores_file':       {**_rotating('stores.log')},
+        'products_file':     {**_rotating('products.log')},
+        'customers_file':    {**_rotating('customers.log')},
+        'reservations_file': {**_rotating('reservations.log')},
+        'videos_file':       {**_rotating('videos.log')},
+        'billing_file':      {**_rotating('billing.log')},
+        'requests_file':     {**_rotating('requests.log')},
     },
     'root': {
-        'handlers': ['console'],
-        'level': 'INFO',
+        'handlers': ['console', 'error_file'],
+        'level':    'WARNING',
     },
     'loggers': {
         'django': {
-            'handlers': ['console'],
-            'level': 'INFO',
+            'handlers':  ['console', 'error_file'],
+            'level':     'INFO',
             'propagate': False,
         },
         'apps': {
-            'handlers': ['console'],
-            'level': 'DEBUG',
+            'handlers':  ['console'],
+            'level':     'DEBUG',
             'propagate': False,
         },
         'celery': {
-            'handlers': ['console'],
-            'level': 'INFO',
+            'handlers':  ['console'],
+            'level':     'INFO',
+            'propagate': False,
+        },
+        # ── Global JSON stream ────────────────────────────────────
+        'nearkart.app': {
+            'handlers':  ['app_file'],
+            'level':     'DEBUG',
+            'propagate': False,
+        },
+        # ── Entity-specific text loggers ──────────────────────────
+        'nearkart.auth': {
+            'handlers':  ['auth_file'],
+            'level':     'DEBUG',
+            'propagate': False,
+        },
+        'nearkart.stores': {
+            'handlers':  ['stores_file'],
+            'level':     'DEBUG',
+            'propagate': False,
+        },
+        'nearkart.products': {
+            'handlers':  ['products_file'],
+            'level':     'DEBUG',
+            'propagate': False,
+        },
+        'nearkart.customers': {
+            'handlers':  ['customers_file'],
+            'level':     'DEBUG',
+            'propagate': False,
+        },
+        'nearkart.reservations': {
+            'handlers':  ['reservations_file'],
+            'level':     'DEBUG',
+            'propagate': False,
+        },
+        'nearkart.videos': {
+            'handlers':  ['videos_file'],
+            'level':     'DEBUG',
+            'propagate': False,
+        },
+        'nearkart.billing': {
+            'handlers':  ['billing_file'],
+            'level':     'DEBUG',
+            'propagate': False,
+        },
+        'nearkart.requests': {
+            'handlers':  ['requests_file'],
+            'level':     'DEBUG',
             'propagate': False,
         },
     },

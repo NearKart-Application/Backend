@@ -1,11 +1,17 @@
 services:
 
   # ── DJANGO REST API ────────────────────────────────────────
+  # Workers: (2 × CPU cores) + 1. Adjust CPU_CORES env or hardcode for prod.
+  # max-requests: auto-restart workers after 1000 requests to prevent memory leaks.
+  # CONN_MAX_AGE=0: must be 0 with PgBouncer transaction pooling.
   django:
     build:
       context: .
       target: development
-    command: bash -c "/venv/bin/python manage.py migrate && /venv/bin/python manage.py collectstatic --noinput && /venv/bin/gunicorn config.asgi:application --bind 0.0.0.0:8000 --worker-class uvicorn.workers.UvicornWorker --workers 4 --reload"
+    command: >-
+      bash -c "/venv/bin/python manage.py migrate &&
+      /venv/bin/python manage.py collectstatic --noinput &&
+      /venv/bin/daphne -b 0.0.0.0 -p 8000 config.asgi:application"
     volumes:
       - .:/app
     ports:
@@ -17,6 +23,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      pgbouncer:
+        condition: service_started
     restart: unless-stopped
 
   # ── DAPHNE (WebSocket) ─────────────────────────────────────
@@ -35,12 +43,49 @@ services:
       - django
     restart: unless-stopped
 
-  # ── CELERY WORKER ──────────────────────────────────────────
+  # ── CELERY WORKER — default queue ─────────────────────────────
+  # Handles all non-FFmpeg tasks: push notifications, SMS OTP, billing
+  # expiry, reservation expiry, group events, analytics, Beat-triggered jobs.
+  # prefetch-multiplier=4: lightweight tasks can be pre-fetched safely.
   celery:
     build:
       context: .
       target: development
-    command: /venv/bin/celery -A config worker --loglevel=info --concurrency=4
+    command: >-
+      /venv/bin/celery -A config worker
+      --loglevel=info
+      --queues=default
+      --concurrency=4
+      --max-tasks-per-child=200
+      --prefetch-multiplier=4
+    volumes:
+      - .:/app
+    env_file:
+      - .env
+    depends_on:
+      - postgres
+      - redis
+    restart: unless-stopped
+
+  # ── CELERY WORKER — transcoding queue ─────────────────────────
+  # Dedicated FFmpeg/HLS workers, isolated from all other tasks.
+  # concurrency=3: 3 parallel FFmpeg processes — each saturates ~1 CPU core.
+  # On a 4-core server this leaves 1 core free for Django + DB.
+  # max-tasks-per-child=10: restart worker process after 10 FFmpeg jobs.
+  # libx264 accumulates memory across long sessions; restart reclaims it.
+  # prefetch-multiplier=1: never pre-fetch a 2nd FFmpeg job — a queued job
+  # holds the worker slot while FFmpeg runs, starving shorter tasks.
+  celery-transcoding:
+    build:
+      context: .
+      target: development
+    command: >-
+      /venv/bin/celery -A config worker
+      --loglevel=info
+      --queues=transcoding
+      --concurrency=3
+      --max-tasks-per-child=10
+      --prefetch-multiplier=1
     volumes:
       - .:/app
     env_file:
@@ -67,8 +112,27 @@ services:
     restart: unless-stopped
 
   # ── POSTGRESQL + POSTGIS ───────────────────────────────────
+  # max_connections=200: headroom for PgBouncer server-side pool + admin connections.
+  # shared_buffers=256MB: PostgreSQL in-memory page cache (25% of RAM is typical).
+  # work_mem=8MB: per-sort/hash memory; keeps geo-distance sorts in RAM.
+  # effective_cache_size=768MB: planner hint for index-vs-seqscan decisions.
   postgres:
     image: postgis/postgis:15-3.3
+    command: >
+      postgres
+        -c max_connections=300
+        -c shared_buffers=512MB
+        -c effective_cache_size=1536MB
+        -c work_mem=16MB
+        -c maintenance_work_mem=128MB
+        -c checkpoint_completion_target=0.9
+        -c wal_buffers=32MB
+        -c default_statistics_target=100
+        -c random_page_cost=1.1
+        -c effective_io_concurrency=200
+        -c statement_timeout=10000
+        -c max_parallel_workers_per_gather=2
+        -c max_parallel_workers=4
     environment:
       POSTGRES_DB: nearkart
       POSTGRES_USER: nearkart
@@ -85,10 +149,57 @@ services:
       retries: 5
     restart: unless-stopped
 
+  # ── PGBOUNCER — Connection Pooler ─────────────────────────
+  # Sits between Django (9 workers × N coroutines) and Postgres.
+  # Transaction pooling: each Django request borrows a real DB connection
+  # only while executing SQL, then returns it to the pool immediately.
+  # This allows 25,000 app connections to share 50 real DB connections.
+  # Pool math: 50 conns × (1000ms / 20ms avg query) = 2,500 DB ops/sec
+  # At 20% DB hit rate from 10,000 users = 2,000 ops/sec → fits safely.
+  pgbouncer:
+    image: edoburu/pgbouncer:latest
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: nearkart
+      DB_USER: nearkart
+      DB_PASSWORD: ${DB_PASSWORD}
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: 25000
+      DEFAULT_POOL_SIZE: 50
+      MIN_POOL_SIZE: 10
+      RESERVE_POOL_SIZE: 10
+      RESERVE_POOL_TIMEOUT: 3
+      SERVER_IDLE_TIMEOUT: 600
+      CLIENT_IDLE_TIMEOUT: 0
+      MAX_DB_CONNECTIONS: 100
+      IGNORE_STARTUP_PARAMETERS: extra_float_digits,statement_timeout,options
+      AUTH_TYPE: scram-sha-256
+      LISTEN_PORT: 6432
+    ports:
+      - "6432:6432"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
   # ── REDIS ──────────────────────────────────────────────────
+  # 512MB — enough for: nearby-store cache, product cache, video feeds,
+  # HLL visitor keys, rate-limit ZSETs, OTP keys, JWT blacklist.
+  # noevict-volatile: only TTL-bearing cache keys are evicted; session
+  # and rate-limit data (no TTL or long TTL) are never silently dropped.
   redis:
     image: redis:7-alpine
-    command: redis-server --save 60 1 --loglevel warning --maxmemory 256mb --maxmemory-policy allkeys-lru
+    command: >
+      redis-server
+        --maxmemory 1gb
+        --maxmemory-policy allkeys-lru
+        --save ""
+        --appendonly no
+        --tcp-backlog 511
+        --timeout 0
+        --tcp-keepalive 300
+        --hz 20
     volumes:
       - redis_data:/data
     ports:

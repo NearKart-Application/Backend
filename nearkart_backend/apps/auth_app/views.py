@@ -19,6 +19,7 @@ from drf_spectacular.utils import extend_schema, OpenApiResponse, OpenApiExample
 from drf_spectacular.openapi import AutoSchema
 import rest_framework.serializers as s
 
+from core.logging import log_event
 from .serializers import (
     OTPSendSerializer,
     OTPVerifySerializer,
@@ -35,7 +36,7 @@ _TAG = 'Auth'
 
 class OTPSendView(APIView):
     permission_classes = [AllowAny]
-    throttle_scope = 'otp_send'
+    # throttle_scope replaced by sliding-window rate limiter (see post() below)
 
     @extend_schema(
         tags=[_TAG],
@@ -90,13 +91,38 @@ class OTPSendView(APIView):
         serializer = OTPSendSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         phone_number = serializer.validated_data['phone_number']
+
+        # Algorithm 6 — Sliding window: 5 OTPs per phone per hour.
+        # Dev bypass: permanent QA accounts skip rate limiting so load tests
+        # and multi-device QA can authenticate freely (DEBUG mode only).
+        from django.conf import settings as _s
+        from core.utils.cache import CacheService
+        is_dev_bypass = phone_number in getattr(_s, 'DEV_BYPASS_PHONES', set())
+        if not is_dev_bypass and CacheService.is_rate_limited(
+            f'otp:{phone_number}', max_requests=5, window_secs=3600
+        ):
+            return Response(
+                {'error': 'rate_limited', 'message': 'Too many OTP requests. Please try again later.'},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+
+        is_signup = serializer.validated_data.get('is_signup', False)
+        if not is_signup:
+            # Login flow — reject unknown phone numbers instead of silently creating an account
+            from .models import User as _User
+            if not _User.objects.filter(phone_number=phone_number).exists():
+                return Response(
+                    {'error': 'not_registered', 'message': 'No account found. Please sign up first.'},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
         OTPService.generate_and_send(phone_number)
+        log_event('auth', action='otp_sent', phone=phone_number, is_signup=is_signup)
         return Response({'message': 'OTP sent successfully'}, status=status.HTTP_200_OK)
 
 
 class OTPVerifyView(APIView):
     permission_classes = [AllowAny]
-    throttle_scope = 'otp_verify'
 
     @extend_schema(
         tags=[_TAG],
@@ -173,9 +199,12 @@ class OTPVerifyView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         tokens = JWTService.issue_tokens(user)
+        log_event('auth', action='login_success', user_id=str(user.id), role=user.role,
+                  phone=str(user.phone_number), is_new=user.registered_location is None)
         return Response({
             'message': 'Login successful',
             'user': UserSerializer(user).data,
+            'is_new': user.registered_location is None,
             **tokens,
         }, status=status.HTTP_200_OK)
 
@@ -267,7 +296,11 @@ class MeView(APIView):
         ],
     )
     def patch(self, request):
-        serializer = UserSerializer(request.user, data=request.data, partial=True)
+        data = request.data.copy()
+        # role can only be set when the user has no role yet (first-time signup)
+        if 'role' in data and request.user.role:
+            data.pop('role')
+        serializer = UserSerializer(request.user, data=data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(serializer.data)
@@ -318,6 +351,9 @@ class LocationUpdateView(APIView):
             serializer.validated_data['longitude'],
         )
         return Response({'message': 'Location updated'}, status=status.HTTP_200_OK)
+
+    # Mobile sends PATCH — alias to put so both methods work
+    patch = put
 
 
 class UserSearchView(APIView):
@@ -380,4 +416,5 @@ class LogoutView(APIView):
                 RefreshToken(refresh_token).blacklist()
             except TokenError:
                 pass
+        log_event('auth', action='logout', user_id=str(request.user.id), role=request.user.role)
         return Response({'message': 'Logged out successfully'}, status=status.HTTP_200_OK)

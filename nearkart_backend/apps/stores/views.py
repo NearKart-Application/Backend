@@ -10,6 +10,8 @@ GET  /api/v1/stores/<id>/qr-code/
 PUT  /api/v1/stores/<id>/hours/
 """
 import logging
+import threading
+from django.db import models
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
@@ -17,16 +19,41 @@ from rest_framework.views import APIView
 from drf_spectacular.utils import extend_schema, OpenApiExample, OpenApiParameter, OpenApiResponse, inline_serializer
 import rest_framework.serializers as s
 
+from core.logging import log_event
 from core.permissions import IsVendor, IsStoreOwner
 from core.utils.cache import CacheService
 from apps.blacklist.services import BlacklistService
-from .models import Store, StoreHours
-from .serializers import StoreSerializer, StoreListSerializer, StoreReviewSerializer, StoreHoursSerializer
+from .models import Store, StoreHours, StoreOffer
+from .serializers import (
+    StoreSerializer, StoreListSerializer, StoreReviewSerializer,
+    StoreReviewListSerializer, StoreOfferSerializer,
+    StoreHoursSerializer, StoreMobileDetailSerializer,
+)
 from .services import StoreService, QRService
 
 logger = logging.getLogger(__name__)
 
 _TAG = 'Stores'
+
+
+def _dispatch_store_opened(follower_ids: list, store_name: str, store_id: str):
+    """Fire-and-forget: notify followers a store opened (avoids blocking the API response)."""
+    def _run():
+        from apps.auth_app.models import User
+        from apps.notifications.services import NotificationService
+        followers = list(User.objects.filter(id__in=follower_ids))
+        NotificationService.notify_store_opened(followers, store_name, store_id)
+    threading.Thread(target=_run, daemon=True).start()
+
+
+def _dispatch_new_offer(follower_ids: list, store_name: str, offer_label: str, store_id: str):
+    """Fire-and-forget: notify followers about a new offer."""
+    def _run():
+        from apps.auth_app.models import User
+        from apps.notifications.services import NotificationService
+        followers = list(User.objects.filter(id__in=follower_ids))
+        NotificationService.notify_new_offer(followers, store_name, offer_label, store_id)
+    threading.Thread(target=_run, daemon=True).start()
 
 
 class NearbyStoresView(APIView):
@@ -58,7 +85,8 @@ class NearbyStoresView(APIView):
             )
 
         stores = StoreService.get_nearby(lat, lng, radius_km=radius, category=category)
-        return Response(StoreListSerializer(stores, many=True).data)
+        data = StoreListSerializer(stores, many=True).data
+        return Response({'count': len(data), 'next': None, 'previous': None, 'results': data})
 
 
 class StoreDetailView(APIView):
@@ -66,15 +94,32 @@ class StoreDetailView(APIView):
 
     @extend_schema(tags=[_TAG], summary='Get store detail', responses={200: StoreSerializer}, auth=[])
     def get(self, request, store_id):
-        cached = CacheService.get(CacheService.store_detail_key(str(store_id)))
+        key    = CacheService.store_detail_key(str(store_id))
+        cached = CacheService.get(key)
         if cached:
+            # Algorithm 5 — HyperLogLog: count unique visitors even on cache hits
+            if request.user and request.user.is_authenticated:
+                CacheService.record_store_visit(str(store_id), str(request.user.id))
             return Response(cached)
         try:
-            store = Store.objects.prefetch_related('hours', 'reviews').get(id=store_id, is_active=True)
+            from django.db.models import Count, Avg, Prefetch
+            from .models import StoreHours
+            store = Store.objects.prefetch_related(
+                Prefetch('hours', queryset=StoreHours.objects.all()),
+                'followers',
+            ).annotate(
+                follower_count=Count('followers', distinct=True),
+                avg_rating=Avg('reviews__rating'),
+                review_count_ann=Count('reviews', distinct=True),
+            ).get(id=store_id, is_active=True)
         except Store.DoesNotExist:
             return Response({'error': 'not_found', 'message': 'Store not found.'}, status=status.HTTP_404_NOT_FOUND)
-        data = StoreSerializer(store).data
-        CacheService.set(CacheService.store_detail_key(str(store_id)), data, timeout=CacheService.TTL_STORE_DETAIL)
+        data = StoreMobileDetailSerializer(store, context={'request': request}).data
+        # Cache the serialised response so subsequent requests are served from Redis
+        CacheService.set(key, data, timeout=CacheService.TTL_STORE_DETAIL)
+        # Algorithm 5 — HyperLogLog unique visitor tracking
+        if request.user and request.user.is_authenticated:
+            CacheService.record_store_visit(str(store_id), str(request.user.id))
         return Response(data)
 
 
@@ -112,6 +157,8 @@ class StoreCreateView(APIView):
         serializer = StoreSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         store = StoreService.create(request.user, serializer.validated_data)
+        log_event('stores', action='store_created', store_id=str(store.id),
+                  user_id=str(request.user.id), name=store.name, category=store.category)
         return Response(StoreSerializer(store).data, status=status.HTTP_201_CREATED)
 
 
@@ -131,11 +178,16 @@ class StoreUpdateView(APIView):
         store = StoreService.update(store, serializer.validated_data)
         if not was_open and store.is_open:
             from apps.stores.models import StoreFollow
-            from apps.auth_app.models import User
-            from apps.notifications.services import NotificationService
-            follower_ids = StoreFollow.objects.filter(store=store).values_list('user_id', flat=True)
-            followers = list(User.objects.filter(id__in=follower_ids))
-            NotificationService.notify_store_opened(followers, store.name, str(store.id))
+            follower_ids = list(StoreFollow.objects.filter(store=store).values_list('user_id', flat=True))
+            _dispatch_store_opened(follower_ids, store.name, str(store.id))
+            log_event('stores', action='store_opened', store_id=str(store.id),
+                      user_id=str(request.user.id), name=store.name)
+        elif was_open and not store.is_open:
+            log_event('stores', action='store_closed', store_id=str(store.id),
+                      user_id=str(request.user.id), name=store.name)
+        else:
+            log_event('stores', action='store_updated', store_id=str(store.id),
+                      user_id=str(request.user.id))
         return Response(StoreSerializer(store).data)
 
 
@@ -165,11 +217,49 @@ class StoreFollowView(APIView):
             )
         followed = StoreService.toggle_follow(request.user, store)
         msg = 'Following store.' if followed else 'Unfollowed store.'
+        log_event('stores', action='store_followed' if followed else 'store_unfollowed',
+                  store_id=str(store_id), user_id=str(request.user.id), store_name=store.name)
+        log_event('customers', action='store_followed' if followed else 'store_unfollowed',
+                  user_id=str(request.user.id), store_id=str(store_id))
         return Response({'followed': followed, 'message': msg})
+
+    @extend_schema(tags=[_TAG], summary='Unfollow store', responses={200: None})
+    def delete(self, request, store_id):
+        """Mobile sends DELETE to explicitly unfollow — alias that always unfollows."""
+        try:
+            store = Store.objects.get(id=store_id, is_active=True)
+        except Store.DoesNotExist:
+            return Response({'error': 'not_found', 'message': 'Store not found.'}, status=status.HTTP_404_NOT_FOUND)
+        from apps.stores.models import StoreFollow
+        StoreFollow.objects.filter(user=request.user, store=store).delete()
+        return Response({'followed': False, 'message': 'Unfollowed store.'})
 
 
 class StoreReviewView(APIView):
-    permission_classes = [IsAuthenticated]
+    """
+    GET  /stores/<id>/reviews/ — list reviews (public, also accepted at /review/)
+    POST /stores/<id>/reviews/ — add/update review (also accepted at /review/)
+    """
+
+    def get_permissions(self):
+        if self.request.method == 'GET':
+            return [AllowAny()]
+        return [IsAuthenticated()]
+
+    @extend_schema(tags=[_TAG], summary='List store reviews', responses={200: StoreReviewListSerializer(many=True)}, auth=[])
+    def get(self, request, store_id):
+        try:
+            store = Store.objects.get(id=store_id, is_active=True)
+        except Store.DoesNotExist:
+            return Response({'error': 'not_found', 'message': 'Store not found.'}, status=status.HTTP_404_NOT_FOUND)
+        key    = CacheService.store_reviews_key(str(store_id))
+        cached = CacheService.get(key)
+        if cached is not None:
+            return Response(cached)
+        reviews = store.reviews.select_related('user').order_by('-created_at')[:50]
+        data = {'results': StoreReviewListSerializer(reviews, many=True).data, 'count': len(reviews)}
+        CacheService.set(key, data, timeout=CacheService.TTL_STORE_REVIEWS)
+        return Response(data)
 
     @extend_schema(
         tags=[_TAG],
@@ -206,6 +296,7 @@ class StoreReviewView(APIView):
             serializer.validated_data['rating'],
             serializer.validated_data.get('comment', ''),
         )
+        CacheService.invalidate_store_reviews(str(store_id))
         return Response(StoreReviewSerializer(review).data)
 
 
@@ -294,3 +385,152 @@ class StoreHoursView(APIView):
         ])
         CacheService.delete(CacheService.store_detail_key(str(store.id)))
         return Response(StoreHoursSerializer(sorted(hours, key=lambda h: h.day), many=True).data)
+
+
+class StoreReviewListView(APIView):
+    """GET /api/v1/stores/<id>/reviews/ — public list of reviews for a store."""
+    permission_classes = [AllowAny]
+
+    @extend_schema(tags=[_TAG], summary='List store reviews', responses={200: StoreReviewListSerializer(many=True)}, auth=[])
+    def get(self, request, store_id):
+        try:
+            store = Store.objects.get(id=store_id, is_active=True)
+        except Store.DoesNotExist:
+            return Response({'error': 'not_found', 'message': 'Store not found.'}, status=status.HTTP_404_NOT_FOUND)
+        key    = CacheService.store_reviews_key(str(store_id))
+        cached = CacheService.get(key)
+        if cached is not None:
+            return Response(cached)
+        reviews = store.reviews.select_related('user').order_by('-created_at')[:50]
+        data = {'results': StoreReviewListSerializer(reviews, many=True).data, 'count': len(reviews)}
+        CacheService.set(key, data, timeout=CacheService.TTL_STORE_REVIEWS)
+        return Response(data)
+
+
+class StoreOfferView(APIView):
+    """
+    GET  /api/v1/stores/<id>/offers/ — list active offers (public)
+    POST /api/v1/stores/<id>/offers/ — create offer (vendor/owner only)
+    """
+
+    def get_permissions(self):
+        if self.request.method == 'GET':
+            return [AllowAny()]
+        return [IsAuthenticated(), IsStoreOwner()]
+
+    @extend_schema(tags=[_TAG], summary='List active offers for a store', responses={200: StoreOfferSerializer(many=True)}, auth=[])
+    def get(self, request, store_id):
+        try:
+            store = Store.objects.get(id=store_id, is_active=True)
+        except Store.DoesNotExist:
+            return Response({'error': 'not_found', 'message': 'Store not found.'}, status=status.HTTP_404_NOT_FOUND)
+        key    = CacheService.store_offers_key(str(store_id))
+        cached = CacheService.get(key)
+        if cached is not None:
+            return Response(cached)
+        from django.utils import timezone
+        offers = store.offers.filter(is_active=True).filter(
+            models.Q(valid_till__isnull=True) | models.Q(valid_till__gte=timezone.now().date())
+        ).order_by('-created_at')
+        data = {'results': StoreOfferSerializer(offers, many=True).data, 'count': offers.count()}
+        CacheService.set(key, data, timeout=CacheService.TTL_STORE_OFFERS)
+        return Response(data)
+
+    @extend_schema(
+        tags=[_TAG], summary='Create offer (store owner only)',
+        request=StoreOfferSerializer, responses={201: StoreOfferSerializer},
+        examples=[OpenApiExample('Festival offer', request_only=True, value={
+            'title': 'Eid Special 🌙', 'description': '20% off on all kurtas this Eid.',
+            'discount_pct': 20, 'valid_till': '2026-04-10',
+        })],
+    )
+    def post(self, request, store_id):
+        try:
+            store = Store.objects.get(id=store_id)
+        except Store.DoesNotExist:
+            return Response({'error': 'not_found', 'message': 'Store not found.'}, status=status.HTTP_404_NOT_FOUND)
+        self.check_object_permissions(request, store)
+        serializer = StoreOfferSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        offer = StoreOffer.objects.create(store=store, **serializer.validated_data)
+        CacheService.delete(CacheService.store_detail_key(str(store.id)))
+        CacheService.invalidate_store_offers(str(store_id))
+        from apps.stores.models import StoreFollow
+        follower_ids = list(StoreFollow.objects.filter(store=store).values_list('user_id', flat=True))
+        if follower_ids:
+            disc = f' — {offer.discount_pct}% off' if offer.discount_pct else ''
+            _dispatch_new_offer(follower_ids, store.name, offer.title + disc, str(store.id))
+        return Response(StoreOfferSerializer(offer).data, status=status.HTTP_201_CREATED)
+
+
+class StoreMyView(APIView):
+    """GET /api/v1/stores/mine/ — return the authenticated vendor's own store."""
+    permission_classes = [IsAuthenticated, IsVendor]
+
+    @extend_schema(tags=[_TAG], summary='Get my store (vendor only)', responses={200: StoreSerializer})
+    def get(self, request):
+        if not hasattr(request.user, 'store'):
+            return Response({'error': 'not_found', 'message': 'You do not have a store yet.'}, status=status.HTTP_404_NOT_FOUND)
+        return Response(StoreSerializer(request.user.store).data)
+
+
+class StoreVisitedView(APIView):
+    """GET /api/v1/stores/visited/ — return stores the user follows (proxy for visit history)."""
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        tags=[_TAG],
+        summary='Get recently visited / followed stores',
+        parameters=[OpenApiParameter('limit', int, description='Max results (default 5)', required=False)],
+        responses={200: StoreListSerializer(many=True)},
+    )
+    def get(self, request):
+        limit = int(request.query_params.get('limit', 5))
+        from apps.stores.models import StoreFollow
+        store_ids = StoreFollow.objects.filter(user=request.user)\
+            .order_by('-created_at').values_list('store_id', flat=True)[:limit]
+        stores = Store.objects.filter(id__in=store_ids, is_active=True)
+        return Response({'results': StoreListSerializer(stores, many=True).data, 'count': stores.count()})
+
+
+class StoreOfferDeleteView(APIView):
+    """DELETE /api/v1/stores/<store_id>/offers/<offer_id>/ — deactivate an offer."""
+    permission_classes = [IsAuthenticated, IsStoreOwner]
+
+    @extend_schema(tags=[_TAG], summary='Deactivate offer', responses={204: None})
+    def delete(self, request, store_id, offer_id):
+        try:
+            store = Store.objects.get(id=store_id)
+            offer = StoreOffer.objects.get(id=offer_id, store=store)
+        except (Store.DoesNotExist, StoreOffer.DoesNotExist):
+            return Response({'error': 'not_found'}, status=status.HTTP_404_NOT_FOUND)
+        self.check_object_permissions(request, store)
+        offer.is_active = False
+        offer.save(update_fields=['is_active'])
+        CacheService.invalidate_store_offers(str(store_id))
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class StoreStatsView(APIView):
+    """GET /api/v1/stores/mine/stats/ — KPI summary for the vendor dashboard."""
+    permission_classes = [IsAuthenticated, IsVendor]
+
+    @extend_schema(tags=[_TAG], summary='Get my store stats (vendor only)')
+    def get(self, request):
+        if not hasattr(request.user, 'store'):
+            return Response({
+                'store_name': '', 'store_address': '',
+                'active_reservations': 0, 'total_products': 0, 'follower_count': 0,
+            })
+        store = request.user.store
+        from apps.reservations.models import Reservation
+        active_res = Reservation.objects.filter(
+            store=store, status__in=['pending', 'confirmed']
+        ).count()
+        return Response({
+            'store_name':          store.name,
+            'store_address':       store.address,
+            'active_reservations': active_res,
+            'total_products':      store.products.filter(status='active').count(),
+            'follower_count':      store.followers.count(),
+        })

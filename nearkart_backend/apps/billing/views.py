@@ -23,6 +23,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from core.logging import log_event
 from core.permissions import IsVendor
 from .models import Plan, Transaction
 from .razorpay_service import RazorpayService
@@ -121,6 +122,9 @@ class TopupView(APIView):
             )
         store = request.user.store
         txn = BillingService.topup(store, amount)
+        log_event('billing', action='wallet_topup', store_id=str(store.id),
+                  user_id=str(request.user.id), amount=str(amount),
+                  new_balance=str(store.wallet_balance), transaction_id=str(txn.id))
         return Response({
             'message':        f'₹{amount} added to wallet.',
             'amount_added':   str(amount),
@@ -178,6 +182,9 @@ class SubscribeView(APIView):
                 {'error': 'insufficient_balance', 'message': str(e)},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        log_event('billing', action='plan_subscribed', store_id=str(store.id),
+                  user_id=str(request.user.id), plan=plan_name,
+                  price=str(plan.price), expires_at=str(sub.expires_at))
         return Response(SubscriptionSerializer(sub).data)
 
 

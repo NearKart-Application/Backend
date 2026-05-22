@@ -23,7 +23,10 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 import rest_framework.serializers as s
 
+from core.logging import log_event
 from core.permissions import IsVendor
+from core.utils.cache import CacheService
+from core.utils.upload_tracker import UploadTracker
 from apps.billing.services import BillingService
 from .models import Video
 from .serializers import VideoSerializer, VideoUploadRequestSerializer
@@ -79,6 +82,22 @@ class VideoUploadRequestView(APIView):
                 {'error': 'plan_limit_reached', 'message': msg},
                 status=status.HTTP_403_FORBIDDEN,
             )
+        upload_allowed, upload_count = UploadTracker.check_and_increment(
+            str(request.user.id),
+            UploadTracker.MEDIA_VIDEO,
+            getattr(settings, 'VIDEO_DAILY_UPLOAD_LIMIT', 10),
+        )
+        if not upload_allowed:
+            return Response(
+                {
+                    'error': 'daily_limit_reached',
+                    'message': (
+                        f'Daily video upload limit reached ({upload_count} uploads today). '
+                        'Limit resets at midnight.'
+                    ),
+                },
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
         serializer = VideoUploadRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         video, upload_url = VideoService.request_upload(
@@ -86,6 +105,9 @@ class VideoUploadRequestView(APIView):
             title=serializer.validated_data['title'],
             description=serializer.validated_data.get('description', ''),
         )
+        log_event('videos', action='video_upload_requested', video_id=str(video.id),
+                  store_id=str(request.user.store.id), user_id=str(request.user.id),
+                  title=video.title)
         return Response({
             'video_id': video.id,
             'upload_url': upload_url,
@@ -154,6 +176,10 @@ class VideoConfirmUploadView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         video = VideoService.confirm_upload(video, duration_seconds=duration)
+        CacheService.invalidate_video_feeds()
+        log_event('videos', action='video_upload_confirmed', video_id=str(video_id),
+                  store_id=str(request.user.store.id), user_id=str(request.user.id),
+                  status=video.status, duration_seconds=duration)
         return Response({
             'video_id': video.id,
             'status':   video.status,
@@ -262,8 +288,17 @@ class VideoFeedView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         store_id = request.query_params.get('store_id')
-        videos = VideoService.get_feed(lat, lng, radius_km=radius, store_id=store_id)
-        return Response(VideoSerializer(videos, many=True, context={'request': request}).data)
+        cache_key = None if store_id else CacheService.video_feed_near_you_key(lat, lng, radius)
+        if cache_key:
+            cached = CacheService.get(cache_key)
+            if cached is not None:
+                return Response(cached)
+        videos = list(VideoService.get_feed(lat, lng, radius_km=radius, store_id=store_id))
+        data   = VideoSerializer(videos, many=True, context={'request': request}).data
+        result = {'count': len(data), 'next': None, 'previous': None, 'results': data}
+        if cache_key:
+            CacheService.set(cache_key, result, timeout=CacheService.TTL_VIDEO_FEED)
+        return Response(result)
 
 
 class VideoDetailView(APIView):
@@ -321,7 +356,11 @@ class VideoDeleteView(APIView):
                 {'error': 'not_found', 'message': 'Video not found.'},
                 status=status.HTTP_404_NOT_FOUND,
             )
+        store_id = str(video.store_id)
         video.delete()
+        CacheService.invalidate_video_feeds()
+        log_event('videos', action='video_deleted', video_id=str(video_id),
+                  store_id=store_id, user_id=str(request.user.id))
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -358,6 +397,9 @@ class VideoLikeView(APIView):
                 video.title,
                 str(video.id),
             )
+        log_event('videos', action='video_liked' if liked else 'video_unliked',
+                  video_id=str(video_id), store_id=str(video.store_id),
+                  user_id=str(request.user.id))
         return Response({'liked': liked, 'message': 'Liked.' if liked else 'Unliked.'})
 
 
@@ -415,3 +457,66 @@ class VideoDownloadView(APIView):
             'download_url': download_url,
             'expires_in':  expiry_seconds,
         })
+
+
+class VideoFollowingFeedView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        tags=[_TAG],
+        summary='Videos from stores the customer follows',
+        description='Returns ready, visible, non-expired videos from all stores the logged-in user follows, newest first.',
+        responses={200: VideoSerializer(many=True)},
+    )
+    def get(self, request):
+        videos = list(VideoService.get_following_feed(request.user))
+        data   = VideoSerializer(videos, many=True, context={'request': request}).data
+        return Response({'count': len(data), 'next': None, 'previous': None, 'results': data})
+
+
+class VideoTrendingFeedView(APIView):
+    permission_classes = [AllowAny]
+
+    @extend_schema(
+        tags=[_TAG],
+        summary='Globally trending videos (no radius limit)',
+        description='Returns the top 50 ready, visible videos sorted by view_count then like_count. No location filter.',
+        responses={200: VideoSerializer(many=True)},
+        auth=[],
+    )
+    def get(self, request):
+        key    = CacheService.video_feed_trending_key()
+        cached = CacheService.get(key)
+        if cached is not None:
+            return Response(cached)
+        videos = list(VideoService.get_trending_feed())
+        data   = VideoSerializer(videos, many=True, context={'request': request}).data
+        result = {'count': len(data), 'next': None, 'previous': None, 'results': data}
+        CacheService.set(key, result, timeout=CacheService.TTL_VIDEO_TRENDING)
+        return Response(result)
+
+
+class VideoSaveView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        tags=[_TAG],
+        summary='Save / unsave video (toggle)',
+        request=None,
+        responses={200: OpenApiResponse(
+            response=inline_serializer('VideoSaveResponse', fields={
+                'saved':   s.BooleanField(),
+                'message': s.CharField(),
+            })
+        )},
+    )
+    def post(self, request, video_id):
+        try:
+            video = Video.objects.get(id=video_id, status=Video.STATUS_READY, is_visible=True)
+        except Video.DoesNotExist:
+            return Response(
+                {'error': 'not_found', 'message': 'Video not found.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        saved = VideoService.toggle_save(request.user, video)
+        return Response({'saved': saved, 'message': 'Saved.' if saved else 'Unsaved.'})

@@ -104,6 +104,15 @@ class NotificationService:
         )
 
     @staticmethod
+    def notify_new_offer(followers, store_name: str, offer_label: str, store_id: str):
+        NotificationService.send_bulk(
+            followers, NotificationType.NEW_OFFER,
+            title=f'New offer from {store_name}',
+            body=offer_label,
+            data={'store_id': store_id},
+        )
+
+    @staticmethod
     def notify_video_liked(vendor, liker_name: str, video_title: str, video_id: str):
         NotificationService.send(
             vendor, NotificationType.VIDEO_LIKED,

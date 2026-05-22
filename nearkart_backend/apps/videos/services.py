@@ -28,12 +28,15 @@ def _is_dev_aws() -> bool:
 class AWSService:
     @staticmethod
     def _client():
-        return boto3.client(
-            's3',
+        kwargs: dict = dict(
             region_name=settings.AWS_REGION,
             aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
             aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
         )
+        if getattr(settings, 'AWS_S3_USE_ACCELERATE', False):
+            from botocore.config import Config
+            kwargs['config'] = Config(s3={'use_accelerate_endpoint': True})
+        return boto3.client('s3', **kwargs)
 
     @staticmethod
     def generate_presigned_upload_url(s3_key: str, content_type: str = 'video/mp4') -> str:
@@ -130,6 +133,47 @@ class VideoService:
         if store_id:
             qs = qs.filter(store_id=store_id)
         return qs[:50]
+
+    @staticmethod
+    def get_following_feed(user):
+        """Return videos from stores the user follows, newest first."""
+        from apps.stores.models import StoreFollow
+        followed_store_ids = StoreFollow.objects.filter(user=user).values_list('store_id', flat=True)
+        return (
+            Video.objects
+            .filter(
+                store_id__in=followed_store_ids,
+                status=Video.STATUS_READY,
+                is_visible=True,
+                expires_at__gt=timezone.now(),
+            )
+            .select_related('store')
+            .order_by('-created_at')[:50]
+        )
+
+    @staticmethod
+    def get_trending_feed():
+        """Return globally trending videos (no radius limit) by combined view + like score."""
+        return (
+            Video.objects
+            .filter(
+                status=Video.STATUS_READY,
+                is_visible=True,
+                expires_at__gt=timezone.now(),
+            )
+            .select_related('store')
+            .order_by('-view_count', '-like_count', '-created_at')[:50]
+        )
+
+    @staticmethod
+    def toggle_save(user, video: Video) -> bool:
+        """Toggle save (bookmark). Returns True if saved, False if unsaved."""
+        from .models import VideoSave
+        save, created = VideoSave.objects.get_or_create(user=user, video=video)
+        if not created:
+            save.delete()
+            return False
+        return True
 
     @staticmethod
     def increment_view(video: Video) -> None:

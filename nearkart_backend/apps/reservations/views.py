@@ -9,6 +9,7 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from drf_spectacular.utils import extend_schema, OpenApiExample
 
+from core.logging import log_event
 from core.permissions import IsVendor
 from apps.stores.models import Store
 from apps.products.models import Product
@@ -80,6 +81,16 @@ class ReservationCreateView(APIView):
             quantity=data['quantity'],
             note=data.get('note', ''),
         )
+        log_event('reservations', action='reservation_created',
+                  reservation_id=str(reservation.id), store_id=str(store.id),
+                  product_id=str(product.id), customer_id=str(request.user.id),
+                  quantity=data['quantity'])
+        log_event('stores', action='reservation_received', store_id=str(store.id),
+                  reservation_id=str(reservation.id), product_id=str(product.id),
+                  customer_id=str(request.user.id))
+        log_event('customers', action='reservation_created', customer_id=str(request.user.id),
+                  reservation_id=str(reservation.id), store_id=str(store.id),
+                  product_id=str(product.id))
         return Response(ReservationSerializer(reservation).data, status=201)
 
 
@@ -201,6 +212,13 @@ class ReservationStatusView(APIView):
         elif new_status == ReservationStatus.COMPLETED:
             reservation = ReservationService.complete(reservation)
 
+        log_event('reservations', action=f'reservation_{new_status}',
+                  reservation_id=str(reservation.id), store_id=str(store.id),
+                  product_id=str(reservation.product_id),
+                  customer_id=str(reservation.customer_id),
+                  vendor_id=str(request.user.id), vendor_note=vendor_note)
+        log_event('stores', action=f'reservation_{new_status}', store_id=str(store.id),
+                  reservation_id=str(reservation.id), vendor_id=str(request.user.id))
         return Response(ReservationSerializer(reservation).data)
 
 
@@ -230,4 +248,9 @@ class ReservationCancelView(APIView):
             )
 
         reservation = ReservationService.cancel(reservation)
+        log_event('reservations', action='reservation_cancelled_by_customer',
+                  reservation_id=str(reservation_id), store_id=str(reservation.store_id),
+                  product_id=str(reservation.product_id), customer_id=str(request.user.id))
+        log_event('customers', action='reservation_cancelled', customer_id=str(request.user.id),
+                  reservation_id=str(reservation_id), store_id=str(reservation.store_id))
         return Response(ReservationSerializer(reservation).data)

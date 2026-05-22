@@ -22,6 +22,7 @@ class Product(BaseModel):
     name           = models.CharField(max_length=200)
     description    = models.TextField(blank=True)
     category       = models.CharField(max_length=50, blank=True)
+    subcategory    = models.CharField(max_length=100, blank=True)
     status         = models.CharField(max_length=20, choices=ProductStatus.choices, default=ProductStatus.DRAFT)
     is_visible     = models.BooleanField(default=True, db_index=True)
     base_price     = models.DecimalField(max_digits=10, decimal_places=2)
