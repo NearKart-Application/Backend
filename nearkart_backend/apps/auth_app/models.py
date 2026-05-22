@@ -52,7 +52,7 @@ class UserManager(BaseUserManager):
 class User(AbstractBaseUser, PermissionsMixin, BaseModel):
     phone_number = models.CharField(max_length=15, unique=True, db_index=True)
     profile_id   = models.CharField(max_length=12, unique=True, db_index=True, blank=True, default='')
-    role         = models.CharField(max_length=10, choices=UserRole.choices, default=UserRole.CUSTOMER)
+    role         = models.CharField(max_length=10, choices=UserRole.choices, default='', blank=True)
     full_name    = models.CharField(max_length=150, blank=True)
     email        = models.EmailField(blank=True)
     is_active = models.BooleanField(default=True)

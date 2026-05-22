@@ -35,7 +35,9 @@ class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = ['id', 'profile_id', 'phone_number', 'role', 'full_name', 'email', 'created_at']
-        read_only_fields = ['id', 'profile_id', 'phone_number', 'role', 'created_at']
+        # role is excluded from read_only_fields — it can be set via PATCH when empty (new user).
+        # MeView.patch() enforces the "only settable once" constraint.
+        read_only_fields = ['id', 'profile_id', 'phone_number', 'created_at']
 
 
 class UserSearchSerializer(serializers.ModelSerializer):

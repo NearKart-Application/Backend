@@ -281,7 +281,11 @@ class MeView(APIView):
         ],
     )
     def patch(self, request):
-        serializer = UserSerializer(request.user, data=request.data, partial=True)
+        data = request.data.copy()
+        # role can only be set when the user has no role yet (first-time signup)
+        if 'role' in data and request.user.role:
+            data.pop('role')
+        serializer = UserSerializer(request.user, data=data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(serializer.data)
@@ -332,6 +336,9 @@ class LocationUpdateView(APIView):
             serializer.validated_data['longitude'],
         )
         return Response({'message': 'Location updated'}, status=status.HTTP_200_OK)
+
+    # Mobile sends PATCH — alias to put so both methods work
+    patch = put
 
 
 class UserSearchView(APIView):

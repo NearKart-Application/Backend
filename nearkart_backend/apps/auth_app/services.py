@@ -50,10 +50,11 @@ class OTPService:
         generates new OTP, queues SMS task.
         Returns the OTP (for task to send via SMS).
         """
-        user, _ = User.objects.get_or_create(
-            phone_number=phone_number,
-            defaults={'role': UserRole.CUSTOMER},
-        )
+        try:
+            user = User.objects.get(phone_number=phone_number)
+        except User.DoesNotExist:
+            # New users start with no role — OtpScreen detects empty role and triggers role-select + location
+            user = User.objects.create_user(phone_number=phone_number, role='')
         from django.conf import settings
         otp = cls.generate_otp(phone_number)
         OTPToken.create_for_user(user, otp)
