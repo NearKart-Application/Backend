@@ -171,6 +171,18 @@ CELERY_TASK_TRACK_STARTED = True
 CELERY_TASK_TIME_LIMIT = 600
 CELERY_WORKER_PREFETCH_MULTIPLIER = 1
 
+# ── CELERY QUEUE ROUTING ────────────────────────────────────────
+# transcode_video goes to the dedicated 'transcoding' queue consumed ONLY by
+# celery-transcoding workers (3 FFmpeg processes, max-tasks-per-child=10).
+# Every other task routes to 'default' (4 workers — notifications, SMS,
+# billing, analytics, Beat-triggered jobs).
+# This isolation ensures FFmpeg jobs never starve push notifications or
+# reservation expiry tasks, and vice-versa.
+CELERY_TASK_DEFAULT_QUEUE = 'default'
+CELERY_TASK_ROUTES = {
+    'apps.videos.tasks.transcode_video': {'queue': 'transcoding'},
+}
+
 # ── CELERY BEAT SCHEDULE ───────────────────────────────────────
 from celery.schedules import crontab
 CELERY_BEAT_SCHEDULE = {
@@ -316,6 +328,11 @@ AWS_REGION = env('AWS_REGION', default='ap-south-1')
 AWS_S3_BUCKET = env('AWS_S3_BUCKET', default='nearkart-media-dev')
 AWS_CDN_DOMAIN = env('AWS_CDN_DOMAIN', default='')
 AWS_PRESIGNED_URL_EXPIRY = env.int('AWS_PRESIGNED_URL_EXPIRY', default=900)
+# S3 Transfer Acceleration — routes uploads to the nearest AWS edge node.
+# Requires the bucket to have Transfer Acceleration enabled in the AWS console.
+# 50–500% faster for users far from ap-south-1 (Mumbai).
+# Cost: $0.004/GB extra. Enable only in production after enabling on the bucket.
+AWS_S3_USE_ACCELERATE = env.bool('AWS_S3_USE_ACCELERATE', default=False)
 
 # ── RAZORPAY ───────────────────────────────────────────────────
 RAZORPAY_KEY_ID      = env('RAZORPAY_KEY_ID',      default='rzp_test_PLACEHOLDER')
@@ -342,6 +359,13 @@ GOOGLE_MAPS_API_KEY = env('GOOGLE_MAPS_API_KEY', default='')
 OTP_SEND_RATE_LIMIT    = env.int('OTP_SEND_RATE_LIMIT',    default=5)
 OTP_VERIFY_RATE_LIMIT  = env.int('OTP_VERIFY_RATE_LIMIT',  default=10)
 VIDEO_UPLOAD_RATE_LIMIT = env.int('VIDEO_UPLOAD_RATE_LIMIT', default=10)
+
+# ── UPLOAD DAILY LIMITS ─────────────────────────────────────────
+# Per-vendor per-day upload caps enforced by UploadTracker (Redis Lua counter).
+# 0 = unlimited. These are protection limits — BillingService enforces plan
+# quotas (total videos/products stored) separately.
+VIDEO_DAILY_UPLOAD_LIMIT = env.int('VIDEO_DAILY_UPLOAD_LIMIT', default=10)
+PHOTO_DAILY_UPLOAD_LIMIT = env.int('PHOTO_DAILY_UPLOAD_LIMIT', default=50)
 
 # ── DEV OTP BYPASS ─────────────────────────────────────────────
 # When DEBUG=True these phones skip OTP rate limiting entirely so load

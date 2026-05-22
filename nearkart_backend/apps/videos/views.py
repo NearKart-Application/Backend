@@ -25,6 +25,7 @@ import rest_framework.serializers as s
 
 from core.permissions import IsVendor
 from core.utils.cache import CacheService
+from core.utils.upload_tracker import UploadTracker
 from apps.billing.services import BillingService
 from .models import Video
 from .serializers import VideoSerializer, VideoUploadRequestSerializer
@@ -79,6 +80,22 @@ class VideoUploadRequestView(APIView):
             return Response(
                 {'error': 'plan_limit_reached', 'message': msg},
                 status=status.HTTP_403_FORBIDDEN,
+            )
+        upload_allowed, upload_count = UploadTracker.check_and_increment(
+            str(request.user.id),
+            UploadTracker.MEDIA_VIDEO,
+            getattr(settings, 'VIDEO_DAILY_UPLOAD_LIMIT', 10),
+        )
+        if not upload_allowed:
+            return Response(
+                {
+                    'error': 'daily_limit_reached',
+                    'message': (
+                        f'Daily video upload limit reached ({upload_count} uploads today). '
+                        'Limit resets at midnight.'
+                    ),
+                },
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
             )
         serializer = VideoUploadRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)

@@ -49,12 +49,15 @@ def transcode_video(self, video_id: str):
     local_thumb   = f'/tmp/{video_id}_thumb.jpg'
 
     try:
-        s3 = boto3.client(
-            's3',
+        s3_kwargs: dict = dict(
             region_name=settings.AWS_REGION,
             aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
             aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
         )
+        if getattr(settings, 'AWS_S3_USE_ACCELERATE', False):
+            from botocore.config import Config
+            s3_kwargs['config'] = Config(s3={'use_accelerate_endpoint': True})
+        s3 = boto3.client('s3', **s3_kwargs)
         os.makedirs(local_hls_dir, exist_ok=True)
 
         # 1. Download raw file

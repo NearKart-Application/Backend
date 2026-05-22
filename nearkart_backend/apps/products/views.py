@@ -9,6 +9,7 @@ DELETE /api/v1/products/<id>/
 POST /api/v1/products/<id>/wishlist/
 """
 import logging
+from django.conf import settings
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
@@ -18,6 +19,7 @@ import rest_framework.serializers as s
 
 from core.permissions import IsVendor, IsStoreOwner
 from core.utils.cache import CacheService
+from core.utils.upload_tracker import UploadTracker
 from apps.billing.services import BillingService
 from .models import Product
 from .serializers import ProductSerializer, ProductListSerializer, MobileProductDetailSerializer
@@ -165,6 +167,22 @@ class ProductCreateView(APIView):
             return Response(
                 {'error': 'plan_limit_reached', 'message': msg},
                 status=status.HTTP_403_FORBIDDEN,
+            )
+        upload_allowed, upload_count = UploadTracker.check_and_increment(
+            str(request.user.id),
+            UploadTracker.MEDIA_PHOTO,
+            getattr(settings, 'PHOTO_DAILY_UPLOAD_LIMIT', 50),
+        )
+        if not upload_allowed:
+            return Response(
+                {
+                    'error': 'daily_limit_reached',
+                    'message': (
+                        f'Daily product creation limit reached ({upload_count} today). '
+                        'Limit resets at midnight.'
+                    ),
+                },
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
             )
         serializer = ProductSerializer(data=request.data, context={'request': request})
         serializer.is_valid(raise_exception=True)

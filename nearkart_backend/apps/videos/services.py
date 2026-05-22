@@ -28,12 +28,15 @@ def _is_dev_aws() -> bool:
 class AWSService:
     @staticmethod
     def _client():
-        return boto3.client(
-            's3',
+        kwargs: dict = dict(
             region_name=settings.AWS_REGION,
             aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
             aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
         )
+        if getattr(settings, 'AWS_S3_USE_ACCELERATE', False):
+            from botocore.config import Config
+            kwargs['config'] = Config(s3={'use_accelerate_endpoint': True})
+        return boto3.client('s3', **kwargs)
 
     @staticmethod
     def generate_presigned_upload_url(s3_key: str, content_type: str = 'video/mp4') -> str:

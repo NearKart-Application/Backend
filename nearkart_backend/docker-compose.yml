@@ -43,12 +43,49 @@ services:
       - django
     restart: unless-stopped
 
-  # ── CELERY WORKER ──────────────────────────────────────────
+  # ── CELERY WORKER — default queue ─────────────────────────────
+  # Handles all non-FFmpeg tasks: push notifications, SMS OTP, billing
+  # expiry, reservation expiry, group events, analytics, Beat-triggered jobs.
+  # prefetch-multiplier=4: lightweight tasks can be pre-fetched safely.
   celery:
     build:
       context: .
       target: development
-    command: /venv/bin/celery -A config worker --loglevel=info --concurrency=4 --max-tasks-per-child=200
+    command: >-
+      /venv/bin/celery -A config worker
+      --loglevel=info
+      --queues=default
+      --concurrency=4
+      --max-tasks-per-child=200
+      --prefetch-multiplier=4
+    volumes:
+      - .:/app
+    env_file:
+      - .env
+    depends_on:
+      - postgres
+      - redis
+    restart: unless-stopped
+
+  # ── CELERY WORKER — transcoding queue ─────────────────────────
+  # Dedicated FFmpeg/HLS workers, isolated from all other tasks.
+  # concurrency=3: 3 parallel FFmpeg processes — each saturates ~1 CPU core.
+  # On a 4-core server this leaves 1 core free for Django + DB.
+  # max-tasks-per-child=10: restart worker process after 10 FFmpeg jobs.
+  # libx264 accumulates memory across long sessions; restart reclaims it.
+  # prefetch-multiplier=1: never pre-fetch a 2nd FFmpeg job — a queued job
+  # holds the worker slot while FFmpeg runs, starving shorter tasks.
+  celery-transcoding:
+    build:
+      context: .
+      target: development
+    command: >-
+      /venv/bin/celery -A config worker
+      --loglevel=info
+      --queues=transcoding
+      --concurrency=3
+      --max-tasks-per-child=10
+      --prefetch-multiplier=1
     volumes:
       - .:/app
     env_file:
