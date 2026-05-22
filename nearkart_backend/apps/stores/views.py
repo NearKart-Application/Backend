@@ -208,9 +208,43 @@ class StoreFollowView(APIView):
         msg = 'Following store.' if followed else 'Unfollowed store.'
         return Response({'followed': followed, 'message': msg})
 
+    @extend_schema(tags=[_TAG], summary='Unfollow store', responses={200: None})
+    def delete(self, request, store_id):
+        """Mobile sends DELETE to explicitly unfollow — alias that always unfollows."""
+        try:
+            store = Store.objects.get(id=store_id, is_active=True)
+        except Store.DoesNotExist:
+            return Response({'error': 'not_found', 'message': 'Store not found.'}, status=status.HTTP_404_NOT_FOUND)
+        from apps.stores.models import StoreFollow
+        StoreFollow.objects.filter(user=request.user, store=store).delete()
+        return Response({'followed': False, 'message': 'Unfollowed store.'})
+
 
 class StoreReviewView(APIView):
-    permission_classes = [IsAuthenticated]
+    """
+    GET  /stores/<id>/reviews/ — list reviews (public, also accepted at /review/)
+    POST /stores/<id>/reviews/ — add/update review (also accepted at /review/)
+    """
+
+    def get_permissions(self):
+        if self.request.method == 'GET':
+            return [AllowAny()]
+        return [IsAuthenticated()]
+
+    @extend_schema(tags=[_TAG], summary='List store reviews', responses={200: StoreReviewListSerializer(many=True)}, auth=[])
+    def get(self, request, store_id):
+        try:
+            store = Store.objects.get(id=store_id, is_active=True)
+        except Store.DoesNotExist:
+            return Response({'error': 'not_found', 'message': 'Store not found.'}, status=status.HTTP_404_NOT_FOUND)
+        key    = CacheService.store_reviews_key(str(store_id))
+        cached = CacheService.get(key)
+        if cached is not None:
+            return Response(cached)
+        reviews = store.reviews.select_related('user').order_by('-created_at')[:50]
+        data = {'results': StoreReviewListSerializer(reviews, many=True).data, 'count': len(reviews)}
+        CacheService.set(key, data, timeout=CacheService.TTL_STORE_REVIEWS)
+        return Response(data)
 
     @extend_schema(
         tags=[_TAG],
@@ -423,6 +457,25 @@ class StoreMyView(APIView):
         if not hasattr(request.user, 'store'):
             return Response({'error': 'not_found', 'message': 'You do not have a store yet.'}, status=status.HTTP_404_NOT_FOUND)
         return Response(StoreSerializer(request.user.store).data)
+
+
+class StoreVisitedView(APIView):
+    """GET /api/v1/stores/visited/ — return stores the user follows (proxy for visit history)."""
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        tags=[_TAG],
+        summary='Get recently visited / followed stores',
+        parameters=[OpenApiParameter('limit', int, description='Max results (default 5)', required=False)],
+        responses={200: StoreListSerializer(many=True)},
+    )
+    def get(self, request):
+        limit = int(request.query_params.get('limit', 5))
+        from apps.stores.models import StoreFollow
+        store_ids = StoreFollow.objects.filter(user=request.user)\
+            .order_by('-created_at').values_list('store_id', flat=True)[:limit]
+        stores = Store.objects.filter(id__in=store_ids, is_active=True)
+        return Response({'results': StoreListSerializer(stores, many=True).data, 'count': stores.count()})
 
 
 class StoreOfferDeleteView(APIView):

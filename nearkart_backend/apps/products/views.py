@@ -253,6 +253,55 @@ class ProductWishlistView(APIView):
         msg = 'Added to wishlist.' if added else 'Removed from wishlist.'
         return Response({'wishlisted': added, 'message': msg})
 
+    @extend_schema(tags=[_TAG], summary='Remove product from wishlist', responses={200: None})
+    def delete(self, request, product_id):
+        from apps.products.models import Wishlist
+        Wishlist.objects.filter(user=request.user, product_id=product_id).delete()
+        return Response({'wishlisted': False, 'message': 'Removed from wishlist.'})
+
+
+class ProductReserveView(APIView):
+    """POST /products/<id>/reserve/ — create a reservation for this product."""
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        tags=[_TAG],
+        summary='Reserve a product',
+        request=inline_serializer('ReserveBody', fields={
+            'store_id': s.UUIDField(),
+            'quantity': s.IntegerField(default=1),
+            'note':     s.CharField(required=False, allow_blank=True),
+        }),
+        responses={201: OpenApiResponse(description='Reservation created')},
+    )
+    def post(self, request, product_id):
+        from apps.stores.models import Store
+        from apps.reservations.models import Reservation
+        from apps.reservations.services import ReservationService
+        from apps.blacklist.services import BlacklistService
+
+        try:
+            product = Product.objects.get(id=product_id, status='active', is_visible=True)
+        except Product.DoesNotExist:
+            return Response({'error': 'not_found', 'message': 'Product not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        store_id = request.data.get('store_id') or str(product.store_id)
+        try:
+            store = Store.objects.get(id=store_id, is_active=True)
+        except Store.DoesNotExist:
+            return Response({'error': 'not_found', 'message': 'Store not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        if request.user.role == 'customer' and BlacklistService.is_blocked(store, request.user):
+            return Response({'error': 'blacklisted', 'message': 'You cannot reserve from this store.'}, status=status.HTTP_403_FORBIDDEN)
+
+        quantity = int(request.data.get('quantity', 1))
+        note     = request.data.get('note', '')
+        reservation = ReservationService.create(
+            customer=request.user, store=store, product=product, quantity=quantity, note=note,
+        )
+        from apps.reservations.serializers import ReservationSerializer
+        return Response(ReservationSerializer(reservation).data, status=status.HTTP_201_CREATED)
+
 
 class WishlistListView(APIView):
     """GET /api/v1/products/wishlist/ — return the authenticated user's saved products."""
