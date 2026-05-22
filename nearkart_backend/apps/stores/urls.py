@@ -1,6 +1,6 @@
 from django.urls import path
 from .views import (
-    NearbyStoresView, StoreDetailView, StoreCreateView,
+    NearbyStoresView, StoreDetailView, StoreCreateView, StoreMyView,
     StoreUpdateView, StoreFollowView, StoreReviewView, StoreQRCodeView,
     StoreHoursView, StoreReviewListView, StoreOfferView, StoreOfferDeleteView,
 )
@@ -8,6 +8,7 @@ from apps.blacklist.views import BlacklistToggleView, BlacklistListView
 
 urlpatterns = [
     path('nearby/',                  NearbyStoresView.as_view(),  name='stores-nearby'),
+    path('mine/',                    StoreMyView.as_view(),       name='store-mine'),
     path('',                         StoreCreateView.as_view(),   name='store-create'),
     path('<uuid:store_id>/',         StoreDetailView.as_view(),   name='store-detail'),
     path('<uuid:store_id>/update/',  StoreUpdateView.as_view(),   name='store-update'),

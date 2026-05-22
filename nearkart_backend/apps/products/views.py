@@ -268,3 +268,28 @@ class WishlistListView(APIView):
             .select_related('store').prefetch_related('variants', 'images')
         serializer = ProductListSerializer(products, many=True, context={'request': request})
         return Response({'results': serializer.data, 'count': len(serializer.data)})
+
+
+class VendorProductListView(APIView):
+    """GET /api/v1/products/vendor/ — return the authenticated vendor's own products."""
+    permission_classes = [IsAuthenticated, IsVendor]
+
+    @extend_schema(
+        tags=[_TAG],
+        summary='List my products (vendor only)',
+        parameters=[
+            OpenApiParameter('status', str, description='Filter by status (active/inactive)', required=False),
+        ],
+        responses={200: ProductSerializer(many=True)},
+    )
+    def get(self, request):
+        if not hasattr(request.user, 'store'):
+            return Response({'results': [], 'count': 0})
+        status_filter = request.query_params.get('status')
+        qs = Product.objects.filter(store=request.user.store)\
+            .select_related('store').prefetch_related('variants', 'images')\
+            .order_by('-created_at')
+        if status_filter:
+            qs = qs.filter(status=status_filter)
+        serializer = ProductSerializer(qs, many=True, context={'request': request})
+        return Response({'results': serializer.data, 'count': len(serializer.data)})

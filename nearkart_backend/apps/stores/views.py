@@ -414,6 +414,17 @@ class StoreOfferView(APIView):
         return Response(StoreOfferSerializer(offer).data, status=status.HTTP_201_CREATED)
 
 
+class StoreMyView(APIView):
+    """GET /api/v1/stores/mine/ — return the authenticated vendor's own store."""
+    permission_classes = [IsAuthenticated, IsVendor]
+
+    @extend_schema(tags=[_TAG], summary='Get my store (vendor only)', responses={200: StoreSerializer})
+    def get(self, request):
+        if not hasattr(request.user, 'store'):
+            return Response({'error': 'not_found', 'message': 'You do not have a store yet.'}, status=status.HTTP_404_NOT_FOUND)
+        return Response(StoreSerializer(request.user.store).data)
+
+
 class StoreOfferDeleteView(APIView):
     """DELETE /api/v1/stores/<store_id>/offers/<offer_id>/ — deactivate an offer."""
     permission_classes = [IsAuthenticated, IsStoreOwner]
