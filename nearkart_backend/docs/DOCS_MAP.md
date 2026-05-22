@@ -183,6 +183,7 @@ Run with: `python3 docs/gen_api_guide.py` or `python3 docs/gen_project_journey.p
 |----------|-----------|-----------------|
 | **Test Runner Guide** | `docs/sprint_13_tests/TEST_RUNNER_GUIDE.md` | How to install, run all/single/keyword tests, coverage reports, markers, CI replication, dev-mode bypass explanations |
 | **Server Capability** | `docs/sprint_13_tests/SERVER_CAPABILITY.md` | Concurrent user capacity, layer-by-layer breakdown, cache hit rates, configuration reference, scaling roadmap to 25k+ users, monitoring commands |
+| **Load Test Results** | `docs/sprint_13_tests/LOAD_TEST_RESULTS.md` | Smoke/load/stress test results (50/200/500 users), before vs after comparison, PgBouncer/Redis metrics, bugs found and fixed, how to re-run |
 
 ---
 
@@ -209,3 +210,4 @@ Run with: `python3 docs/gen_api_guide.py` or `python3 docs/gen_project_journey.p
 | How to run the test suite | `docs/sprint_13_tests/TEST_RUNNER_GUIDE.md` |
 | How many users the server can handle | `docs/sprint_13_tests/SERVER_CAPABILITY.md` |
 | How to scale beyond 10,000 users | `docs/sprint_13_tests/SERVER_CAPABILITY.md` |
+| Load test results and pass/fail status | `docs/sprint_13_tests/LOAD_TEST_RESULTS.md` |
