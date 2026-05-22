@@ -2,13 +2,14 @@ from django.urls import path
 from .views import (
     NearbyStoresView, StoreDetailView, StoreCreateView, StoreMyView, StoreVisitedView,
     StoreUpdateView, StoreFollowView, StoreReviewView, StoreQRCodeView,
-    StoreHoursView, StoreReviewListView, StoreOfferView, StoreOfferDeleteView,
+    StoreHoursView, StoreReviewListView, StoreOfferView, StoreOfferDeleteView, StoreStatsView,
 )
 from apps.blacklist.views import BlacklistToggleView, BlacklistListView
 
 urlpatterns = [
     path('nearby/',                  NearbyStoresView.as_view(),  name='stores-nearby'),
     path('mine/',                    StoreMyView.as_view(),       name='store-mine'),
+    path('mine/stats/',              StoreStatsView.as_view(),    name='store-mine-stats'),
     path('visited/',                 StoreVisitedView.as_view(),  name='store-visited'),
     path('',                         StoreCreateView.as_view(),   name='store-create'),
     path('<uuid:store_id>/',         StoreDetailView.as_view(),   name='store-detail'),

@@ -494,3 +494,28 @@ class StoreOfferDeleteView(APIView):
         offer.save(update_fields=['is_active'])
         CacheService.invalidate_store_offers(str(store_id))
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class StoreStatsView(APIView):
+    """GET /api/v1/stores/mine/stats/ — KPI summary for the vendor dashboard."""
+    permission_classes = [IsAuthenticated, IsVendor]
+
+    @extend_schema(tags=[_TAG], summary='Get my store stats (vendor only)')
+    def get(self, request):
+        if not hasattr(request.user, 'store'):
+            return Response({
+                'store_name': '', 'store_address': '',
+                'active_reservations': 0, 'total_products': 0, 'follower_count': 0,
+            })
+        store = request.user.store
+        from apps.reservations.models import Reservation
+        active_res = Reservation.objects.filter(
+            store=store, status__in=['pending', 'confirmed']
+        ).count()
+        return Response({
+            'store_name':          store.name,
+            'store_address':       store.address,
+            'active_reservations': active_res,
+            'total_products':      store.products.filter(is_active=True).count(),
+            'follower_count':      store.followers.count(),
+        })
