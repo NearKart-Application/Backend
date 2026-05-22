@@ -17,6 +17,7 @@ from drf_spectacular.utils import extend_schema, OpenApiExample, OpenApiParamete
 import rest_framework.serializers as s
 
 from core.permissions import IsVendor, IsStoreOwner
+from core.utils.cache import CacheService
 from apps.billing.services import BillingService
 from .models import Product
 from .serializers import ProductSerializer, ProductListSerializer, MobileProductDetailSerializer
@@ -98,13 +99,19 @@ class ProductDetailView(APIView):
 
     @extend_schema(tags=[_TAG], summary='Get product detail', responses={200: ProductSerializer}, auth=[])
     def get(self, request, product_id):
+        key    = CacheService.product_detail_key(str(product_id))
+        cached = CacheService.get(key)
+        if cached is not None:
+            return Response(cached)
         try:
             product = Product.objects.select_related('store').prefetch_related('variants', 'images').get(
                 id=product_id, is_visible=True, status='active',
             )
         except Product.DoesNotExist:
             return Response({'error': 'not_found', 'message': 'Product not found.'}, status=status.HTTP_404_NOT_FOUND)
-        return Response(MobileProductDetailSerializer(product, context={'request': request}).data)
+        data = MobileProductDetailSerializer(product, context={'request': request}).data
+        CacheService.set(key, data, timeout=CacheService.TTL_PRODUCT_DETAIL)
+        return Response(data)
 
 
 class ProductCreateView(APIView):
@@ -195,6 +202,7 @@ class ProductUpdateView(APIView):
         serializer = ProductSerializer(product, data=request.data, partial=True, context={'request': request})
         serializer.is_valid(raise_exception=True)
         product = ProductService.update(product, serializer.validated_data)
+        CacheService.invalidate_product_detail(str(product_id))
         return Response(ProductSerializer(product, context={'request': request}).data)
 
     @extend_schema(tags=[_TAG], summary='Delete product (owner only)', responses={204: None})
@@ -205,6 +213,7 @@ class ProductUpdateView(APIView):
             return Response({'error': 'not_found', 'message': 'Product not found.'}, status=status.HTTP_404_NOT_FOUND)
         self.check_object_permissions(request, product)
         product.delete()
+        CacheService.invalidate_product_detail(str(product_id))
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 

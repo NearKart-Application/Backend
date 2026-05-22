@@ -115,11 +115,18 @@ DATABASES = {
         'NAME': env('DB_NAME', default='nearkart'),
         'USER': env('DB_USER', default='nearkart'),
         'PASSWORD': env('DB_PASSWORD'),
-        'HOST': env('DB_HOST', default='postgres'),
-        'PORT': env('DB_PORT', default='5432'),
-        'CONN_MAX_AGE': 60,
+        # Point to PgBouncer (port 6432), not Postgres directly.
+        # PgBouncer pools connections so 10,000 app connections share 20 DB connections.
+        'HOST': env('DB_HOST', default='pgbouncer'),
+        'PORT': env('DB_PORT', default='6432'),
+        # CONN_MAX_AGE must be 0 with PgBouncer transaction pooling.
+        # Persistent connections + transaction pooling = stale connection errors.
+        'CONN_MAX_AGE': 0,
         'OPTIONS': {
             'connect_timeout': 10,
+            # Kill any single query that runs longer than 10 s — prevents slow
+            # geo queries from holding DB connections and blocking the pool.
+            'options': '-c statement_timeout=10000',
         },
     }
 }
@@ -332,9 +339,15 @@ DEFAULT_FROM_NAME = env('DEFAULT_FROM_NAME', default='NearKart')
 GOOGLE_MAPS_API_KEY = env('GOOGLE_MAPS_API_KEY', default='')
 
 # ── RATE LIMITS ────────────────────────────────────────────────
-OTP_SEND_RATE_LIMIT = env.int('OTP_SEND_RATE_LIMIT', default=5)
-OTP_VERIFY_RATE_LIMIT = env.int('OTP_VERIFY_RATE_LIMIT', default=10)
+OTP_SEND_RATE_LIMIT    = env.int('OTP_SEND_RATE_LIMIT',    default=5)
+OTP_VERIFY_RATE_LIMIT  = env.int('OTP_VERIFY_RATE_LIMIT',  default=10)
 VIDEO_UPLOAD_RATE_LIMIT = env.int('VIDEO_UPLOAD_RATE_LIMIT', default=10)
+
+# ── DEV OTP BYPASS ─────────────────────────────────────────────
+# When DEBUG=True these phones skip OTP rate limiting entirely so load
+# tests and QA sessions can authenticate freely without hitting the
+# 5-per-hour ceiling. Never populated in production (DEBUG=False).
+DEV_BYPASS_PHONES: set[str] = set(env.list('DEV_BYPASS_PHONES', default=[])) if DEBUG else set()
 
 # ── BUSINESS LOGIC CONSTANTS ───────────────────────────────────
 BLACKLIST_INACTIVE_DAYS = env.int('BLACKLIST_INACTIVE_DAYS', default=30)

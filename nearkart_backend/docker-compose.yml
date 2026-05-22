@@ -1,11 +1,28 @@
 services:
 
   # ── DJANGO REST API ────────────────────────────────────────
+  # Workers: (2 × CPU cores) + 1. Adjust CPU_CORES env or hardcode for prod.
+  # max-requests: auto-restart workers after 1000 requests to prevent memory leaks.
+  # CONN_MAX_AGE=0: must be 0 with PgBouncer transaction pooling.
   django:
     build:
       context: .
       target: development
-    command: bash -c "/venv/bin/python manage.py migrate && /venv/bin/python manage.py collectstatic --noinput && /venv/bin/gunicorn config.asgi:application --bind 0.0.0.0:8000 --worker-class uvicorn.workers.UvicornWorker --workers 4 --reload"
+    command: >
+      bash -c "
+        /venv/bin/python manage.py migrate &&
+        /venv/bin/python manage.py collectstatic --noinput &&
+        /venv/bin/gunicorn config.asgi:application
+          --bind 0.0.0.0:8000
+          --worker-class uvicorn.workers.UvicornWorker
+          --workers 9
+          --worker-connections 1000
+          --timeout 30
+          --keepalive 5
+          --max-requests 1000
+          --max-requests-jitter 100
+          --reload
+      "
     volumes:
       - .:/app
     ports:
@@ -17,6 +34,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      pgbouncer:
+        condition: service_started
     restart: unless-stopped
 
   # ── DAPHNE (WebSocket) ─────────────────────────────────────
@@ -40,7 +59,7 @@ services:
     build:
       context: .
       target: development
-    command: /venv/bin/celery -A config worker --loglevel=info --concurrency=4
+    command: /venv/bin/celery -A config worker --loglevel=info --concurrency=4 --max-tasks-per-child=200
     volumes:
       - .:/app
     env_file:
@@ -67,8 +86,25 @@ services:
     restart: unless-stopped
 
   # ── POSTGRESQL + POSTGIS ───────────────────────────────────
+  # max_connections=200: headroom for PgBouncer server-side pool + admin connections.
+  # shared_buffers=256MB: PostgreSQL in-memory page cache (25% of RAM is typical).
+  # work_mem=8MB: per-sort/hash memory; keeps geo-distance sorts in RAM.
+  # effective_cache_size=768MB: planner hint for index-vs-seqscan decisions.
   postgres:
     image: postgis/postgis:15-3.3
+    command: >
+      postgres
+        -c max_connections=200
+        -c shared_buffers=256MB
+        -c effective_cache_size=768MB
+        -c work_mem=8MB
+        -c maintenance_work_mem=64MB
+        -c checkpoint_completion_target=0.9
+        -c wal_buffers=16MB
+        -c default_statistics_target=100
+        -c random_page_cost=1.1
+        -c effective_io_concurrency=200
+        -c statement_timeout=10000
     environment:
       POSTGRES_DB: nearkart
       POSTGRES_USER: nearkart
@@ -85,10 +121,54 @@ services:
       retries: 5
     restart: unless-stopped
 
+  # ── PGBOUNCER — Connection Pooler ─────────────────────────
+  # Sits between Django (9 workers × N coroutines) and Postgres.
+  # Transaction pooling: each Django request borrows a real DB connection
+  # only while executing SQL, then returns it to the pool immediately.
+  # This allows 10,000 app connections to share 20 real DB connections.
+  pgbouncer:
+    image: bitnami/pgbouncer:latest
+    environment:
+      POSTGRESQL_HOST: postgres
+      POSTGRESQL_PORT: 5432
+      POSTGRESQL_DATABASE: nearkart
+      POSTGRESQL_USERNAME: nearkart
+      POSTGRESQL_PASSWORD: ${DB_PASSWORD}
+      PGBOUNCER_DATABASE: nearkart
+      PGBOUNCER_POOL_MODE: transaction
+      PGBOUNCER_MAX_CLIENT_CONN: 10000
+      PGBOUNCER_DEFAULT_POOL_SIZE: 20
+      PGBOUNCER_MIN_POOL_SIZE: 5
+      PGBOUNCER_RESERVE_POOL_SIZE: 5
+      PGBOUNCER_RESERVE_POOL_TIMEOUT: 3
+      PGBOUNCER_SERVER_IDLE_TIMEOUT: 600
+      PGBOUNCER_CLIENT_IDLE_TIMEOUT: 0
+      PGBOUNCER_MAX_DB_CONNECTIONS: 50
+      PGBOUNCER_IGNORE_STARTUP_PARAMETERS: extra_float_digits
+    ports:
+      - "6432:6432"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
   # ── REDIS ──────────────────────────────────────────────────
+  # 512MB — enough for: nearby-store cache, product cache, video feeds,
+  # HLL visitor keys, rate-limit ZSETs, OTP keys, JWT blacklist.
+  # noevict-volatile: only TTL-bearing cache keys are evicted; session
+  # and rate-limit data (no TTL or long TTL) are never silently dropped.
   redis:
     image: redis:7-alpine
-    command: redis-server --save 60 1 --loglevel warning --maxmemory 256mb --maxmemory-policy allkeys-lru
+    command: >
+      redis-server
+        --maxmemory 512mb
+        --maxmemory-policy allkeys-lru
+        --save ""
+        --appendonly no
+        --tcp-backlog 511
+        --timeout 0
+        --tcp-keepalive 300
+        --hz 20
     volumes:
       - redis_data:/data
     ports:

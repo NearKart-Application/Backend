@@ -24,6 +24,7 @@ from rest_framework.views import APIView
 import rest_framework.serializers as s
 
 from core.permissions import IsVendor
+from core.utils.cache import CacheService
 from apps.billing.services import BillingService
 from .models import Video
 from .serializers import VideoSerializer, VideoUploadRequestSerializer
@@ -154,6 +155,7 @@ class VideoConfirmUploadView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         video = VideoService.confirm_upload(video, duration_seconds=duration)
+        CacheService.invalidate_video_feeds()
         return Response({
             'video_id': video.id,
             'status':   video.status,
@@ -262,9 +264,17 @@ class VideoFeedView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         store_id = request.query_params.get('store_id')
-        videos   = list(VideoService.get_feed(lat, lng, radius_km=radius, store_id=store_id))
-        data     = VideoSerializer(videos, many=True, context={'request': request}).data
-        return Response({'count': len(data), 'next': None, 'previous': None, 'results': data})
+        cache_key = None if store_id else CacheService.video_feed_near_you_key(lat, lng, radius)
+        if cache_key:
+            cached = CacheService.get(cache_key)
+            if cached is not None:
+                return Response(cached)
+        videos = list(VideoService.get_feed(lat, lng, radius_km=radius, store_id=store_id))
+        data   = VideoSerializer(videos, many=True, context={'request': request}).data
+        result = {'count': len(data), 'next': None, 'previous': None, 'results': data}
+        if cache_key:
+            CacheService.set(cache_key, result, timeout=CacheService.TTL_VIDEO_FEED)
+        return Response(result)
 
 
 class VideoDetailView(APIView):
@@ -323,6 +333,7 @@ class VideoDeleteView(APIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
         video.delete()
+        CacheService.invalidate_video_feeds()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -444,9 +455,15 @@ class VideoTrendingFeedView(APIView):
         auth=[],
     )
     def get(self, request):
+        key    = CacheService.video_feed_trending_key()
+        cached = CacheService.get(key)
+        if cached is not None:
+            return Response(cached)
         videos = list(VideoService.get_trending_feed())
         data   = VideoSerializer(videos, many=True, context={'request': request}).data
-        return Response({'count': len(data), 'next': None, 'previous': None, 'results': data})
+        result = {'count': len(data), 'next': None, 'previous': None, 'results': data}
+        CacheService.set(key, result, timeout=CacheService.TTL_VIDEO_TRENDING)
+        return Response(result)
 
 
 class VideoSaveView(APIView):

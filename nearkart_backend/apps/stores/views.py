@@ -247,6 +247,7 @@ class StoreReviewView(APIView):
             serializer.validated_data['rating'],
             serializer.validated_data.get('comment', ''),
         )
+        CacheService.invalidate_store_reviews(str(store_id))
         return Response(StoreReviewSerializer(review).data)
 
 
@@ -347,8 +348,14 @@ class StoreReviewListView(APIView):
             store = Store.objects.get(id=store_id, is_active=True)
         except Store.DoesNotExist:
             return Response({'error': 'not_found', 'message': 'Store not found.'}, status=status.HTTP_404_NOT_FOUND)
+        key    = CacheService.store_reviews_key(str(store_id))
+        cached = CacheService.get(key)
+        if cached is not None:
+            return Response(cached)
         reviews = store.reviews.select_related('user').order_by('-created_at')[:50]
-        return Response({'results': StoreReviewListSerializer(reviews, many=True).data, 'count': len(reviews)})
+        data = {'results': StoreReviewListSerializer(reviews, many=True).data, 'count': len(reviews)}
+        CacheService.set(key, data, timeout=CacheService.TTL_STORE_REVIEWS)
+        return Response(data)
 
 
 class StoreOfferView(APIView):
@@ -368,11 +375,17 @@ class StoreOfferView(APIView):
             store = Store.objects.get(id=store_id, is_active=True)
         except Store.DoesNotExist:
             return Response({'error': 'not_found', 'message': 'Store not found.'}, status=status.HTTP_404_NOT_FOUND)
+        key    = CacheService.store_offers_key(str(store_id))
+        cached = CacheService.get(key)
+        if cached is not None:
+            return Response(cached)
         from django.utils import timezone
         offers = store.offers.filter(is_active=True).filter(
             models.Q(valid_till__isnull=True) | models.Q(valid_till__gte=timezone.now().date())
         ).order_by('-created_at')
-        return Response({'results': StoreOfferSerializer(offers, many=True).data, 'count': offers.count()})
+        data = {'results': StoreOfferSerializer(offers, many=True).data, 'count': offers.count()}
+        CacheService.set(key, data, timeout=CacheService.TTL_STORE_OFFERS)
+        return Response(data)
 
     @extend_schema(
         tags=[_TAG], summary='Create offer (store owner only)',
@@ -392,6 +405,7 @@ class StoreOfferView(APIView):
         serializer.is_valid(raise_exception=True)
         offer = StoreOffer.objects.create(store=store, **serializer.validated_data)
         CacheService.delete(CacheService.store_detail_key(str(store.id)))
+        CacheService.invalidate_store_offers(str(store_id))
         from apps.stores.models import StoreFollow
         follower_ids = list(StoreFollow.objects.filter(store=store).values_list('user_id', flat=True))
         if follower_ids:
@@ -414,4 +428,5 @@ class StoreOfferDeleteView(APIView):
         self.check_object_permissions(request, store)
         offer.is_active = False
         offer.save(update_fields=['is_active'])
+        CacheService.invalidate_store_offers(str(store_id))
         return Response(status=status.HTTP_204_NO_CONTENT)

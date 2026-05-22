@@ -91,9 +91,15 @@ class OTPSendView(APIView):
         serializer.is_valid(raise_exception=True)
         phone_number = serializer.validated_data['phone_number']
 
-        # Algorithm 6 — Sliding window: 5 OTPs per phone per hour
+        # Algorithm 6 — Sliding window: 5 OTPs per phone per hour.
+        # Dev bypass: permanent QA accounts skip rate limiting so load tests
+        # and multi-device QA can authenticate freely (DEBUG mode only).
+        from django.conf import settings as _s
         from core.utils.cache import CacheService
-        if CacheService.is_rate_limited(f'otp:{phone_number}', max_requests=5, window_secs=3600):
+        is_dev_bypass = phone_number in getattr(_s, 'DEV_BYPASS_PHONES', set())
+        if not is_dev_bypass and CacheService.is_rate_limited(
+            f'otp:{phone_number}', max_requests=5, window_secs=3600
+        ):
             return Response(
                 {'error': 'rate_limited', 'message': 'Too many OTP requests. Please try again later.'},
                 status=status.HTTP_429_TOO_MANY_REQUESTS,

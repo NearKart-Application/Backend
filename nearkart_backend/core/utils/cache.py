@@ -43,10 +43,15 @@ class CacheService:
     """All Redis cache key patterns and helper algorithms in one place."""
 
     # ── TTL constants ─────────────────────────────────────────────────────────
-    TTL_NEARBY_STORES  = 300   # 5 min
-    TTL_VIDEO_FEED     = 120   # 2 min
-    TTL_PRODUCT_SEARCH = 60    # 1 min
-    TTL_STORE_DETAIL   = 600   # 10 min
+    TTL_NEARBY_STORES    = 300    # 5 min  — geo results shift when stores open/close
+    TTL_VIDEO_FEED       = 120    # 2 min  — near-you feed; new uploads appear quickly
+    TTL_VIDEO_TRENDING   = 300    # 5 min  — trending changes slowly
+    TTL_VIDEO_FOLLOWING  = 60     # 1 min  — following feed; user expects fresh content
+    TTL_PRODUCT_SEARCH   = 60     # 1 min  — search results
+    TTL_PRODUCT_DETAIL   = 300    # 5 min  — product detail; changes infrequently
+    TTL_STORE_DETAIL     = 600    # 10 min — store detail; invalidated on update
+    TTL_STORE_REVIEWS    = 300    # 5 min  — reviews; invalidated on new review
+    TTL_STORE_OFFERS     = 300    # 5 min  — offers; invalidated on create/delete
 
     # ── Key builders (H3-based) ───────────────────────────────────────────────
 
@@ -77,6 +82,32 @@ class CacheService:
         cell = _h3_cell(lat, lng)
         raw  = f'products:nearby:{cell}:{radius}:{category}'
         return hashlib.md5(raw.encode()).hexdigest()
+
+    @staticmethod
+    def product_detail_key(product_id: str) -> str:
+        return f'product:detail:{product_id}'
+
+    @staticmethod
+    def store_reviews_key(store_id: str) -> str:
+        return f'store:reviews:{store_id}'
+
+    @staticmethod
+    def store_offers_key(store_id: str) -> str:
+        return f'store:offers:{store_id}'
+
+    @staticmethod
+    def video_feed_near_you_key(lat: float, lng: float, radius: int = 5) -> str:
+        cell = _h3_cell(lat, lng, resolution=7)   # resolution 7 ≈ 5 km cells
+        raw  = f'video:feed:nearby:{cell}:{radius}'
+        return hashlib.md5(raw.encode()).hexdigest()
+
+    @staticmethod
+    def video_feed_trending_key() -> str:
+        return 'video:feed:trending'
+
+    @staticmethod
+    def video_feed_following_key(user_id: str) -> str:
+        return f'video:feed:following:{user_id}'
 
     # ── Two-Level Get / Set / Delete ──────────────────────────────────────────
 
@@ -206,6 +237,24 @@ class CacheService:
     @staticmethod
     def invalidate_video_feed(locality: str):
         CacheService.delete(CacheService.video_feed_key(locality))
+
+    @staticmethod
+    def invalidate_store_reviews(store_id: str):
+        CacheService.delete(CacheService.store_reviews_key(store_id))
+
+    @staticmethod
+    def invalidate_store_offers(store_id: str):
+        CacheService.delete(CacheService.store_offers_key(store_id))
+
+    @staticmethod
+    def invalidate_product_detail(product_id: str):
+        CacheService.delete(CacheService.product_detail_key(product_id))
+
+    @staticmethod
+    def invalidate_video_feeds(user_id: str = None):
+        CacheService.delete(CacheService.video_feed_trending_key())
+        if user_id:
+            CacheService.delete(CacheService.video_feed_following_key(user_id))
 
     @staticmethod
     def invalidate_store_caches(lat: float, lng: float):
