@@ -63,8 +63,8 @@ class WalletView(APIView):
     def get(self, request):
         if not hasattr(request.user, 'store'):
             return Response(
-                {'error': 'not_found', 'message': 'You do not have a store yet.'},
-                status=status.HTTP_404_NOT_FOUND,
+                {'error': 'no_store', 'message': 'You do not have a store yet.'},
+                status=status.HTTP_400_BAD_REQUEST,
             )
         store = request.user.store
         return Response({
@@ -107,8 +107,8 @@ class TopupView(APIView):
     def post(self, request):
         if not hasattr(request.user, 'store'):
             return Response(
-                {'error': 'not_found', 'message': 'You do not have a store yet.'},
-                status=status.HTTP_404_NOT_FOUND,
+                {'error': 'no_store', 'message': 'You do not have a store yet.'},
+                status=status.HTTP_400_BAD_REQUEST,
             )
         try:
             amount = Decimal(str(request.data.get('amount', '')))
@@ -158,8 +158,8 @@ class SubscribeView(APIView):
     def post(self, request):
         if not hasattr(request.user, 'store'):
             return Response(
-                {'error': 'not_found', 'message': 'You do not have a store yet.'},
-                status=status.HTTP_404_NOT_FOUND,
+                {'error': 'no_store', 'message': 'You do not have a store yet.'},
+                status=status.HTTP_400_BAD_REQUEST,
             )
         plan_name = (request.data.get('plan_name') or '').strip().lower()
         try:
@@ -192,8 +192,8 @@ class SubscriptionStatusView(APIView):
     def get(self, request):
         if not hasattr(request.user, 'store'):
             return Response(
-                {'error': 'not_found', 'message': 'You do not have a store yet.'},
-                status=status.HTTP_404_NOT_FOUND,
+                {'error': 'no_store', 'message': 'You do not have a store yet.'},
+                status=status.HTTP_400_BAD_REQUEST,
             )
         sub = BillingService.get_subscription(request.user.store)
         if not sub:
@@ -215,8 +215,8 @@ class TransactionListView(APIView):
     def get(self, request):
         if not hasattr(request.user, 'store'):
             return Response(
-                {'error': 'not_found', 'message': 'You do not have a store yet.'},
-                status=status.HTTP_404_NOT_FOUND,
+                {'error': 'no_store', 'message': 'You do not have a store yet.'},
+                status=status.HTTP_400_BAD_REQUEST,
             )
         txns = BillingService.get_transactions(request.user.store)
         return Response(TransactionSerializer(txns, many=True).data)
@@ -261,8 +261,8 @@ class PaymentInitiateView(APIView):
     def post(self, request):
         if not hasattr(request.user, 'store'):
             return Response(
-                {'error': 'not_found', 'message': 'You do not have a store yet.'},
-                status=status.HTTP_404_NOT_FOUND,
+                {'error': 'no_store', 'message': 'You do not have a store yet.'},
+                status=status.HTTP_400_BAD_REQUEST,
             )
         plan_name = (request.data.get('plan_name') or '').strip().lower()
         try:
@@ -333,8 +333,8 @@ class PaymentVerifyView(APIView):
     def post(self, request):
         if not hasattr(request.user, 'store'):
             return Response(
-                {'error': 'not_found', 'message': 'You do not have a store yet.'},
-                status=status.HTTP_404_NOT_FOUND,
+                {'error': 'no_store', 'message': 'You do not have a store yet.'},
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
         order_id   = (request.data.get('razorpay_order_id')   or '').strip()
