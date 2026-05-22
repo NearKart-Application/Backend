@@ -531,6 +531,6 @@ class StoreStatsView(APIView):
             'store_name':          store.name,
             'store_address':       store.address,
             'active_reservations': active_res,
-            'total_products':      store.products.filter(is_active=True).count(),
+            'total_products':      store.products.filter(status='active').count(),
             'follower_count':      store.followers.count(),
         })
