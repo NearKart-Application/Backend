@@ -22,7 +22,7 @@
 
 | Document | File Path | What it contains |
 |----------|-----------|-----------------|
-| Master API Testing Guide | `docs/NearKart_Master_API_Testing_Guide.docx` | All 79 API endpoints — step-by-step Postman testing, Sprint 1–12 |
+| Master API Testing Guide | `docs/NearKart_Master_API_Testing_Guide.docx` | All 90 API endpoints — step-by-step Postman testing, Sprint 1–15 |
 | Complete Project Journey | `docs/NearKart_Complete_Project_Journey_Sprint0_to_Sprint12.docx` | Full project history Sprint 0–12, all models, decisions, architecture |
 | Sprint 0–3 Reference | `docs/NearKart_Backend_Complete_Reference_Sprint0_to_Sprint3.docx` | Detailed reference for early sprints (Auth, Store, Product) |
 
@@ -181,9 +181,32 @@ Run with: `python3 docs/gen_api_guide.py` or `python3 docs/gen_project_journey.p
 
 | Document | File Path | What it contains |
 |----------|-----------|-----------------|
+| Sprint README | `docs/sprint_13_tests/README.md` | Performance algorithms added, test infrastructure overview |
+| Postman Guide | `docs/sprint_13_tests/POSTMAN_GUIDE.md` | How to verify algorithm outputs via API |
+| Testing Checklist | `docs/sprint_13_tests/TESTING_CHECKLIST.md` | Unit + integration + load test checklist |
 | **Test Runner Guide** | `docs/sprint_13_tests/TEST_RUNNER_GUIDE.md` | How to install, run all/single/keyword tests, coverage reports, markers, CI replication, dev-mode bypass explanations |
 | **Server Capability** | `docs/sprint_13_tests/SERVER_CAPABILITY.md` | Concurrent user capacity, layer-by-layer breakdown, cache hit rates, configuration reference, scaling roadmap to 25k+ users, monitoring commands |
 | **Load Test Results** | `docs/sprint_13_tests/LOAD_TEST_RESULTS.md` | Smoke/load/stress test results (50/200/500 users), before vs after comparison, PgBouncer/Redis metrics, bugs found and fixed, how to re-run |
+
+---
+
+## Sprint 14 — FCM Push Notifications + Notification Improvements  _(mobile-driven)_
+
+| Document | File Path | What it contains |
+|----------|-----------|-----------------|
+| Mobile Sprint README | _(mobile repo)_ `docs/sprint_14_notifications_profile_qr/README.md` | FCM service wiring, edit profile screen, QR scanner screen |
+| Mobile Testing Checklist | _(mobile repo)_ `docs/sprint_14_notifications_profile_qr/TESTING_CHECKLIST.md` | FCM token registration, profile edit, QR code scan flow |
+| Mobile Postman Guide | _(mobile repo)_ `docs/sprint_14_notifications_profile_qr/POSTMAN_GUIDE.md` | Device token API, profile update API |
+
+---
+
+## Sprint 15 — Loyalty Points + Referral System
+
+| Document | File Path | What it contains |
+|----------|-----------|-----------------|
+| Mobile Sprint README | _(mobile repo)_ `docs/sprint_15_loyalty_referral/README.md` | Full loyalty system — backend + mobile screens, business rules |
+| Mobile Testing Checklist | _(mobile repo)_ `docs/sprint_15_loyalty_referral/TESTING_CHECKLIST.md` | Balance, referral, redemption, reservation discount test cases |
+| Mobile Postman Guide | _(mobile repo)_ `docs/sprint_15_loyalty_referral/POSTMAN_GUIDE.md` | All 5 loyalty endpoints with request/response examples |
 
 ---
 
@@ -193,7 +216,7 @@ Run with: `python3 docs/gen_api_guide.py` or `python3 docs/gen_project_journey.p
 |-------------------|-------|
 | How to run the project locally | `docs/HOW_TO_RUN_AND_TEST.md` |
 | Full architecture diagram | `docs/PROJECT_OVERVIEW.md` |
-| All 79 API endpoints in one place | `docs/NearKart_Master_API_Testing_Guide.docx` |
+| All 90 API endpoints in one place | `docs/NearKart_Master_API_Testing_Guide.docx` |
 | The whole project story Sprint 0–12 | `docs/NearKart_Complete_Project_Journey_Sprint0_to_Sprint12.docx` |
 | How OTP login works | `docs/sprint_2_auth_module/README.md` |
 | How to test Auth in Postman | `docs/sprint_2_auth_module/POSTMAN_GUIDE.md` |
@@ -211,3 +234,7 @@ Run with: `python3 docs/gen_api_guide.py` or `python3 docs/gen_project_journey.p
 | How many users the server can handle | `docs/sprint_13_tests/SERVER_CAPABILITY.md` |
 | How to scale beyond 10,000 users | `docs/sprint_13_tests/SERVER_CAPABILITY.md` |
 | Load test results and pass/fail status | `docs/sprint_13_tests/LOAD_TEST_RESULTS.md` |
+| How loyalty points work | _(mobile repo)_ `docs/sprint_15_loyalty_referral/README.md` |
+| How referral codes work | _(mobile repo)_ `docs/sprint_15_loyalty_referral/README.md` |
+| Loyalty API endpoints (Postman) | _(mobile repo)_ `docs/sprint_15_loyalty_referral/POSTMAN_GUIDE.md` |
+| FCM push notification setup | _(mobile repo)_ `docs/sprint_14_notifications_profile_qr/README.md` |
