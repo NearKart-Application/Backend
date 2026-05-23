@@ -404,7 +404,11 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # ── LOGGING ────────────────────────────────────────────────────
 _LOG_DIR = BASE_DIR.parent / 'logs'
-_LOG_DIR.mkdir(exist_ok=True)
+try:
+    _LOG_DIR.mkdir(exist_ok=True)
+except PermissionError:
+    import tempfile
+    _LOG_DIR = Path(tempfile.mkdtemp(prefix='nearkart_logs_'))
 
 
 def _rotating(filename: str, formatter: str = 'entity') -> dict:
