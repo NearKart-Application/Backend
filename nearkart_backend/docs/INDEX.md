@@ -31,6 +31,7 @@
 | S13 — Performance Algorithms + Tests | [sprint_13_tests/](sprint_13_tests/README.md) | Done ✅ | [TESTING_CHECKLIST.md](sprint_13_tests/TESTING_CHECKLIST.md) · [POSTMAN_GUIDE.md](sprint_13_tests/POSTMAN_GUIDE.md) · [TEST_RUNNER_GUIDE.md](sprint_13_tests/TEST_RUNNER_GUIDE.md) · [SERVER_CAPABILITY.md](sprint_13_tests/SERVER_CAPABILITY.md) · [LOAD_TEST_RESULTS.md](sprint_13_tests/LOAD_TEST_RESULTS.md) |
 | S14 — FCM Notifications + Profile + QR _(mobile)_ | _(mobile repo)_ | Done ✅ | — |
 | S15 — Loyalty Points + Referral System | _(mobile repo)_ | Done ✅ | — |
+| S16 — Reviews & Ratings | [sprint_16_reviews_ratings/](sprint_16_reviews_ratings/README.md) | Done ✅ | [TESTING_CHECKLIST.md](sprint_16_reviews_ratings/TESTING_CHECKLIST.md) · [POSTMAN_GUIDE.md](sprint_16_reviews_ratings/POSTMAN_GUIDE.md) |
 
 ---
 
