@@ -74,12 +74,28 @@ class ReservationCreateView(APIView):
         if request.user.role == 'customer' and BlacklistService.is_blocked(store, request.user):
             return Response({'error': 'blacklisted', 'message': 'You cannot reserve from this store.'}, status=403)
 
+        # Loyalty points redemption (optional)
+        points_to_redeem = data.get('points_to_redeem', 0)
+        discount_amount  = 0
+        if points_to_redeem > 0:
+            try:
+                from apps.loyalty.services import LoyaltyService
+                discount_amount = LoyaltyService.redeem_points(
+                    user=request.user,
+                    points=points_to_redeem,
+                    description=f'Discount on reservation — {product.name}',
+                )
+            except ValueError as e:
+                return Response({'error': 'loyalty_error', 'message': str(e)}, status=400)
+
         reservation = ReservationService.create(
             customer=request.user,
             store=store,
             product=product,
             quantity=data['quantity'],
             note=data.get('note', ''),
+            points_redeemed=points_to_redeem,
+            discount_amount=discount_amount,
         )
         log_event('reservations', action='reservation_created',
                   reservation_id=str(reservation.id), store_id=str(store.id),

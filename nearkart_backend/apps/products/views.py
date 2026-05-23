@@ -312,10 +312,25 @@ class ProductReserveView(APIView):
         if request.user.role == 'customer' and BlacklistService.is_blocked(store, request.user):
             return Response({'error': 'blacklisted', 'message': 'You cannot reserve from this store.'}, status=status.HTTP_403_FORBIDDEN)
 
-        quantity = int(request.data.get('quantity', 1))
-        note     = request.data.get('note', '')
+        quantity         = int(request.data.get('quantity', 1))
+        note             = request.data.get('note', '')
+        points_to_redeem = int(request.data.get('points_to_redeem', 0))
+        discount_amount  = 0
+
+        if points_to_redeem > 0:
+            try:
+                from apps.loyalty.services import LoyaltyService
+                discount_amount = LoyaltyService.redeem_points(
+                    user=request.user,
+                    points=points_to_redeem,
+                    description=f'Discount on reservation — {product.name}',
+                )
+            except ValueError as e:
+                return Response({'error': 'loyalty_error', 'message': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
         reservation = ReservationService.create(
             customer=request.user, store=store, product=product, quantity=quantity, note=note,
+            points_redeemed=points_to_redeem, discount_amount=discount_amount,
         )
         from apps.reservations.serializers import ReservationSerializer
         return Response(ReservationSerializer(reservation).data, status=status.HTTP_201_CREATED)

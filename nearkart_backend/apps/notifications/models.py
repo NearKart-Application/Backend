@@ -35,6 +35,8 @@ class NotificationType(models.TextChoices):
     GROUP_PRODUCT_SHARED    = 'group_product_shared',    'Product Shared in Group'
     GROUP_PRODUCT_FINALIZED = 'group_product_finalized', 'Product Finalized in Group'
     GROUP_ADMIN_PROMOTED    = 'group_admin_promoted',    'Promoted to Group Admin'
+    # Loyalty
+    LOYALTY                 = 'loyalty',                 'Loyalty Points'
 
 
 class Notification(BaseModel):
