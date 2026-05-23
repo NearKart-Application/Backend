@@ -98,18 +98,18 @@ class ProductService:
             qs = qs.filter(store__location__dwithin=(user_point, D(km=radius_km)))
 
         if min_price is not None:
-            qs = qs.filter(price__gte=min_price)
+            qs = qs.filter(base_price__gte=min_price)
         if max_price is not None:
-            qs = qs.filter(price__lte=max_price)
+            qs = qs.filter(base_price__lte=max_price)
         if min_rating is not None:
             qs = qs.filter(store_avg_rating__gte=min_rating)
         if has_offer:
             qs = qs.filter(store__offers__is_active=True).distinct()
 
         if ordering == 'price_asc':
-            qs = qs.order_by('price')
+            qs = qs.order_by('base_price')
         elif ordering == 'price_desc':
-            qs = qs.order_by('-price')
+            qs = qs.order_by('-base_price')
         elif ordering == 'rating':
             qs = qs.order_by('-store_avg_rating')
         else:

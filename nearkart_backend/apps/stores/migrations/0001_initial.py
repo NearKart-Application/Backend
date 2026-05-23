@@ -2,6 +2,7 @@
 
 import django.contrib.gis.db.models.fields
 import django.contrib.postgres.indexes
+import django.contrib.postgres.operations
 import django.db.models.deletion
 import uuid
 from django.conf import settings
@@ -17,6 +18,7 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
+        django.contrib.postgres.operations.TrigramExtension(),
         migrations.CreateModel(
             name="Store",
             fields=[
