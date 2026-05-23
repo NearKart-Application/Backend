@@ -248,8 +248,19 @@ class Command(BaseCommand):
             self.stdout.write(f'   Notifications already exist, skipping.')
 
         # ── 6. Videos (one per store) ─────────────────────────────────────────
-        # Use a publicly available test HLS stream and picsum thumbnails
-        TEST_HLS_URL = 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8'
+        # Different HLS streams per store so each vendor's video plays distinct content
+        TEST_HLS_POOL = [
+            'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8',
+            'https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_4x3/bipbop_4x3_variant.m3u8',
+            'https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_16x9/bipbop_16x9_variant.m3u8',
+            'https://devstreaming-cdn.apple.com/videos/streaming/examples/img_bipbop_adv_example_ts/master.m3u8',
+            'https://test-streams.mux.dev/pts_shift/master.m3u8',
+            'https://playertest.longtailvideo.com/adaptive/bipbop/gear4/prog_index.m3u8',
+            'https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_4x3/bipbop_4x3_variant.m3u8',
+            'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8',
+            'https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_16x9/bipbop_16x9_variant.m3u8',
+            'https://playertest.longtailvideo.com/adaptive/bipbop/gear4/prog_index.m3u8',
+        ]
 
         vids_created = 0
         for i, store in enumerate(stores[:10]):
@@ -263,7 +274,7 @@ class Command(BaseCommand):
                 title=title,
                 description=description,
                 thumbnail_url=f'https://picsum.photos/seed/{thumb_seed}/400/700',
-                video_url=TEST_HLS_URL,
+                video_url=TEST_HLS_POOL[i % len(TEST_HLS_POOL)],
                 status='ready',
                 duration_seconds=duration,
                 location=store.location,

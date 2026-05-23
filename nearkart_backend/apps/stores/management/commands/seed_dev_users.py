@@ -22,6 +22,21 @@ from django.core.management.base import BaseCommand
 from django.utils import timezone
 
 
+# Different public HLS test streams so each vendor's videos play distinct content
+DEV_HLS_POOL = [
+    'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8',
+    'https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_4x3/bipbop_4x3_variant.m3u8',
+    'https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_16x9/bipbop_16x9_variant.m3u8',
+    'https://devstreaming-cdn.apple.com/videos/streaming/examples/img_bipbop_adv_example_ts/master.m3u8',
+    'https://test-streams.mux.dev/pts_shift/master.m3u8',
+    'https://playertest.longtailvideo.com/adaptive/bipbop/gear4/prog_index.m3u8',
+    'https://devstreaming-cdn.apple.com/videos/streaming/examples/adv_dv_atmos/main.m3u8',
+    'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8',  # cycle back
+    'https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_4x3/bipbop_4x3_variant.m3u8',
+    'https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_16x9/bipbop_16x9_variant.m3u8',
+]
+
+
 # ── User definitions — KEEP IN SYNC with DevTestUsers.kt ─────────────────────
 DEV_USERS = [
     # (phone, full_name, role)
@@ -285,6 +300,7 @@ class Command(BaseCommand):
 
         # ── 2. Create vendor stores + products ────────────────────────────────
         stores = {}  # vendor_phone → Store
+        global_video_idx = 0  # increments across all vendors so each video gets a distinct HLS URL
         for vendor_phone, store_data in DEV_VENDOR_STORES.items():
             vendor = users[vendor_phone]
             if hasattr(vendor, 'store'):
@@ -379,13 +395,15 @@ class Command(BaseCommand):
 
                 # Videos (2 per vendor store, status=ready so they appear in video feed)
                 for v_idx, (title, desc, thumb, duration, views, likes) in enumerate(store_data.get('videos', [])):
+                    hls_url = DEV_HLS_POOL[global_video_idx % len(DEV_HLS_POOL)]
+                    global_video_idx += 1
                     Video.objects.get_or_create(
                         store=store,
                         title=title,
                         defaults=dict(
                             description=desc,
                             thumbnail_url=thumb,
-                            video_url='https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8',
+                            video_url=hls_url,
                             status=Video.STATUS_READY,
                             duration_seconds=duration,
                             view_count=views,
