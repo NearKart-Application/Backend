@@ -29,14 +29,11 @@ built in later sprints. Right now you can only test via:
 ```
 ┌─────────────────────────────────────────────────────────┐
 │                    NEARKART PLATFORM                     │
-├──────────────────┬──────────────────┬───────────────────┤
-│  Customer App    │   Vendor App     │  Vendor Web       │
-│  (React Native)  │  (React Native)  │  Dashboard        │
-│   Sprint 9       │   Sprint 10      │  (React + Vite)   │
-│                  │                  │   Sprint 11       │
-└────────┬─────────┴────────┬─────────┴────────┬──────────┘
-         │                  │                  │
-         └──────────────────┼──────────────────┘
+├──────────────────────────────────────────────────────────┤
+│         Android App (Kotlin + Jetpack Compose)           │
+│   Customer + Vendor — single APK, role-based UI          │
+│   Sprints 1–15 complete · release/v1.0                   │
+└──────────────────────────┬───────────────────────────────┘
                             │  REST API + WebSocket
                             ▼
          ┌──────────────────────────────────────┐
@@ -75,3 +72,5 @@ built in later sprints. Right now you can only test via:
 | S11 | Notifications | Done ✅ | `docs/sprint_11_notifications/` |
 | S12 | Staging + Production + Razorpay | Done ✅ | `docs/sprint_12_production/` |
 | S13 | Performance Algorithms + Test Infrastructure | Done ✅ | `docs/sprint_13_tests/` |
+| S14 | FCM Device Tokens + Notification Device API _(mobile-driven)_ | Done ✅ | — |
+| S15 | Loyalty Points + Referral System | Done ✅ | `apps/loyalty/` · `apps/reservations/` (loyalty fields) |
