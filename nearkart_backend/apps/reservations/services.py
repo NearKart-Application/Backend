@@ -17,7 +17,8 @@ logger = logging.getLogger(__name__)
 class ReservationService:
 
     @staticmethod
-    def create(customer, store, product, quantity: int, note: str = '') -> Reservation:
+    def create(customer, store, product, quantity: int, note: str = '',
+               points_redeemed: int = 0, discount_amount=0) -> Reservation:
         hold_hours = getattr(settings, 'RESERVATION_HOLD_HOURS', 2)
         expires_at = timezone.now() + timedelta(hours=hold_hours)
         reservation = Reservation.objects.create(
@@ -27,6 +28,8 @@ class ReservationService:
             quantity=quantity,
             note=note,
             expires_at=expires_at,
+            points_redeemed=points_redeemed,
+            discount_amount=discount_amount,
         )
         logger.info('[reservations] created %s — %s x%d', reservation.id, product.name, quantity)
         NotificationService.notify_reservation_created(

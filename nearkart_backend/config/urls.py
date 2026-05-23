@@ -51,5 +51,8 @@ urlpatterns = [
 
     # ── NOTIFICATIONS ─────────────────────────────────────────
     path(API_V1 + 'notifications/', include('apps.notifications.urls')),
+
+    # ── LOYALTY & REFERRALS ───────────────────────────────────────
+    path(API_V1 + 'loyalty/', include('apps.loyalty.urls')),
 ]
 

@@ -8,10 +8,11 @@ from .models import Reservation, ReservationStatus
 
 
 class ReservationCreateSerializer(serializers.Serializer):
-    store_id   = serializers.UUIDField()
-    product_id = serializers.UUIDField()
-    quantity   = serializers.IntegerField(min_value=1, max_value=100, default=1)
-    note       = serializers.CharField(max_length=500, allow_blank=True, default='')
+    store_id        = serializers.UUIDField()
+    product_id      = serializers.UUIDField()
+    quantity        = serializers.IntegerField(min_value=1, max_value=100, default=1)
+    note            = serializers.CharField(max_length=500, allow_blank=True, default='')
+    points_to_redeem = serializers.IntegerField(min_value=0, default=0, required=False)
 
 
 class ReservationStatusUpdateSerializer(serializers.Serializer):
@@ -55,5 +56,6 @@ class ReservationSerializer(serializers.ModelSerializer):
             'id', 'store', 'customer', 'product',
             'quantity', 'note', 'vendor_note',
             'status', 'expires_at', 'hours_left',
+            'points_redeemed', 'discount_amount',
             'created_at', 'updated_at',
         ]

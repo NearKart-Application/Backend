@@ -35,7 +35,9 @@ class Reservation(BaseModel):
         default=ReservationStatus.PENDING,
         db_index=True,
     )
-    expires_at  = models.DateTimeField(db_index=True)
+    expires_at      = models.DateTimeField(db_index=True)
+    points_redeemed = models.PositiveIntegerField(default=0)
+    discount_amount = models.DecimalField(max_digits=8, decimal_places=2, default=0)
 
     class Meta:
         db_table = 'reservations'
