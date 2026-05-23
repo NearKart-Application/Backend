@@ -1,6 +1,6 @@
 """
 NearKart — Store Models
-Store, StoreHours, StoreFollow, StoreReview
+Store, StoreHours, StoreFollow, StoreReview, StoreOffer, Invoice
 """
 from django.contrib.gis.db import models as gis_models
 from django.db import models
@@ -117,3 +117,20 @@ class StoreOffer(BaseModel):
 
     def __str__(self):
         return f'{self.store.name} — {self.title}'
+
+
+class Invoice(BaseModel):
+    store          = models.ForeignKey(Store, on_delete=models.CASCADE, related_name='invoices')
+    customer_name  = models.CharField(max_length=200)
+    customer_phone = models.CharField(max_length=20, blank=True)
+    items          = models.JSONField(default=list)  # [{"name": ..., "price": ..., "qty": ...}]
+    notes          = models.TextField(blank=True)
+    total          = models.DecimalField(max_digits=10, decimal_places=2)
+    is_sent        = models.BooleanField(default=False)
+
+    class Meta:
+        db_table = 'store_invoices'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'Invoice #{str(self.id)[:8]} — {self.store.name} → {self.customer_name}'

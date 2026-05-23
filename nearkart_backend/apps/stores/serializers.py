@@ -4,7 +4,7 @@ NearKart — Store Serializers
 from django.db import models
 from rest_framework import serializers
 from drf_spectacular.utils import extend_schema_field
-from .models import Store, StoreHours, StoreFollow, StoreReview, StoreOffer
+from .models import Store, StoreHours, StoreFollow, StoreReview, StoreOffer, Invoice
 
 
 class StoreHoursSerializer(serializers.ModelSerializer):
@@ -288,3 +288,10 @@ class StoreMobileDetailSerializer(serializers.ModelSerializer):
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_next_open(self, obj):
         return None
+
+
+class InvoiceSerializer(serializers.ModelSerializer):
+    class Meta:
+        model  = Invoice
+        fields = ['id', 'customer_name', 'customer_phone', 'items', 'notes', 'total', 'is_sent', 'created_at']
+        read_only_fields = ['id', 'created_at']

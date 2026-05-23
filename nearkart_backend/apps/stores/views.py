@@ -23,11 +23,12 @@ from core.logging import log_event
 from core.permissions import IsVendor, IsStoreOwner
 from core.utils.cache import CacheService
 from apps.blacklist.services import BlacklistService
-from .models import Store, StoreHours, StoreOffer
+from .models import Store, StoreHours, StoreOffer, Invoice
 from .serializers import (
     StoreSerializer, StoreListSerializer, StoreReviewSerializer,
     StoreReviewListSerializer, StoreOfferSerializer,
     StoreHoursSerializer, StoreMobileDetailSerializer, VendorReplySerializer,
+    InvoiceSerializer,
 )
 from .services import StoreService, QRService
 
@@ -617,3 +618,29 @@ class StoreStatsView(APIView):
             'total_products':      store.products.filter(status='active').count(),
             'follower_count':      store.followers.count(),
         })
+
+
+class StoreInvoiceListCreateView(APIView):
+    """
+    GET  /api/v1/stores/mine/invoices/ — list vendor's invoices
+    POST /api/v1/stores/mine/invoices/ — create an invoice
+    """
+    permission_classes = [IsAuthenticated, IsVendor]
+
+    @extend_schema(tags=[_TAG], summary='List vendor invoices', responses={200: InvoiceSerializer(many=True)})
+    def get(self, request):
+        if not hasattr(request.user, 'store'):
+            return Response({'results': [], 'count': 0})
+        invoices = Invoice.objects.filter(store=request.user.store)
+        return Response({'results': InvoiceSerializer(invoices, many=True).data, 'count': invoices.count()})
+
+    @extend_schema(tags=[_TAG], summary='Create invoice', request=InvoiceSerializer, responses={201: InvoiceSerializer})
+    def post(self, request):
+        if not hasattr(request.user, 'store'):
+            return Response({'error': 'no_store'}, status=status.HTTP_400_BAD_REQUEST)
+        ser = InvoiceSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        items = ser.validated_data.get('items', [])
+        total = sum(float(i.get('price', 0)) * int(i.get('qty', 1)) for i in items)
+        invoice = ser.save(store=request.user.store, total=total)
+        return Response(InvoiceSerializer(invoice).data, status=status.HTTP_201_CREATED)

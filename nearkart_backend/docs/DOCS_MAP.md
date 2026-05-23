@@ -221,6 +221,16 @@ Run with: `python3 docs/gen_api_guide.py` or `python3 docs/gen_project_journey.p
 
 ---
 
+## Sprint 19 — Search Filters + Sort · Follow Feed · Vendor Invoices · Map Enhancements
+
+| Document | File Path | What it contains |
+|----------|-----------|-----------------|
+| Sprint README | `docs/sprint_19_search_filters_follow_invoices_map/README.md` | All 4 options: search filters/sort, following feed, invoice model + CRUD, map radius chips + rating |
+| Testing Checklist | `docs/sprint_19_search_filters_follow_invoices_map/TESTING_CHECKLIST.md` | Filter sheet, sort options, following tab, invoice create flow, map radius chips |
+| Postman Guide | `docs/sprint_19_search_filters_follow_invoices_map/POSTMAN_GUIDE.md` | Updated search endpoint params, new `products/following/`, new `stores/mine/invoices/` |
+
+---
+
 ## Sprint 18 — Rating Badges + Pull-to-Refresh
 
 | Document | File Path | What it contains |
@@ -274,6 +284,10 @@ Run with: `python3 docs/gen_api_guide.py` or `python3 docs/gen_project_journey.p
 | How store reviews are shown on StoreDetailScreen | `docs/sprint_17_store_detail_enhancement/README.md` |
 | How rating badges appear on Search + ProductDetail | `docs/sprint_18_ratings_refresh/README.md` |
 | How pull-to-refresh works on VendorDashboard | `docs/sprint_18_ratings_refresh/README.md` |
+| How search filters and sort work | `docs/sprint_19_search_filters_follow_invoices_map/README.md` |
+| How the Following feed works | `docs/sprint_19_search_filters_follow_invoices_map/README.md` |
+| How vendor invoices work | `docs/sprint_19_search_filters_follow_invoices_map/README.md` |
+| Invoice API endpoints (Postman) | `docs/sprint_19_search_filters_follow_invoices_map/POSTMAN_GUIDE.md` |
 | How store reviews work | `docs/sprint_16_reviews_ratings/README.md` |
 | How vendor replies to reviews | `docs/sprint_16_reviews_ratings/README.md` |
 | Reviews API endpoints (Postman) | `docs/sprint_16_reviews_ratings/POSTMAN_GUIDE.md` |

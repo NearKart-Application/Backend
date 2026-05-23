@@ -3,11 +3,13 @@ from .views import (
     NearbyProductsView, ProductSearchView, ProductDetailView,
     ProductCreateView, ProductUpdateView, ProductWishlistView,
     WishlistListView, VendorProductListView, ProductReserveView,
+    FollowingFeedView,
 )
 
 urlpatterns = [
     path('nearby/',                    NearbyProductsView.as_view(),      name='products-nearby'),
     path('search/',                    ProductSearchView.as_view(),        name='products-search'),
+    path('following/',                 FollowingFeedView.as_view(),        name='products-following'),
     path('wishlist/',                  WishlistListView.as_view(),         name='wishlist-list'),
     path('vendor/',                    VendorProductListView.as_view(),    name='vendor-products'),
     path('',                           ProductCreateView.as_view(),        name='product-create'),
