@@ -23,7 +23,7 @@
 
 | Document | File Path | What it contains |
 |----------|-----------|-----------------|
-| Master API Testing Guide | `docs/NearKart_Master_API_Testing_Guide.docx` | All 90 API endpoints — step-by-step Postman testing, Sprint 1–15 |
+| Master API Testing Guide | `docs/NearKart_Master_API_Testing_Guide.docx` | All 95 API steps — step-by-step Postman testing, Sprint 1–18 |
 | Complete Project Journey | `docs/NearKart_Complete_Project_Journey_Sprint0_to_Sprint12.docx` | Full project history Sprint 0–12, all models, decisions, architecture |
 | Sprint 0–3 Reference | `docs/NearKart_Backend_Complete_Reference_Sprint0_to_Sprint3.docx` | Detailed reference for early sprints (Auth, Store, Product) |
 
@@ -221,6 +221,16 @@ Run with: `python3 docs/gen_api_guide.py` or `python3 docs/gen_project_journey.p
 
 ---
 
+## Sprint 18 — Rating Badges + Pull-to-Refresh
+
+| Document | File Path | What it contains |
+|----------|-----------|-----------------|
+| Sprint README | `docs/sprint_18_ratings_refresh/README.md` | Rating chips on SearchScreen + ProductDetailScreen, pull-to-refresh on VendorDashboard, backend `rating`/`review_count` on ProductDetail store |
+| Testing Checklist | `docs/sprint_18_ratings_refresh/TESTING_CHECKLIST.md` | Rating chip visibility rules, skeleton loading, tappable store row, new_review tap-through, VendorDashboard pull-to-refresh |
+| Postman Guide | `docs/sprint_18_ratings_refresh/POSTMAN_GUIDE.md` | No new endpoints — how to verify updated `GET /api/products/{id}/` store object |
+
+---
+
 ## Sprint 16 — Reviews & Ratings
 
 | Document | File Path | What it contains |
@@ -262,6 +272,8 @@ Run with: `python3 docs/gen_api_guide.py` or `python3 docs/gen_project_journey.p
 | Loyalty API endpoints (Postman) | _(mobile repo)_ `docs/sprint_15_loyalty_referral/POSTMAN_GUIDE.md` |
 | FCM push notification setup | _(mobile repo)_ `docs/sprint_14_notifications_profile_qr/README.md` |
 | How store reviews are shown on StoreDetailScreen | `docs/sprint_17_store_detail_enhancement/README.md` |
+| How rating badges appear on Search + ProductDetail | `docs/sprint_18_ratings_refresh/README.md` |
+| How pull-to-refresh works on VendorDashboard | `docs/sprint_18_ratings_refresh/README.md` |
 | How store reviews work | `docs/sprint_16_reviews_ratings/README.md` |
 | How vendor replies to reviews | `docs/sprint_16_reviews_ratings/README.md` |
 | Reviews API endpoints (Postman) | `docs/sprint_16_reviews_ratings/POSTMAN_GUIDE.md` |
