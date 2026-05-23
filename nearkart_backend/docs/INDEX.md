@@ -33,6 +33,7 @@
 | S15 — Loyalty Points + Referral System | _(mobile repo)_ | Done ✅ | — |
 | S16 — Reviews & Ratings | [sprint_16_reviews_ratings/](sprint_16_reviews_ratings/README.md) | Done ✅ | [TESTING_CHECKLIST.md](sprint_16_reviews_ratings/TESTING_CHECKLIST.md) · [POSTMAN_GUIDE.md](sprint_16_reviews_ratings/POSTMAN_GUIDE.md) |
 | S17 — Store Detail Enhancement _(mobile-driven)_ | [sprint_17_store_detail_enhancement/](sprint_17_store_detail_enhancement/README.md) | Done ✅ | [TESTING_CHECKLIST.md](sprint_17_store_detail_enhancement/TESTING_CHECKLIST.md) |
+| S18 — Rating Badges + Pull-to-Refresh _(mobile + backend)_ | [sprint_18_ratings_refresh/](sprint_18_ratings_refresh/README.md) | Done ✅ | [TESTING_CHECKLIST.md](sprint_18_ratings_refresh/TESTING_CHECKLIST.md) · [POSTMAN_GUIDE.md](sprint_18_ratings_refresh/POSTMAN_GUIDE.md) |
 
 ---
 

@@ -32,7 +32,7 @@ built in later sprints. Right now you can only test via:
 ├──────────────────────────────────────────────────────────┤
 │         Android App (Kotlin + Jetpack Compose)           │
 │   Customer + Vendor — single APK, role-based UI          │
-│   Sprints 1–16 complete · release/v1.0                   │
+│   Sprints 1–18 complete · release/v1.0                   │
 └──────────────────────────┬───────────────────────────────┘
                             │  REST API + WebSocket
                             ▼
@@ -76,3 +76,4 @@ built in later sprints. Right now you can only test via:
 | S15 | Loyalty Points + Referral System | Done ✅ | `apps/loyalty/` · `apps/reservations/` (loyalty fields) |
 | S16 | Reviews & Ratings | Done ✅ | `apps/stores/` (vendor reply, reservation gate, 3 new endpoints) |
 | S17 | Store Detail Enhancement _(mobile-driven)_ | Done ✅ | — |
+| S18 | Rating Badges + Pull-to-Refresh | Done ✅ | `apps/products/` (serializers) · `docs/sprint_18_ratings_refresh/` |

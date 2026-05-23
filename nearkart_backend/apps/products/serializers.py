@@ -176,10 +176,14 @@ class MobileProductDetailSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.DictField())
     def get_store(self, obj):
+        from django.db.models import Avg, Count
+        agg = obj.store.reviews.aggregate(avg=Avg('rating'), cnt=Count('id'))
         return {
-            'id': str(obj.store.id),
-            'name': obj.store.name,
-            'avatar': obj.store.logo_url or None,
+            'id':           str(obj.store.id),
+            'name':         obj.store.name,
+            'avatar':       obj.store.logo_url or None,
+            'rating':       round(float(agg['avg'] or 0), 1),
+            'review_count': agg['cnt'] or 0,
         }
 
     @extend_schema_field(serializers.FloatField(allow_null=True))
