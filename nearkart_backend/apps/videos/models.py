@@ -108,3 +108,22 @@ class VideoSave(models.Model):
 
     def __str__(self):
         return f'{self.user} saved {self.video}'
+
+
+class VideoProductTag(models.Model):
+    """Product pinned to a specific position in a video (TikTok-style tap overlay)."""
+    id         = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    video      = models.ForeignKey(Video, on_delete=models.CASCADE, related_name='product_tags')
+    product    = models.ForeignKey('products.Product', on_delete=models.CASCADE,
+                                   related_name='video_tags')
+    # Normalised 0–1 position on the video frame (e.g. 0.3 = 30% from left/top)
+    x_pct      = models.FloatField(default=0.5)
+    y_pct      = models.FloatField(default=0.5)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ['video', 'product']
+        ordering = ['created_at']
+
+    def __str__(self):
+        return f'{self.product.name} @ ({self.x_pct:.2f}, {self.y_pct:.2f}) in {self.video.title}'

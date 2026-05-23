@@ -9,6 +9,9 @@ PATCH /api/v1/videos/<id>/
 DELETE /api/v1/videos/<id>/delete/
 POST /api/v1/videos/<id>/like/
 GET  /api/v1/videos/<id>/download/
+GET  /api/v1/videos/<id>/tags/
+POST /api/v1/videos/<id>/tags/
+DELETE /api/v1/videos/<id>/tags/<tag_id>/
 """
 import logging
 
@@ -28,8 +31,11 @@ from core.permissions import IsVendor
 from core.utils.cache import CacheService
 from core.utils.upload_tracker import UploadTracker
 from apps.billing.services import BillingService
-from .models import Video
-from .serializers import VideoSerializer, VideoUploadRequestSerializer
+from .models import Video, VideoProductTag
+from .serializers import (
+    VideoSerializer, VideoUploadRequestSerializer,
+    VideoProductTagSerializer, VideoProductTagWriteSerializer,
+)
 from .services import AWSService, VideoService
 
 logger = logging.getLogger(__name__)
@@ -209,7 +215,12 @@ class MyVideosView(APIView):
     def get(self, request):
         if not hasattr(request.user, 'store'):
             return Response([], status=status.HTTP_200_OK)
-        qs = Video.objects.filter(store=request.user.store).order_by('-created_at')
+        qs = (
+            Video.objects
+            .filter(store=request.user.store)
+            .prefetch_related('product_tags__product')
+            .order_by('-created_at')
+        )
         status_filter = request.query_params.get('status')
         if status_filter:
             qs = qs.filter(status=status_filter)
@@ -318,7 +329,9 @@ class VideoDetailView(APIView):
     )
     def get(self, request, video_id):
         try:
-            video = Video.objects.select_related('store').get(id=video_id)
+            video = Video.objects.select_related('store').prefetch_related(
+                'product_tags__product'
+            ).get(id=video_id)
         except Video.DoesNotExist:
             return Response(
                 {'error': 'not_found', 'message': 'Video not found.'},
@@ -520,3 +533,104 @@ class VideoSaveView(APIView):
             )
         saved = VideoService.toggle_save(request.user, video)
         return Response({'saved': saved, 'message': 'Saved.' if saved else 'Unsaved.'})
+
+
+class VideoTagsView(APIView):
+    """
+    GET  /videos/<id>/tags/   — list product tags on a video (public)
+    POST /videos/<id>/tags/   — add product tag to vendor's own video
+    """
+
+    def get_permissions(self):
+        if self.request.method == 'GET':
+            return [AllowAny()]
+        return [IsAuthenticated(), IsVendor()]
+
+    @extend_schema(
+        tags=[_TAG],
+        summary='List product tags on a video (public)',
+        responses={200: VideoProductTagSerializer(many=True)},
+        auth=[],
+    )
+    def get(self, request, video_id):
+        try:
+            video = Video.objects.get(id=video_id)
+        except Video.DoesNotExist:
+            return Response({'error': 'not_found', 'message': 'Video not found.'},
+                            status=status.HTTP_404_NOT_FOUND)
+        tags = VideoProductTag.objects.filter(video=video).select_related('product')
+        return Response(VideoProductTagSerializer(tags, many=True).data)
+
+    @extend_schema(
+        tags=[_TAG],
+        summary='Pin a product tag on vendor\'s own video',
+        description=(
+            'Attach a product to a normalised (x_pct, y_pct) position in the video frame. '
+            '`product` must be a UUID of a product from the vendor\'s own store. '
+            'Max 5 tags per video.'
+        ),
+        request=VideoProductTagWriteSerializer,
+        responses={201: VideoProductTagSerializer, 400: OpenApiResponse(description='Validation error')},
+    )
+    def post(self, request, video_id):
+        try:
+            video = Video.objects.get(id=video_id, store=request.user.store)
+        except (Video.DoesNotExist, AttributeError):
+            return Response({'error': 'not_found', 'message': 'Video not found.'},
+                            status=status.HTTP_404_NOT_FOUND)
+
+        if VideoProductTag.objects.filter(video=video).count() >= 5:
+            return Response(
+                {'error': 'validation_error', 'message': 'Maximum 5 product tags per video.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        serializer = VideoProductTagWriteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        product = serializer.validated_data['product']
+        if product.store_id != request.user.store.id:
+            return Response(
+                {'error': 'validation_error', 'message': 'Product must belong to your store.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        tag, created = VideoProductTag.objects.get_or_create(
+            video=video,
+            product=product,
+            defaults={
+                'x_pct': serializer.validated_data['x_pct'],
+                'y_pct': serializer.validated_data['y_pct'],
+            },
+        )
+        if not created:
+            tag.x_pct = serializer.validated_data['x_pct']
+            tag.y_pct = serializer.validated_data['y_pct']
+            tag.save(update_fields=['x_pct', 'y_pct'])
+
+        CacheService.invalidate_video_feeds()
+        return Response(
+            VideoProductTagSerializer(tag).data,
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )
+
+
+class VideoTagDeleteView(APIView):
+    permission_classes = [IsAuthenticated, IsVendor]
+
+    @extend_schema(
+        tags=[_TAG],
+        summary='Remove a product tag from vendor\'s own video',
+        responses={204: None, 404: OpenApiResponse(description='Not found')},
+    )
+    def delete(self, request, video_id, tag_id):
+        try:
+            tag = VideoProductTag.objects.get(
+                id=tag_id, video_id=video_id, video__store=request.user.store,
+            )
+        except (VideoProductTag.DoesNotExist, AttributeError):
+            return Response({'error': 'not_found', 'message': 'Tag not found.'},
+                            status=status.HTTP_404_NOT_FOUND)
+        tag.delete()
+        CacheService.invalidate_video_feeds()
+        return Response(status=status.HTTP_204_NO_CONTENT)
