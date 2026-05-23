@@ -12,6 +12,7 @@
 | This file | `docs/DOCS_MAP.md` | Master map of all documentation |
 | Documentation Index | `docs/INDEX.md` | Sprint-by-sprint links to all docs |
 | Project Overview | `docs/PROJECT_OVERVIEW.md` | Full architecture diagram, Docker services, sprint roadmap |
+| **Application Pricing Summary** | `docs/APPLICATION_PRICING_SUMMARY.md` | Firebase, Maps, Twilio, AWS S3, Razorpay — monthly/annual cost estimates, limits, 3 launch scenarios |
 | How to Run & Test | `docs/HOW_TO_RUN_AND_TEST.md` | Setup venv, run Docker, test via Postman/Swagger |
 | Database Schema | `docs/DATABASE_SCHEMA.txt` | All table names, columns, and relationships |
 | Screenshots | `docs/images/README.md` | Where to save test screenshots |
@@ -216,6 +217,8 @@ Run with: `python3 docs/gen_api_guide.py` or `python3 docs/gen_project_journey.p
 |-------------------|-------|
 | How to run the project locally | `docs/HOW_TO_RUN_AND_TEST.md` |
 | Full architecture diagram | `docs/PROJECT_OVERVIEW.md` |
+| Monthly / annual infrastructure costs | `docs/APPLICATION_PRICING_SUMMARY.md` |
+| Service limits (Maps, Twilio, Razorpay…) | `docs/APPLICATION_PRICING_SUMMARY.md` |
 | All 90 API endpoints in one place | `docs/NearKart_Master_API_Testing_Guide.docx` |
 | The whole project story Sprint 0–12 | `docs/NearKart_Complete_Project_Journey_Sprint0_to_Sprint12.docx` |
 | How OTP login works | `docs/sprint_2_auth_module/README.md` |
