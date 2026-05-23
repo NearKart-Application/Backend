@@ -169,8 +169,8 @@ class StoreReviewSerializer(serializers.ModelSerializer):
 
     class Meta:
         model  = StoreReview
-        fields = ['id', 'user_phone', 'rating', 'comment', 'created_at']
-        read_only_fields = ['id', 'user_phone', 'created_at']
+        fields = ['id', 'user_phone', 'rating', 'comment', 'vendor_reply', 'vendor_reply_at', 'created_at']
+        read_only_fields = ['id', 'user_phone', 'vendor_reply', 'vendor_reply_at', 'created_at']
 
     def validate_rating(self, value):
         if not 1 <= value <= 5:
@@ -184,7 +184,7 @@ class StoreReviewListSerializer(serializers.ModelSerializer):
 
     class Meta:
         model  = StoreReview
-        fields = ['id', 'user_name', 'rating', 'comment', 'created_at']
+        fields = ['id', 'user_name', 'rating', 'comment', 'vendor_reply', 'vendor_reply_at', 'created_at']
 
     @extend_schema_field(serializers.CharField())
     def get_user_name(self, obj):
@@ -194,6 +194,10 @@ class StoreReviewListSerializer(serializers.ModelSerializer):
             return f'{parts[0]} {"*" * (len(parts[1]) if len(parts) > 1 else 0)}'.strip()
         phone = obj.user.phone_number or ''
         return phone[:4] + '****' + phone[-2:] if len(phone) >= 6 else '****'
+
+
+class VendorReplySerializer(serializers.Serializer):
+    reply = serializers.CharField(min_length=1, max_length=1000)
 
 
 class StoreOfferSerializer(serializers.ModelSerializer):

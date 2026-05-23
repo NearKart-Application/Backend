@@ -90,6 +90,8 @@ class StoreReview(BaseModel):
     store   = models.ForeignKey(Store, on_delete=models.CASCADE, related_name='reviews')
     rating  = models.PositiveSmallIntegerField()  # 1–5
     comment = models.TextField(blank=True)
+    vendor_reply    = models.TextField(blank=True, default='')
+    vendor_reply_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table        = 'store_reviews'

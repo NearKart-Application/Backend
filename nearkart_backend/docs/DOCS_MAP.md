@@ -211,6 +211,16 @@ Run with: `python3 docs/gen_api_guide.py` or `python3 docs/gen_project_journey.p
 
 ---
 
+## Sprint 16 — Reviews & Ratings
+
+| Document | File Path | What it contains |
+|----------|-----------|-----------------|
+| Sprint README | `docs/sprint_16_reviews_ratings/README.md` | Business rules, backend + mobile changes, 3 new API endpoints, user flows |
+| Testing Checklist | `docs/sprint_16_reviews_ratings/TESTING_CHECKLIST.md` | Customer review submission, vendor reply, notifications, reservation button, edge cases |
+| Postman Guide | `docs/sprint_16_reviews_ratings/POSTMAN_GUIDE.md` | Submit review, list reviews, vendor reply, vendor list, customer my-reviews — 5 endpoint examples |
+
+---
+
 ## Quick Reference — "Where do I find...?"
 
 | I want to know... | Go to |
@@ -241,3 +251,6 @@ Run with: `python3 docs/gen_api_guide.py` or `python3 docs/gen_project_journey.p
 | How referral codes work | _(mobile repo)_ `docs/sprint_15_loyalty_referral/README.md` |
 | Loyalty API endpoints (Postman) | _(mobile repo)_ `docs/sprint_15_loyalty_referral/POSTMAN_GUIDE.md` |
 | FCM push notification setup | _(mobile repo)_ `docs/sprint_14_notifications_profile_qr/README.md` |
+| How store reviews work | `docs/sprint_16_reviews_ratings/README.md` |
+| How vendor replies to reviews | `docs/sprint_16_reviews_ratings/README.md` |
+| Reviews API endpoints (Postman) | `docs/sprint_16_reviews_ratings/POSTMAN_GUIDE.md` |

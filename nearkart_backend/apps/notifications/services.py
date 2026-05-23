@@ -208,6 +208,16 @@ class NotificationService:
             data={'group_id': group_id},
         )
 
+    @staticmethod
+    def notify_new_review(vendor, store_name: str, rating: int, store_id: str):
+        stars = '★' * rating + '☆' * (5 - rating)
+        NotificationService.send(
+            vendor, NotificationType.NEW_REVIEW,
+            title=f'New Review — {store_name}',
+            body=f'A customer left a {stars} review for your store.',
+            data={'store_id': store_id},
+        )
+
 
 class SMSService:
 

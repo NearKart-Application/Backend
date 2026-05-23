@@ -32,7 +32,7 @@ built in later sprints. Right now you can only test via:
 ├──────────────────────────────────────────────────────────┤
 │         Android App (Kotlin + Jetpack Compose)           │
 │   Customer + Vendor — single APK, role-based UI          │
-│   Sprints 1–15 complete · release/v1.0                   │
+│   Sprints 1–16 complete · release/v1.0                   │
 └──────────────────────────┬───────────────────────────────┘
                             │  REST API + WebSocket
                             ▼
@@ -74,3 +74,4 @@ built in later sprints. Right now you can only test via:
 | S13 | Performance Algorithms + Test Infrastructure | Done ✅ | `docs/sprint_13_tests/` |
 | S14 | FCM Device Tokens + Notification Device API _(mobile-driven)_ | Done ✅ | — |
 | S15 | Loyalty Points + Referral System | Done ✅ | `apps/loyalty/` · `apps/reservations/` (loyalty fields) |
+| S16 | Reviews & Ratings | Done ✅ | `apps/stores/` (vendor reply, reservation gate, 3 new endpoints) |
