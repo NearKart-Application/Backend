@@ -75,3 +75,4 @@ built in later sprints. Right now you can only test via:
 | S14 | FCM Device Tokens + Notification Device API _(mobile-driven)_ | Done ✅ | — |
 | S15 | Loyalty Points + Referral System | Done ✅ | `apps/loyalty/` · `apps/reservations/` (loyalty fields) |
 | S16 | Reviews & Ratings | Done ✅ | `apps/stores/` (vendor reply, reservation gate, 3 new endpoints) |
+| S17 | Store Detail Enhancement _(mobile-driven)_ | Done ✅ | — |

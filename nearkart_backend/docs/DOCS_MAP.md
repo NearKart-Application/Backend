@@ -211,6 +211,16 @@ Run with: `python3 docs/gen_api_guide.py` or `python3 docs/gen_project_journey.p
 
 ---
 
+## Sprint 17 — Store Detail Enhancement  _(mobile-driven)_
+
+| Document | File Path | What it contains |
+|----------|-----------|-----------------|
+| Sprint README | `docs/sprint_17_store_detail_enhancement/README.md` | Navigation wiring for reviews into StoreDetailScreen — no new backend endpoints |
+| Testing Checklist | `docs/sprint_17_store_detail_enhancement/TESTING_CHECKLIST.md` | Review preview, vendor reply display, "See all reviews" nav, regression checks |
+| Postman Guide | `docs/sprint_17_store_detail_enhancement/POSTMAN_GUIDE.md` | Verification flow using existing Sprint 16 endpoints |
+
+---
+
 ## Sprint 16 — Reviews & Ratings
 
 | Document | File Path | What it contains |
@@ -251,6 +261,7 @@ Run with: `python3 docs/gen_api_guide.py` or `python3 docs/gen_project_journey.p
 | How referral codes work | _(mobile repo)_ `docs/sprint_15_loyalty_referral/README.md` |
 | Loyalty API endpoints (Postman) | _(mobile repo)_ `docs/sprint_15_loyalty_referral/POSTMAN_GUIDE.md` |
 | FCM push notification setup | _(mobile repo)_ `docs/sprint_14_notifications_profile_qr/README.md` |
+| How store reviews are shown on StoreDetailScreen | `docs/sprint_17_store_detail_enhancement/README.md` |
 | How store reviews work | `docs/sprint_16_reviews_ratings/README.md` |
 | How vendor replies to reviews | `docs/sprint_16_reviews_ratings/README.md` |
 | Reviews API endpoints (Postman) | `docs/sprint_16_reviews_ratings/POSTMAN_GUIDE.md` |
