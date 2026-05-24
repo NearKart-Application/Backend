@@ -231,7 +231,7 @@ class SMSService:
             from twilio.rest import Client
             client = Client(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN)
             client.messages.create(
-                body=f'Your NearKart OTP is {otp}. Valid for 5 minutes. Do not share.',
+                body=f'Your NearSpot OTP is {otp}. Valid for 5 minutes. Do not share.',
                 from_=settings.TWILIO_FROM_NUMBER,
                 to=phone_number,
             )

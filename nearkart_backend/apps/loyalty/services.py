@@ -68,7 +68,7 @@ class LoyaltyService:
             account=referrer_account,
             points=pts,
             source=LoyaltyTransaction.SOURCE_REFERRAL,
-            description=f'Referral bonus — {user.full_name or user.phone_number} joined NearKart',
+            description=f'Referral bonus — {user.full_name or user.phone_number} joined NearSpot',
         )
 
         # Notify referrer
@@ -137,7 +137,7 @@ class LoyaltyService:
                 recipient=referrer,
                 notification_type=NotificationType.LOYALTY,
                 title='Referral Bonus Earned! 🎉',
-                body=f'You earned {pts} loyalty points! {name} joined NearKart using your code.',
+                body=f'You earned {pts} loyalty points! {name} joined NearSpot using your code.',
                 data={'points': str(pts), 'source': 'referral'},
             )
         except Exception as e:

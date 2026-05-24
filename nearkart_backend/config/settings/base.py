@@ -281,7 +281,7 @@ CORS_ALLOW_HEADERS = [
 
 # ── API DOCS (Spectacular) ─────────────────────────────────────
 SPECTACULAR_SETTINGS = {
-    'TITLE': 'NearKart API',
+    'TITLE': 'NearSpot API',
     'DESCRIPTION': (
         "India's first hyperlocal video commerce platform.\n\n"
         "## How to Authenticate\n"
@@ -352,7 +352,7 @@ FIREBASE_CREDENTIALS_JSON = env('FIREBASE_CREDENTIALS_JSON', default='')
 # ── SENDGRID ───────────────────────────────────────────────────
 SENDGRID_API_KEY = env('SENDGRID_API_KEY', default='')
 DEFAULT_FROM_EMAIL = env('DEFAULT_FROM_EMAIL', default='hello@nearkart.in')
-DEFAULT_FROM_NAME = env('DEFAULT_FROM_NAME', default='NearKart')
+DEFAULT_FROM_NAME = env('DEFAULT_FROM_NAME', default='NearSpot')
 
 # ── GOOGLE MAPS ────────────────────────────────────────────────
 GOOGLE_MAPS_API_KEY = env('GOOGLE_MAPS_API_KEY', default='')
