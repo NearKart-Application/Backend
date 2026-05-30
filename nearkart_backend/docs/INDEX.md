@@ -35,6 +35,7 @@
 | S17 — Store Detail Enhancement _(mobile-driven)_ | [sprint_17_store_detail_enhancement/](sprint_17_store_detail_enhancement/README.md) | Done ✅ | [TESTING_CHECKLIST.md](sprint_17_store_detail_enhancement/TESTING_CHECKLIST.md) |
 | S18 — Rating Badges + Pull-to-Refresh _(mobile + backend)_ | [sprint_18_ratings_refresh/](sprint_18_ratings_refresh/README.md) | Done ✅ | [TESTING_CHECKLIST.md](sprint_18_ratings_refresh/TESTING_CHECKLIST.md) · [POSTMAN_GUIDE.md](sprint_18_ratings_refresh/POSTMAN_GUIDE.md) |
 | S19 — Search Filters · Follow Feed · Invoices · Map | [sprint_19_search_filters_follow_invoices_map/](sprint_19_search_filters_follow_invoices_map/README.md) | Done ✅ | [TESTING_CHECKLIST.md](sprint_19_search_filters_follow_invoices_map/TESTING_CHECKLIST.md) · [POSTMAN_GUIDE.md](sprint_19_search_filters_follow_invoices_map/POSTMAN_GUIDE.md) |
+| S20 — Admin Panel + NS Code System + User Suspension | [sprint_20_admin_panel/](sprint_20_admin_panel/README.md) | Done ✅ | [TESTING_CHECKLIST.md](sprint_20_admin_panel/TESTING_CHECKLIST.md) · [POSTMAN_GUIDE.md](sprint_20_admin_panel/POSTMAN_GUIDE.md) |
 
 ---
 
