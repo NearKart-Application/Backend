@@ -29,6 +29,13 @@
 | S11 — Notifications | [sprint_11_notifications/](sprint_11_notifications/README.md) | Done ✅ | [TESTING_CHECKLIST.md](sprint_11_notifications/TESTING_CHECKLIST.md) |
 | S12 — Production + Razorpay | [sprint_12_production/](sprint_12_production/README.md) | Done ✅ | [TESTING_CHECKLIST.md](sprint_12_production/TESTING_CHECKLIST.md) · [DEPLOY_CHECKLIST.md](sprint_12_production/DEPLOY_CHECKLIST.md) · [POSTMAN_GUIDE.md](sprint_12_production/POSTMAN_GUIDE.md) · [GOING_TO_PRODUCTION.md](sprint_12_production/GOING_TO_PRODUCTION.md) |
 | S13 — Performance Algorithms + Tests | [sprint_13_tests/](sprint_13_tests/README.md) | Done ✅ | [TESTING_CHECKLIST.md](sprint_13_tests/TESTING_CHECKLIST.md) · [POSTMAN_GUIDE.md](sprint_13_tests/POSTMAN_GUIDE.md) · [TEST_RUNNER_GUIDE.md](sprint_13_tests/TEST_RUNNER_GUIDE.md) · [SERVER_CAPABILITY.md](sprint_13_tests/SERVER_CAPABILITY.md) · [LOAD_TEST_RESULTS.md](sprint_13_tests/LOAD_TEST_RESULTS.md) |
+| S14 — FCM Notifications + Profile + QR _(mobile)_ | _(mobile repo)_ | Done ✅ | — |
+| S15 — Loyalty Points + Referral System | _(mobile repo)_ | Done ✅ | — |
+| S16 — Reviews & Ratings | [sprint_16_reviews_ratings/](sprint_16_reviews_ratings/README.md) | Done ✅ | [TESTING_CHECKLIST.md](sprint_16_reviews_ratings/TESTING_CHECKLIST.md) · [POSTMAN_GUIDE.md](sprint_16_reviews_ratings/POSTMAN_GUIDE.md) |
+| S17 — Store Detail Enhancement _(mobile-driven)_ | [sprint_17_store_detail_enhancement/](sprint_17_store_detail_enhancement/README.md) | Done ✅ | [TESTING_CHECKLIST.md](sprint_17_store_detail_enhancement/TESTING_CHECKLIST.md) |
+| S18 — Rating Badges + Pull-to-Refresh _(mobile + backend)_ | [sprint_18_ratings_refresh/](sprint_18_ratings_refresh/README.md) | Done ✅ | [TESTING_CHECKLIST.md](sprint_18_ratings_refresh/TESTING_CHECKLIST.md) · [POSTMAN_GUIDE.md](sprint_18_ratings_refresh/POSTMAN_GUIDE.md) |
+| S19 — Search Filters · Follow Feed · Invoices · Map | [sprint_19_search_filters_follow_invoices_map/](sprint_19_search_filters_follow_invoices_map/README.md) | Done ✅ | [TESTING_CHECKLIST.md](sprint_19_search_filters_follow_invoices_map/TESTING_CHECKLIST.md) · [POSTMAN_GUIDE.md](sprint_19_search_filters_follow_invoices_map/POSTMAN_GUIDE.md) |
+| S20 — Admin Panel + NS Code System + User Suspension | [sprint_20_admin_panel/](sprint_20_admin_panel/README.md) | Done ✅ | [TESTING_CHECKLIST.md](sprint_20_admin_panel/TESTING_CHECKLIST.md) · [POSTMAN_GUIDE.md](sprint_20_admin_panel/POSTMAN_GUIDE.md) |
 
 ---
 

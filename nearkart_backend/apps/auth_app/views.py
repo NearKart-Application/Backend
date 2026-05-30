@@ -92,13 +92,17 @@ class OTPSendView(APIView):
         serializer.is_valid(raise_exception=True)
         phone_number = serializer.validated_data['phone_number']
 
-        # Algorithm 6 — Sliding window: 5 OTPs per phone per hour.
-        # Dev bypass: permanent QA accounts skip rate limiting so load tests
-        # and multi-device QA can authenticate freely (DEBUG mode only).
+        # Sliding window: 5 OTPs per phone per hour.
+        # Admin/master_admin accounts are exempt — they need reliable access.
+        # Dev bypass: permanent QA accounts skip rate limiting.
         from django.conf import settings as _s
         from core.utils.cache import CacheService
+        from .models import User as _User
         is_dev_bypass = phone_number in getattr(_s, 'DEV_BYPASS_PHONES', set())
-        if not is_dev_bypass and CacheService.is_rate_limited(
+        is_admin_bypass = _User.objects.filter(
+            phone_number=phone_number, role__in=('admin', 'master_admin')
+        ).exists()
+        if not is_dev_bypass and not is_admin_bypass and CacheService.is_rate_limited(
             f'otp:{phone_number}', max_requests=5, window_secs=3600
         ):
             return Response(
@@ -197,6 +201,11 @@ class OTPVerifyView(APIView):
             return Response(
                 {'error': 'otp_invalid', 'message': str(e)},
                 status=status.HTTP_400_BAD_REQUEST,
+            )
+        if user.is_suspended:
+            return Response(
+                {'error': 'account_suspended', 'message': user.suspension_reason or 'Your account has been temporarily suspended. Please contact support.'},
+                status=status.HTTP_403_FORBIDDEN,
             )
         tokens = JWTService.issue_tokens(user)
         log_event('auth', action='login_success', user_id=str(user.id), role=user.role,
@@ -345,11 +354,29 @@ class LocationUpdateView(APIView):
     def put(self, request):
         serializer = LocationUpdateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        JWTService.update_location(
-            request.user,
-            serializer.validated_data['latitude'],
-            serializer.validated_data['longitude'],
-        )
+        lat  = serializer.validated_data['latitude']
+        lng  = serializer.validated_data['longitude']
+        city = serializer.validated_data.get('city', '').strip()
+
+        is_first = request.user.registered_location is None
+        JWTService.update_location(request.user, lat, lng)
+
+        # Option C: one-time NS code area regeneration when city is first set
+        if is_first and city:
+            code = request.user.profile_id or ''
+            segments = code.split('-')
+            if len(segments) == 4 and segments[2] == 'XX':
+                from core.utils.codes import _area_tag, _random_suffix
+                segments[2] = _area_tag(city)
+                segments[3] = _random_suffix(4)
+                new_code = '-'.join(segments)
+                from apps.auth_app.models import User as _User
+                while _User.objects.exclude(pk=request.user.pk).filter(profile_id=new_code).exists():
+                    segments[3] = _random_suffix(4)
+                    new_code = '-'.join(segments)
+                request.user.profile_id = new_code
+                request.user.save(update_fields=['profile_id'])
+
         return Response({'message': 'Location updated'}, status=status.HTTP_200_OK)
 
     # Mobile sends PATCH — alias to put so both methods work
@@ -363,7 +390,7 @@ class UserSearchView(APIView):
         tags=[_TAG],
         summary='Search user by Profile ID',
         description=(
-            'Search for a NearKart user by their Profile ID (e.g. NK-A3X9K2). '
+            'Search for a NearSpot user by their Profile ID (e.g. NS-SF-KU-4X2B). '
             'Returns name and profile_id only — phone number is never exposed. '
             'Used to find a friend before adding them to a group.'
         ),

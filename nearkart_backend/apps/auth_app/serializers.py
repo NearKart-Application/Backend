@@ -35,10 +35,10 @@ class OTPVerifySerializer(serializers.Serializer):
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ['id', 'profile_id', 'phone_number', 'role', 'full_name', 'email', 'created_at']
+        fields = ['id', 'profile_id', 'phone_number', 'role', 'full_name', 'email', 'admin_assigned_city', 'is_suspended', 'created_at']
         # role is excluded from read_only_fields — it can be set via PATCH when empty (new user).
         # MeView.patch() enforces the "only settable once" constraint.
-        read_only_fields = ['id', 'profile_id', 'phone_number', 'created_at']
+        read_only_fields = ['id', 'profile_id', 'phone_number', 'is_suspended', 'created_at']
 
 
 class UserSearchSerializer(serializers.ModelSerializer):
@@ -52,3 +52,4 @@ class UserSearchSerializer(serializers.ModelSerializer):
 class LocationUpdateSerializer(serializers.Serializer):
     latitude = serializers.FloatField(min_value=-90, max_value=90)
     longitude = serializers.FloatField(min_value=-180, max_value=180)
+    city = serializers.CharField(max_length=100, required=False, allow_blank=True, default='')

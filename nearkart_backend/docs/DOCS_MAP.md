@@ -12,6 +12,7 @@
 | This file | `docs/DOCS_MAP.md` | Master map of all documentation |
 | Documentation Index | `docs/INDEX.md` | Sprint-by-sprint links to all docs |
 | Project Overview | `docs/PROJECT_OVERVIEW.md` | Full architecture diagram, Docker services, sprint roadmap |
+| **Application Pricing Summary** | `docs/APPLICATION_PRICING_SUMMARY.md` | Firebase, Maps, Twilio, AWS S3, Razorpay — monthly/annual cost estimates, limits, 3 launch scenarios |
 | How to Run & Test | `docs/HOW_TO_RUN_AND_TEST.md` | Setup venv, run Docker, test via Postman/Swagger |
 | Database Schema | `docs/DATABASE_SCHEMA.txt` | All table names, columns, and relationships |
 | Screenshots | `docs/images/README.md` | Where to save test screenshots |
@@ -22,7 +23,7 @@
 
 | Document | File Path | What it contains |
 |----------|-----------|-----------------|
-| Master API Testing Guide | `docs/NearKart_Master_API_Testing_Guide.docx` | All 79 API endpoints — step-by-step Postman testing, Sprint 1–12 |
+| Master API Testing Guide | `docs/NearKart_Master_API_Testing_Guide.docx` | All 95 API steps — step-by-step Postman testing, Sprint 1–18 |
 | Complete Project Journey | `docs/NearKart_Complete_Project_Journey_Sprint0_to_Sprint12.docx` | Full project history Sprint 0–12, all models, decisions, architecture |
 | Sprint 0–3 Reference | `docs/NearKart_Backend_Complete_Reference_Sprint0_to_Sprint3.docx` | Detailed reference for early sprints (Auth, Store, Product) |
 
@@ -181,9 +182,72 @@ Run with: `python3 docs/gen_api_guide.py` or `python3 docs/gen_project_journey.p
 
 | Document | File Path | What it contains |
 |----------|-----------|-----------------|
+| Sprint README | `docs/sprint_13_tests/README.md` | Performance algorithms added, test infrastructure overview |
+| Postman Guide | `docs/sprint_13_tests/POSTMAN_GUIDE.md` | How to verify algorithm outputs via API |
+| Testing Checklist | `docs/sprint_13_tests/TESTING_CHECKLIST.md` | Unit + integration + load test checklist |
 | **Test Runner Guide** | `docs/sprint_13_tests/TEST_RUNNER_GUIDE.md` | How to install, run all/single/keyword tests, coverage reports, markers, CI replication, dev-mode bypass explanations |
 | **Server Capability** | `docs/sprint_13_tests/SERVER_CAPABILITY.md` | Concurrent user capacity, layer-by-layer breakdown, cache hit rates, configuration reference, scaling roadmap to 25k+ users, monitoring commands |
 | **Load Test Results** | `docs/sprint_13_tests/LOAD_TEST_RESULTS.md` | Smoke/load/stress test results (50/200/500 users), before vs after comparison, PgBouncer/Redis metrics, bugs found and fixed, how to re-run |
+
+---
+
+## Sprint 14 — FCM Push Notifications + Notification Improvements  _(mobile-driven)_
+
+| Document | File Path | What it contains |
+|----------|-----------|-----------------|
+| Mobile Sprint README | _(mobile repo)_ `docs/sprint_14_notifications_profile_qr/README.md` | FCM service wiring, edit profile screen, QR scanner screen |
+| Mobile Testing Checklist | _(mobile repo)_ `docs/sprint_14_notifications_profile_qr/TESTING_CHECKLIST.md` | FCM token registration, profile edit, QR code scan flow |
+| Mobile Postman Guide | _(mobile repo)_ `docs/sprint_14_notifications_profile_qr/POSTMAN_GUIDE.md` | Device token API, profile update API |
+
+---
+
+## Sprint 15 — Loyalty Points + Referral System
+
+| Document | File Path | What it contains |
+|----------|-----------|-----------------|
+| Mobile Sprint README | _(mobile repo)_ `docs/sprint_15_loyalty_referral/README.md` | Full loyalty system — backend + mobile screens, business rules |
+| Mobile Testing Checklist | _(mobile repo)_ `docs/sprint_15_loyalty_referral/TESTING_CHECKLIST.md` | Balance, referral, redemption, reservation discount test cases |
+| Mobile Postman Guide | _(mobile repo)_ `docs/sprint_15_loyalty_referral/POSTMAN_GUIDE.md` | All 5 loyalty endpoints with request/response examples |
+
+---
+
+## Sprint 17 — Store Detail Enhancement  _(mobile-driven)_
+
+| Document | File Path | What it contains |
+|----------|-----------|-----------------|
+| Sprint README | `docs/sprint_17_store_detail_enhancement/README.md` | Navigation wiring for reviews into StoreDetailScreen — no new backend endpoints |
+| Testing Checklist | `docs/sprint_17_store_detail_enhancement/TESTING_CHECKLIST.md` | Review preview, vendor reply display, "See all reviews" nav, regression checks |
+| Postman Guide | `docs/sprint_17_store_detail_enhancement/POSTMAN_GUIDE.md` | Verification flow using existing Sprint 16 endpoints |
+
+---
+
+## Sprint 19 — Search Filters + Sort · Follow Feed · Vendor Invoices · Map Enhancements
+
+| Document | File Path | What it contains |
+|----------|-----------|-----------------|
+| Sprint README | `docs/sprint_19_search_filters_follow_invoices_map/README.md` | All 4 options: search filters/sort, following feed, invoice model + CRUD, map radius chips + rating |
+| Testing Checklist | `docs/sprint_19_search_filters_follow_invoices_map/TESTING_CHECKLIST.md` | Filter sheet, sort options, following tab, invoice create flow, map radius chips |
+| Postman Guide | `docs/sprint_19_search_filters_follow_invoices_map/POSTMAN_GUIDE.md` | Updated search endpoint params, new `products/following/`, new `stores/mine/invoices/` |
+
+---
+
+## Sprint 18 — Rating Badges + Pull-to-Refresh
+
+| Document | File Path | What it contains |
+|----------|-----------|-----------------|
+| Sprint README | `docs/sprint_18_ratings_refresh/README.md` | Rating chips on SearchScreen + ProductDetailScreen, pull-to-refresh on VendorDashboard, backend `rating`/`review_count` on ProductDetail store |
+| Testing Checklist | `docs/sprint_18_ratings_refresh/TESTING_CHECKLIST.md` | Rating chip visibility rules, skeleton loading, tappable store row, new_review tap-through, VendorDashboard pull-to-refresh |
+| Postman Guide | `docs/sprint_18_ratings_refresh/POSTMAN_GUIDE.md` | No new endpoints — how to verify updated `GET /api/products/{id}/` store object |
+
+---
+
+## Sprint 16 — Reviews & Ratings
+
+| Document | File Path | What it contains |
+|----------|-----------|-----------------|
+| Sprint README | `docs/sprint_16_reviews_ratings/README.md` | Business rules, backend + mobile changes, 3 new API endpoints, user flows |
+| Testing Checklist | `docs/sprint_16_reviews_ratings/TESTING_CHECKLIST.md` | Customer review submission, vendor reply, notifications, reservation button, edge cases |
+| Postman Guide | `docs/sprint_16_reviews_ratings/POSTMAN_GUIDE.md` | Submit review, list reviews, vendor reply, vendor list, customer my-reviews — 5 endpoint examples |
 
 ---
 
@@ -193,7 +257,9 @@ Run with: `python3 docs/gen_api_guide.py` or `python3 docs/gen_project_journey.p
 |-------------------|-------|
 | How to run the project locally | `docs/HOW_TO_RUN_AND_TEST.md` |
 | Full architecture diagram | `docs/PROJECT_OVERVIEW.md` |
-| All 79 API endpoints in one place | `docs/NearKart_Master_API_Testing_Guide.docx` |
+| Monthly / annual infrastructure costs | `docs/APPLICATION_PRICING_SUMMARY.md` |
+| Service limits (Maps, Twilio, Razorpay…) | `docs/APPLICATION_PRICING_SUMMARY.md` |
+| All 90 API endpoints in one place | `docs/NearKart_Master_API_Testing_Guide.docx` |
 | The whole project story Sprint 0–12 | `docs/NearKart_Complete_Project_Journey_Sprint0_to_Sprint12.docx` |
 | How OTP login works | `docs/sprint_2_auth_module/README.md` |
 | How to test Auth in Postman | `docs/sprint_2_auth_module/POSTMAN_GUIDE.md` |
@@ -211,3 +277,17 @@ Run with: `python3 docs/gen_api_guide.py` or `python3 docs/gen_project_journey.p
 | How many users the server can handle | `docs/sprint_13_tests/SERVER_CAPABILITY.md` |
 | How to scale beyond 10,000 users | `docs/sprint_13_tests/SERVER_CAPABILITY.md` |
 | Load test results and pass/fail status | `docs/sprint_13_tests/LOAD_TEST_RESULTS.md` |
+| How loyalty points work | _(mobile repo)_ `docs/sprint_15_loyalty_referral/README.md` |
+| How referral codes work | _(mobile repo)_ `docs/sprint_15_loyalty_referral/README.md` |
+| Loyalty API endpoints (Postman) | _(mobile repo)_ `docs/sprint_15_loyalty_referral/POSTMAN_GUIDE.md` |
+| FCM push notification setup | _(mobile repo)_ `docs/sprint_14_notifications_profile_qr/README.md` |
+| How store reviews are shown on StoreDetailScreen | `docs/sprint_17_store_detail_enhancement/README.md` |
+| How rating badges appear on Search + ProductDetail | `docs/sprint_18_ratings_refresh/README.md` |
+| How pull-to-refresh works on VendorDashboard | `docs/sprint_18_ratings_refresh/README.md` |
+| How search filters and sort work | `docs/sprint_19_search_filters_follow_invoices_map/README.md` |
+| How the Following feed works | `docs/sprint_19_search_filters_follow_invoices_map/README.md` |
+| How vendor invoices work | `docs/sprint_19_search_filters_follow_invoices_map/README.md` |
+| Invoice API endpoints (Postman) | `docs/sprint_19_search_filters_follow_invoices_map/POSTMAN_GUIDE.md` |
+| How store reviews work | `docs/sprint_16_reviews_ratings/README.md` |
+| How vendor replies to reviews | `docs/sprint_16_reviews_ratings/README.md` |
+| Reviews API endpoints (Postman) | `docs/sprint_16_reviews_ratings/POSTMAN_GUIDE.md` |

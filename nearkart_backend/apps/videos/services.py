@@ -127,6 +127,7 @@ class VideoService:
             )
             .filter(location__dwithin=(point, D(km=radius_km)))
             .select_related('store')
+            .prefetch_related('product_tags__product')
             .annotate(distance=Distance('location', point))
             .order_by('distance', '-created_at')
         )
@@ -148,6 +149,7 @@ class VideoService:
                 expires_at__gt=timezone.now(),
             )
             .select_related('store')
+            .prefetch_related('product_tags__product')
             .order_by('-created_at')[:50]
         )
 
@@ -162,6 +164,7 @@ class VideoService:
                 expires_at__gt=timezone.now(),
             )
             .select_related('store')
+            .prefetch_related('product_tags__product')
             .order_by('-view_count', '-like_count', '-created_at')[:50]
         )
 

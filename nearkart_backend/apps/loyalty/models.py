@@ -16,7 +16,7 @@ from core.models import BaseModel
 
 def _make_referral_code() -> str:
     chars = string.ascii_uppercase + string.digits
-    return 'NK' + ''.join(random.choices(chars, k=6))
+    return 'NS' + ''.join(random.choices(chars, k=6))
 
 
 class LoyaltyAccount(BaseModel):

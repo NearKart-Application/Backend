@@ -4,13 +4,40 @@ NearKart — Video Serializers
 from rest_framework import serializers
 from drf_spectacular.utils import extend_schema_field
 
-from .models import Video
+from .models import Video, VideoProductTag
 
 
 class StoreMiniSerializer(serializers.Serializer):
     id     = serializers.UUIDField(source='store.id', read_only=True)
     name   = serializers.CharField(source='store.name', read_only=True)
     avatar = serializers.URLField(source='store.logo_url', read_only=True)
+
+
+class VideoProductTagSerializer(serializers.ModelSerializer):
+    id    = serializers.UUIDField(read_only=True)
+    name  = serializers.CharField(source='product.name', read_only=True)
+    price = serializers.DecimalField(source='product.base_price', max_digits=10,
+                                     decimal_places=2, read_only=True)
+
+    class Meta:
+        model  = VideoProductTag
+        fields = ['id', 'name', 'price', 'x_pct', 'y_pct']
+
+
+class VideoProductTagWriteSerializer(serializers.ModelSerializer):
+    class Meta:
+        model  = VideoProductTag
+        fields = ['product', 'x_pct', 'y_pct']
+
+    def validate_x_pct(self, v):
+        if not 0.0 <= v <= 1.0:
+            raise serializers.ValidationError('x_pct must be between 0.0 and 1.0')
+        return v
+
+    def validate_y_pct(self, v):
+        if not 0.0 <= v <= 1.0:
+            raise serializers.ValidationError('y_pct must be between 0.0 and 1.0')
+        return v
 
 
 class VideoSerializer(serializers.ModelSerializer):
@@ -29,6 +56,7 @@ class VideoSerializer(serializers.ModelSerializer):
     distance_km = serializers.SerializerMethodField()
     is_liked    = serializers.SerializerMethodField()
     is_saved    = serializers.SerializerMethodField()
+    tags        = serializers.SerializerMethodField()
 
     class Meta:
         model  = Video
@@ -44,6 +72,7 @@ class VideoSerializer(serializers.ModelSerializer):
             'view_count', 'like_count', 'is_liked', 'is_saved',
             'locality', 'distance_km',
             'is_visible', 'expires_at',
+            'tags',
             'created_at', 'updated_at',
         ]
         read_only_fields = [
@@ -81,6 +110,11 @@ class VideoSerializer(serializers.ModelSerializer):
         if request and request.user.is_authenticated:
             return obj.saves.filter(user=request.user).exists()
         return False
+
+    @extend_schema_field(VideoProductTagSerializer(many=True))
+    def get_tags(self, obj):
+        tags = obj.product_tags.select_related('product').all()
+        return VideoProductTagSerializer(tags, many=True).data
 
 
 class VideoUploadRequestSerializer(serializers.Serializer):

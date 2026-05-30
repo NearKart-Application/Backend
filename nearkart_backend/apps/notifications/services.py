@@ -208,6 +208,16 @@ class NotificationService:
             data={'group_id': group_id},
         )
 
+    @staticmethod
+    def notify_new_review(vendor, store_name: str, rating: int, store_id: str):
+        stars = '★' * rating + '☆' * (5 - rating)
+        NotificationService.send(
+            vendor, NotificationType.NEW_REVIEW,
+            title=f'New Review — {store_name}',
+            body=f'A customer left a {stars} review for your store.',
+            data={'store_id': store_id},
+        )
+
 
 class SMSService:
 
@@ -221,7 +231,7 @@ class SMSService:
             from twilio.rest import Client
             client = Client(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN)
             client.messages.create(
-                body=f'Your NearKart OTP is {otp}. Valid for 5 minutes. Do not share.',
+                body=f'Your NearSpot OTP is {otp}. Valid for 5 minutes. Do not share.',
                 from_=settings.TWILIO_FROM_NUMBER,
                 to=phone_number,
             )

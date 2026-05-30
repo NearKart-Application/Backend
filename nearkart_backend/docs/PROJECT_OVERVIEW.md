@@ -29,14 +29,11 @@ built in later sprints. Right now you can only test via:
 ```
 ┌─────────────────────────────────────────────────────────┐
 │                    NEARKART PLATFORM                     │
-├──────────────────┬──────────────────┬───────────────────┤
-│  Customer App    │   Vendor App     │  Vendor Web       │
-│  (React Native)  │  (React Native)  │  Dashboard        │
-│   Sprint 9       │   Sprint 10      │  (React + Vite)   │
-│                  │                  │   Sprint 11       │
-└────────┬─────────┴────────┬─────────┴────────┬──────────┘
-         │                  │                  │
-         └──────────────────┼──────────────────┘
+├──────────────────────────────────────────────────────────┤
+│         Android App (Kotlin + Jetpack Compose)           │
+│   Customer + Vendor — single APK, role-based UI          │
+│   Sprints 1–18 complete · release/v1.0                   │
+└──────────────────────────┬───────────────────────────────┘
                             │  REST API + WebSocket
                             ▼
          ┌──────────────────────────────────────┐
@@ -75,3 +72,10 @@ built in later sprints. Right now you can only test via:
 | S11 | Notifications | Done ✅ | `docs/sprint_11_notifications/` |
 | S12 | Staging + Production + Razorpay | Done ✅ | `docs/sprint_12_production/` |
 | S13 | Performance Algorithms + Test Infrastructure | Done ✅ | `docs/sprint_13_tests/` |
+| S14 | FCM Device Tokens + Notification Device API _(mobile-driven)_ | Done ✅ | — |
+| S15 | Loyalty Points + Referral System | Done ✅ | `apps/loyalty/` · `apps/reservations/` (loyalty fields) |
+| S16 | Reviews & Ratings | Done ✅ | `apps/stores/` (vendor reply, reservation gate, 3 new endpoints) |
+| S17 | Store Detail Enhancement _(mobile-driven)_ | Done ✅ | — |
+| S18 | Rating Badges + Pull-to-Refresh | Done ✅ | `apps/products/` (serializers) · `docs/sprint_18_ratings_refresh/` |
+| S19 | Search Filters + Sort · Follow Feed · Vendor Invoices · Map Enhancements | Done ✅ | `apps/products/` · `apps/stores/` · `docs/sprint_19_search_filters_follow_invoices_map/` |
+| S20 | Admin Panel · NS Code System (NSC/NSB prefixes + Option C regeneration) · User Suspension · Activity Log · Video Deletion · Create User · Search by NS Code | Done ✅ | `apps/admin_panel/` · `apps/auth_app/` · `core/utils/codes.py` · `docs/sprint_20_admin_panel/` |

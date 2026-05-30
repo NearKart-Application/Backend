@@ -23,11 +23,12 @@ from core.logging import log_event
 from core.permissions import IsVendor, IsStoreOwner
 from core.utils.cache import CacheService
 from apps.blacklist.services import BlacklistService
-from .models import Store, StoreHours, StoreOffer
+from .models import Store, StoreHours, StoreOffer, Invoice
 from .serializers import (
     StoreSerializer, StoreListSerializer, StoreReviewSerializer,
     StoreReviewListSerializer, StoreOfferSerializer,
-    StoreHoursSerializer, StoreMobileDetailSerializer,
+    StoreHoursSerializer, StoreMobileDetailSerializer, VendorReplySerializer,
+    InvoiceSerializer,
 )
 from .services import StoreService, QRService
 
@@ -289,6 +290,17 @@ class StoreReviewView(APIView):
                 {'error': 'blacklisted', 'message': 'You cannot review this store.'},
                 status=status.HTTP_403_FORBIDDEN,
             )
+        # Gate: only customers with a completed reservation at this store can review
+        from apps.reservations.models import Reservation, ReservationStatus
+        has_completed = Reservation.objects.filter(
+            customer=request.user, store=store, status=ReservationStatus.COMPLETED,
+        ).exists()
+        if not has_completed:
+            return Response(
+                {'error': 'no_completed_reservation',
+                 'message': 'You can only review a store after completing a reservation there.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         serializer = StoreReviewSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         review = StoreService.add_review(
@@ -297,6 +309,12 @@ class StoreReviewView(APIView):
             serializer.validated_data.get('comment', ''),
         )
         CacheService.invalidate_store_reviews(str(store_id))
+        # Notify vendor
+        try:
+            from apps.notifications.services import NotificationService
+            NotificationService.notify_new_review(store.owner, store.name, review.rating, str(store.id))
+        except Exception:
+            pass
         return Response(StoreReviewSerializer(review).data)
 
 
@@ -385,6 +403,72 @@ class StoreHoursView(APIView):
         ])
         CacheService.delete(CacheService.store_detail_key(str(store.id)))
         return Response(StoreHoursSerializer(sorted(hours, key=lambda h: h.day), many=True).data)
+
+
+class VendorReviewReplyView(APIView):
+    """POST /api/v1/stores/<store_id>/reviews/<review_id>/reply/ — vendor replies to a review."""
+    permission_classes = [IsAuthenticated, IsStoreOwner]
+
+    @extend_schema(
+        tags=[_TAG],
+        summary='Reply to a customer review (store owner only)',
+        request=VendorReplySerializer,
+        responses={200: StoreReviewListSerializer},
+        examples=[
+            OpenApiExample(
+                'Vendor reply',
+                request_only=True,
+                value={'reply': 'Thank you for your kind words! We look forward to seeing you again.'},
+            ),
+        ],
+    )
+    def post(self, request, store_id, review_id):
+        try:
+            store  = Store.objects.get(id=store_id)
+            review = store.reviews.get(id=review_id)
+        except (Store.DoesNotExist, store.reviews.model.DoesNotExist):
+            return Response({'error': 'not_found', 'message': 'Review not found.'}, status=status.HTTP_404_NOT_FOUND)
+        self.check_object_permissions(request, store)
+        serializer = VendorReplySerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        from django.utils import timezone
+        review.vendor_reply    = serializer.validated_data['reply']
+        review.vendor_reply_at = timezone.now()
+        review.save(update_fields=['vendor_reply', 'vendor_reply_at'])
+        CacheService.invalidate_store_reviews(str(store_id))
+        return Response(StoreReviewListSerializer(review).data)
+
+
+class VendorReviewsListView(APIView):
+    """GET /api/v1/stores/<store_id>/reviews/vendor/ — all reviews for vendor's store."""
+    permission_classes = [IsAuthenticated, IsStoreOwner]
+
+    @extend_schema(tags=[_TAG], summary='List all reviews for my store (vendor only)', responses={200: StoreReviewListSerializer(many=True)})
+    def get(self, request, store_id):
+        try:
+            store = Store.objects.get(id=store_id)
+        except Store.DoesNotExist:
+            return Response({'error': 'not_found', 'message': 'Store not found.'}, status=status.HTTP_404_NOT_FOUND)
+        self.check_object_permissions(request, store)
+        reviews = store.reviews.select_related('user').order_by('-created_at')
+        return Response({'results': StoreReviewListSerializer(reviews, many=True).data, 'count': reviews.count()})
+
+
+class MyReviewsView(APIView):
+    """GET /api/v1/reviews/mine/ — all reviews written by the authenticated customer."""
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(tags=[_TAG], summary='Get my reviews (customer)', responses={200: StoreReviewListSerializer(many=True)})
+    def get(self, request):
+        from .models import StoreReview
+        reviews = StoreReview.objects.filter(user=request.user).select_related('store').order_by('-created_at')
+        data = []
+        for r in reviews:
+            d = StoreReviewListSerializer(r).data
+            d['store_id']   = str(r.store.id)
+            d['store_name'] = r.store.name
+            data.append(d)
+        return Response({'results': data, 'count': len(data)})
 
 
 class StoreReviewListView(APIView):
@@ -534,3 +618,29 @@ class StoreStatsView(APIView):
             'total_products':      store.products.filter(status='active').count(),
             'follower_count':      store.followers.count(),
         })
+
+
+class StoreInvoiceListCreateView(APIView):
+    """
+    GET  /api/v1/stores/mine/invoices/ — list vendor's invoices
+    POST /api/v1/stores/mine/invoices/ — create an invoice
+    """
+    permission_classes = [IsAuthenticated, IsVendor]
+
+    @extend_schema(tags=[_TAG], summary='List vendor invoices', responses={200: InvoiceSerializer(many=True)})
+    def get(self, request):
+        if not hasattr(request.user, 'store'):
+            return Response({'results': [], 'count': 0})
+        invoices = Invoice.objects.filter(store=request.user.store)
+        return Response({'results': InvoiceSerializer(invoices, many=True).data, 'count': invoices.count()})
+
+    @extend_schema(tags=[_TAG], summary='Create invoice', request=InvoiceSerializer, responses={201: InvoiceSerializer})
+    def post(self, request):
+        if not hasattr(request.user, 'store'):
+            return Response({'error': 'no_store'}, status=status.HTTP_400_BAD_REQUEST)
+        ser = InvoiceSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        items = ser.validated_data.get('items', [])
+        total = sum(float(i.get('price', 0)) * int(i.get('qty', 1)) for i in items)
+        invoice = ser.save(store=request.user.store, total=total)
+        return Response(InvoiceSerializer(invoice).data, status=status.HTTP_201_CREATED)

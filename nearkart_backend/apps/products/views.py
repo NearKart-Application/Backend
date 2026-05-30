@@ -70,10 +70,15 @@ class ProductSearchView(APIView):
         tags=[_TAG],
         summary='Search products by name',
         parameters=[
-            OpenApiParameter('q',      str,   description='Search query',  required=True),
-            OpenApiParameter('lat',    float, description='Latitude',      required=False),
-            OpenApiParameter('lng',    float, description='Longitude',     required=False),
-            OpenApiParameter('radius', int,   description='Radius in km',  required=False),
+            OpenApiParameter('q',          str,   description='Search query',                        required=True),
+            OpenApiParameter('lat',        float, description='Latitude',                             required=False),
+            OpenApiParameter('lng',        float, description='Longitude',                            required=False),
+            OpenApiParameter('radius',     int,   description='Radius in km',                        required=False),
+            OpenApiParameter('min_price',  float, description='Minimum price filter',                required=False),
+            OpenApiParameter('max_price',  float, description='Maximum price filter',                required=False),
+            OpenApiParameter('min_rating', float, description='Minimum store rating (0–5)',          required=False),
+            OpenApiParameter('has_offer',  bool,  description='Only products with active offers',   required=False),
+            OpenApiParameter('ordering',   str,   description='Sort: price_asc|price_desc|rating|distance', required=False),
         ],
         responses={200: ProductListSerializer(many=True)},
         auth=[],
@@ -92,11 +97,50 @@ class ProductSearchView(APIView):
         except ValueError:
             lat = lng = None
             radius = 5
-        products   = ProductService.search(query, lat, lng, radius)
+        min_price  = request.query_params.get('min_price')
+        max_price  = request.query_params.get('max_price')
+        min_rating = request.query_params.get('min_rating')
+        has_offer  = request.query_params.get('has_offer', '').lower() in ('1', 'true')
+        ordering   = request.query_params.get('ordering')
+        products   = ProductService.search(
+            query, lat, lng, radius,
+            min_price=float(min_price) if min_price else None,
+            max_price=float(max_price) if max_price else None,
+            min_rating=float(min_rating) if min_rating else None,
+            has_offer=has_offer or None,
+            ordering=ordering,
+        )
         serialized = ProductListSerializer(products, many=True, context={'request': request}).data
         user = request.user if request.user.is_authenticated else None
         log_event('customers', action='product_searched', query=query, results=len(serialized),
                   user_id=str(user.id) if user else None)
+        return Response({'count': len(serialized), 'next': None, 'previous': None, 'results': serialized})
+
+
+class FollowingFeedView(APIView):
+    """GET /api/v1/products/following/ — recent products from stores the user follows."""
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        tags=[_TAG],
+        summary='Products from followed stores',
+        parameters=[
+            OpenApiParameter('lat',   float, description='Latitude',        required=False),
+            OpenApiParameter('lng',   float, description='Longitude',       required=False),
+            OpenApiParameter('limit', int,   description='Max results (default 20)', required=False),
+        ],
+        responses={200: ProductListSerializer(many=True)},
+    )
+    def get(self, request):
+        from apps.stores.models import StoreFollow
+        limit = int(request.query_params.get('limit', 20))
+        followed_ids = StoreFollow.objects.filter(user=request.user).values_list('store_id', flat=True)
+        qs = Product.objects.filter(
+            store_id__in=followed_ids,
+            status='active',
+            is_visible=True,
+        ).select_related('store').prefetch_related('variants', 'images').order_by('-created_at')[:limit]
+        serialized = ProductListSerializer(qs, many=True, context={'request': request}).data
         return Response({'count': len(serialized), 'next': None, 'previous': None, 'results': serialized})
 
 
