@@ -3,8 +3,6 @@ NearKart — Auth Models
 User, OTPToken, DeviceToken
 """
 import hashlib
-import random
-import string
 import uuid
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
 from django.contrib.gis.db import models as gis_models
@@ -13,18 +11,18 @@ from django.utils import timezone
 from datetime import timedelta
 
 
-def _generate_profile_id() -> str:
-    chars = string.ascii_uppercase + string.digits
-    suffix = ''.join(random.choices(chars, k=8))
-    return f'NK-{suffix}'
+def _generate_profile_id(name: str = '', area: str = '', role: str = '') -> str:
+    from core.utils.codes import make_ns_code
+    return make_ns_code(name=name, area=area, role=role)
 
 from core.models import BaseModel
 
 
 class UserRole(models.TextChoices):
-    CUSTOMER = 'customer', 'Customer'
-    VENDOR = 'vendor', 'Vendor'
-    ADMIN = 'admin', 'Admin'
+    CUSTOMER     = 'customer',     'Customer'
+    VENDOR       = 'vendor',       'Vendor'
+    ADMIN        = 'admin',        'Admin'
+    MASTER_ADMIN = 'master_admin', 'Master Admin'
 
 
 class UserManager(BaseUserManager):
@@ -32,8 +30,9 @@ class UserManager(BaseUserManager):
         if not phone_number:
             raise ValueError('Phone number is required')
         if not extra_fields.get('profile_id'):
+            name = extra_fields.get('full_name', '')
             while True:
-                pid = _generate_profile_id()
+                pid = _generate_profile_id(name=name, role=role)
                 if not self.model.objects.filter(profile_id=pid).exists():
                     extra_fields['profile_id'] = pid
                     break
@@ -51,12 +50,15 @@ class UserManager(BaseUserManager):
 
 class User(AbstractBaseUser, PermissionsMixin, BaseModel):
     phone_number = models.CharField(max_length=15, unique=True, db_index=True)
-    profile_id   = models.CharField(max_length=12, unique=True, db_index=True, blank=True, default='')
-    role         = models.CharField(max_length=10, choices=UserRole.choices, default='', blank=True)
+    profile_id   = models.CharField(max_length=16, unique=True, db_index=True, blank=True, default='')
+    role         = models.CharField(max_length=12, choices=UserRole.choices, default='', blank=True)
     full_name    = models.CharField(max_length=150, blank=True)
     email        = models.EmailField(blank=True)
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
+    is_suspended = models.BooleanField(default=False)
+    suspension_reason = models.CharField(max_length=500, blank=True, default='')
+    admin_assigned_city = models.CharField(max_length=100, blank=True, default='')
     registered_location = gis_models.PointField(
         srid=4326, null=True, blank=True, spatial_index=True
     )
@@ -65,6 +67,18 @@ class User(AbstractBaseUser, PermissionsMixin, BaseModel):
     REQUIRED_FIELDS = []
 
     objects = UserManager()
+
+    @property
+    def store(self):
+        """
+        Returns the vendor's primary (first active) store.
+        Raises AttributeError when the user has no active store so that
+        existing hasattr(user, 'store') guard patterns continue to work.
+        """
+        s = self.stores.filter(is_active=True).order_by('created_at').first()
+        if s is None:
+            raise AttributeError('User has no active store')
+        return s
 
     class Meta:
         db_table = 'auth_users'
