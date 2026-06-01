@@ -15,11 +15,23 @@ class ProductService:
 
     @staticmethod
     def create(store, validated_data: dict):
-        from .models import Product
+        from .models import Product, StockMovementLog, StockMovementReason
         variants_data = validated_data.pop('variants', [])
         product = Product.objects.create(store=store, **validated_data)
         for v in variants_data:
-            product.variants.create(**v)
+            initial_qty = v.get('stock_quantity', 0)
+            variant = product.variants.create(**v)
+            if initial_qty > 0:
+                # Log the initial stock so StockMovementLog has a full history
+                StockMovementLog.objects.create(
+                    variant=variant,
+                    changed_by=None,
+                    old_qty=0,
+                    new_qty=initial_qty,
+                    delta=initial_qty,
+                    reason=StockMovementReason.RESTOCK,
+                    note='initial stock',
+                )
         CacheService.invalidate_store_caches(
             store.location.y,
             store.location.x,

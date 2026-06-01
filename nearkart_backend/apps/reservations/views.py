@@ -70,6 +70,17 @@ class ReservationCreateView(APIView):
         except Product.DoesNotExist:
             return Response({'error': 'not_found', 'message': 'Product not found or not available.'}, status=404)
 
+        # Resolve optional variant
+        variant = None
+        if data.get('variant_id'):
+            from apps.products.models import ProductVariant
+            try:
+                variant = product.variants.get(id=data['variant_id'])
+            except ProductVariant.DoesNotExist:
+                return Response({'error': 'not_found', 'message': 'Variant not found.'}, status=404)
+            if variant.stock_quantity < data['quantity']:
+                return Response({'error': 'out_of_stock', 'message': 'Not enough stock for this variant.'}, status=400)
+
         # Blacklist check — blocked customers cannot reserve
         if request.user.role == 'customer' and BlacklistService.is_blocked(store, request.user):
             return Response({'error': 'blacklisted', 'message': 'You cannot reserve from this store.'}, status=403)
@@ -88,15 +99,21 @@ class ReservationCreateView(APIView):
             except ValueError as e:
                 return Response({'error': 'loyalty_error', 'message': str(e)}, status=400)
 
-        reservation = ReservationService.create(
-            customer=request.user,
-            store=store,
-            product=product,
-            quantity=data['quantity'],
-            note=data.get('note', ''),
-            points_redeemed=points_to_redeem,
-            discount_amount=discount_amount,
-        )
+        try:
+            reservation = ReservationService.create(
+                customer=request.user,
+                store=store,
+                product=product,
+                variant=variant,
+                quantity=data['quantity'],
+                note=data.get('note', ''),
+                points_redeemed=points_to_redeem,
+                discount_amount=discount_amount,
+            )
+        except ValueError as exc:
+            if str(exc) == 'insufficient_stock':
+                return Response({'error': 'out_of_stock', 'message': 'Not enough stock available.'}, status=400)
+            raise
         log_event('reservations', action='reservation_created',
                   reservation_id=str(reservation.id), store_id=str(store.id),
                   product_id=str(product.id), customer_id=str(request.user.id),
@@ -134,7 +151,17 @@ class ReservationListView(APIView):
         else:
             qs = ReservationService.get_for_customer(user)
 
-        return Response(ReservationSerializer(qs, many=True).data)
+        page      = max(int(request.query_params.get('page', 1)), 1)
+        page_size = min(max(int(request.query_params.get('page_size', 20)), 1), 100)
+        total     = qs.count()
+        offset    = (page - 1) * page_size
+        results   = qs[offset: offset + page_size]
+        return Response({
+            'count':    total,
+            'page':     page,
+            'has_next': offset + page_size < total,
+            'results':  ReservationSerializer(results, many=True).data,
+        })
 
 
 class ReservationDetailView(APIView):
@@ -205,11 +232,20 @@ class ReservationStatusView(APIView):
         new_status  = ser.validated_data['status']
         vendor_note = ser.validated_data.get('vendor_note', '')
 
-        # Only pending reservations can be confirmed/cancelled
-        if new_status in [ReservationStatus.CONFIRMED, ReservationStatus.CANCELLED]:
+        # Only pending reservations can be confirmed
+        if new_status == ReservationStatus.CONFIRMED:
             if reservation.status != ReservationStatus.PENDING:
                 return Response(
-                    {'error': 'invalid_status', 'message': f'Cannot {new_status} a {reservation.status} reservation.'},
+                    {'error': 'invalid_status', 'message': 'Only pending reservations can be confirmed.'},
+                    status=400,
+                )
+
+        # Pending OR confirmed reservations can be cancelled
+        # (confirmed = vendor emergency-cancels after already confirming)
+        if new_status == ReservationStatus.CANCELLED:
+            if reservation.status not in [ReservationStatus.PENDING, ReservationStatus.CONFIRMED]:
+                return Response(
+                    {'error': 'invalid_status', 'message': f'Cannot cancel a {reservation.status} reservation.'},
                     status=400,
                 )
 
