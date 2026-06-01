@@ -22,9 +22,10 @@ from core.permissions import IsVendor, IsStoreOwner
 from core.utils.cache import CacheService
 from core.utils.upload_tracker import UploadTracker
 from apps.billing.services import BillingService
-from .models import Product
+from .models import Product, ProductVariant, ProductImage, StockWatchlist, StockMovementReason
 from .serializers import ProductSerializer, ProductListSerializer, MobileProductDetailSerializer
 from .services import ProductService
+from .inventory_service import InventoryService, LOW_STOCK_THRESHOLD
 
 logger = logging.getLogger(__name__)
 
@@ -294,6 +295,56 @@ class ProductUpdateView(APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+class ProductImageUploadView(APIView):
+    """POST /api/v1/products/<id>/images/ — upload up to 5 images for a product."""
+    permission_classes = [IsAuthenticated, IsStoreOwner]
+
+    def post(self, request, product_id):
+        try:
+            product = Product.objects.get(id=product_id)
+        except Product.DoesNotExist:
+            return Response({'error': 'not_found', 'message': 'Product not found.'}, status=status.HTTP_404_NOT_FOUND)
+        self.check_object_permissions(request, product)
+
+        files = request.FILES.getlist('images')
+        if not files:
+            return Response({'error': 'no_files', 'message': 'No images provided.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        existing_count = product.images.count()
+        if existing_count + len(files) > 5:
+            return Response(
+                {'error': 'limit_exceeded', 'message': f'Max 5 images per product. You already have {existing_count}.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            from django.core.files.storage import default_storage
+            from django.core.files.base import ContentFile
+            import uuid, os
+
+            saved_urls = []
+            for i, file in enumerate(files):
+                ext = os.path.splitext(file.name)[1].lower() or '.jpg'
+                filename = f'products/{product_id}/{uuid.uuid4().hex}{ext}'
+                path = default_storage.save(filename, ContentFile(file.read()))
+                url = request.build_absolute_uri(default_storage.url(path))
+                is_primary = (existing_count == 0 and i == 0)
+                ProductImage.objects.create(
+                    product=product,
+                    image_url=url,
+                    is_primary=is_primary,
+                    order=existing_count + i,
+                )
+                saved_urls.append(url)
+
+            CacheService.invalidate_product_detail(str(product_id))
+            return Response({'urls': saved_urls, 'primary_image': saved_urls[0] if saved_urls else None})
+
+        except Exception as e:
+            logger.error('Product image upload failed: %s', e)
+            return Response({'error': 'upload_failed', 'message': 'Image upload failed. Please try again.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
 class ProductWishlistView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -419,3 +470,160 @@ class VendorProductListView(APIView):
             qs = qs.filter(status=status_filter)
         serializer = ProductSerializer(qs, many=True, context={'request': request})
         return Response({'results': serializer.data, 'count': len(serializer.data)})
+
+
+# ── Inventory Management ──────────────────────────────────────────────────────
+
+class VariantListView(APIView):
+    """GET /products/<id>/variants/ — list variants with stock for vendor."""
+    permission_classes = [IsAuthenticated, IsVendor]
+
+    @extend_schema(tags=[_TAG], summary='List variants with stock')
+    def get(self, request, product_id):
+        try:
+            product = Product.objects.get(id=product_id, store=request.user.store)
+        except Product.DoesNotExist:
+            return Response({'error': 'not_found', 'message': 'Product not found.'}, status=404)
+        variants = product.variants.all()
+        data = [
+            {
+                'id':             str(v.id),
+                'name':           v.name,
+                'sku':            v.sku,
+                'price':          str(v.price),
+                'stock_quantity': v.stock_quantity,
+            }
+            for v in variants
+        ]
+        return Response({'results': data, 'count': len(data)})
+
+
+class VariantStockUpdateView(APIView):
+    """PATCH /products/<id>/variants/<vid>/ — vendor updates stock qty."""
+    permission_classes = [IsAuthenticated, IsVendor]
+
+    @extend_schema(tags=[_TAG], summary='Update variant stock')
+    def patch(self, request, product_id, variant_id):
+        try:
+            product = Product.objects.get(id=product_id, store=request.user.store)
+        except Product.DoesNotExist:
+            return Response({'error': 'not_found', 'message': 'Product not found.'}, status=404)
+        try:
+            variant = product.variants.get(id=variant_id)
+        except ProductVariant.DoesNotExist:
+            return Response({'error': 'not_found', 'message': 'Variant not found.'}, status=404)
+
+        new_qty = request.data.get('stock_quantity')
+        if new_qty is None or not isinstance(new_qty, int) or new_qty < 0:
+            return Response({'error': 'validation_error', 'message': 'stock_quantity must be a non-negative integer.'}, status=400)
+
+        note = request.data.get('note', '')
+        InventoryService.update_stock(
+            variant=variant, new_qty=new_qty,
+            changed_by=request.user,
+            reason=StockMovementReason.MANUAL,
+            note=note,
+        )
+        return Response({
+            'id':             str(variant.id),
+            'name':           variant.name,
+            'stock_quantity': variant.stock_quantity,
+            'product_status': variant.product.status,
+        })
+
+
+class StockLogView(APIView):
+    """GET /products/<id>/stock-log/ — vendor views stock movement history."""
+    permission_classes = [IsAuthenticated, IsVendor]
+
+    @extend_schema(tags=[_TAG], summary='Stock movement history for a product')
+    def get(self, request, product_id):
+        try:
+            product = Product.objects.get(id=product_id, store=request.user.store)
+        except Product.DoesNotExist:
+            return Response({'error': 'not_found', 'message': 'Product not found.'}, status=404)
+
+        from .models import StockMovementLog
+        logs = StockMovementLog.objects.filter(
+            variant__product=product
+        ).select_related('variant', 'changed_by').order_by('-created_at')[:100]
+
+        data = [
+            {
+                'id':          str(log.id),
+                'variant':     log.variant.name,
+                'old_qty':     log.old_qty,
+                'new_qty':     log.new_qty,
+                'delta':       log.delta,
+                'reason':      log.reason,
+                'note':        log.note,
+                'changed_by':  log.changed_by.phone_number if log.changed_by else 'system',
+                'created_at':  log.created_at.isoformat(),
+            }
+            for log in logs
+        ]
+        return Response({'results': data, 'count': len(data)})
+
+
+class StockAlertsView(APIView):
+    """GET /products/vendor/stock-alerts/ — vendor sees low-stock products."""
+    permission_classes = [IsAuthenticated, IsVendor]
+
+    @extend_schema(tags=[_TAG], summary='Low stock alerts for vendor')
+    def get(self, request):
+        if not hasattr(request.user, 'store'):
+            return Response({'results': [], 'count': 0})
+
+        from django.db.models import Min
+        low_stock_products = (
+            Product.objects
+            .filter(store=request.user.store, status__in=['active', 'out_of_stock'])
+            .prefetch_related('variants', 'images')
+            .annotate(min_stock=Min('variants__stock_quantity'))
+            .filter(min_stock__lte=LOW_STOCK_THRESHOLD)
+            .order_by('min_stock')
+        )
+
+        data = []
+        for p in low_stock_products:
+            primary_image = next((img.image_url for img in p.images.all() if img.is_primary), None)
+            low_variants = [
+                {'id': str(v.id), 'name': v.name, 'stock_quantity': v.stock_quantity}
+                for v in p.variants.all()
+                if v.stock_quantity <= LOW_STOCK_THRESHOLD
+            ]
+            data.append({
+                'id':            str(p.id),
+                'product_code':  p.product_code,
+                'name':          p.name,
+                'status':        p.status,
+                'primary_image': primary_image,
+                'low_variants':  low_variants,
+            })
+
+        return Response({'results': data, 'count': len(data), 'threshold': LOW_STOCK_THRESHOLD})
+
+
+class StockWatchView(APIView):
+    """POST/DELETE /products/<id>/watch/ — customer subscribes/unsubscribes to back-in-stock."""
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(tags=[_TAG], summary='Subscribe to back-in-stock notification')
+    def post(self, request, product_id):
+        try:
+            product = Product.objects.get(id=product_id, is_visible=True)
+        except Product.DoesNotExist:
+            return Response({'error': 'not_found', 'message': 'Product not found.'}, status=404)
+
+        if product.status != 'out_of_stock':
+            return Response({'error': 'in_stock', 'message': 'Product is already in stock.'}, status=400)
+
+        _, created = StockWatchlist.objects.get_or_create(customer=request.user, product=product)
+        return Response({'watching': True, 'created': created}, status=201 if created else 200)
+
+    @extend_schema(tags=[_TAG], summary='Unsubscribe from back-in-stock notification')
+    def delete(self, request, product_id):
+        deleted, _ = StockWatchlist.objects.filter(
+            customer=request.user, product_id=product_id
+        ).delete()
+        return Response({'watching': False, 'deleted': deleted > 0})

@@ -14,9 +14,24 @@ logger = logging.getLogger(__name__)
 class ProductService:
 
     @staticmethod
+    def _generate_product_code() -> str:
+        """Generate a unique product code like NKP-A3B7C2 (retry on collision)."""
+        import random, string
+        from .models import Product
+        for _ in range(10):
+            suffix = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+            code = f'NKP-{suffix}'
+            if not Product.objects.filter(product_code=code).exists():
+                return code
+        # Fallback: longer suffix to virtually eliminate collision
+        suffix = ''.join(random.choices(string.ascii_uppercase + string.digits, k=9))
+        return f'NKP-{suffix}'
+
+    @staticmethod
     def create(store, validated_data: dict):
         from .models import Product, StockMovementLog, StockMovementReason
         variants_data = validated_data.pop('variants', [])
+        validated_data.setdefault('product_code', ProductService._generate_product_code())
         product = Product.objects.create(store=store, **validated_data)
         for v in variants_data:
             initial_qty = v.get('stock_quantity', 0)

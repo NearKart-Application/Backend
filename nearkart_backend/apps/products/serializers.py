@@ -32,14 +32,14 @@ class ProductSerializer(serializers.ModelSerializer):
     class Meta:
         model  = Product
         fields = [
-            'id', 'store_id', 'store_name',
+            'id', 'store_id', 'store_name', 'product_code',
             'name', 'description', 'category',
             'status', 'is_visible', 'base_price',
             'variants', 'images',
             'distance_km', 'is_wishlisted',
             'created_at', 'last_updated_at',
         ]
-        read_only_fields = ['id', 'store_id', 'store_name', 'created_at', 'last_updated_at']
+        read_only_fields = ['id', 'store_id', 'store_name', 'product_code', 'created_at', 'last_updated_at']
 
     @extend_schema_field(serializers.FloatField(allow_null=True))
     def get_distance_km(self, obj):
@@ -82,7 +82,7 @@ class ProductListSerializer(serializers.ModelSerializer):
     class Meta:
         model  = Product
         fields = [
-            'id', 'store_name', 'name', 'category', 'subcategory',
+            'id', 'product_code', 'store_name', 'name', 'category', 'subcategory',
             'base_price', 'min_price', 'primary_image',
             'distance_km', 'status',
             # mobile-compatible fields

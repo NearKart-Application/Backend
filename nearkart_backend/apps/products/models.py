@@ -20,6 +20,7 @@ class ProductStatus(models.TextChoices):
 
 class Product(BaseModel):
     store          = models.ForeignKey(Store, on_delete=models.CASCADE, related_name='products')
+    product_code   = models.CharField(max_length=20, unique=True, blank=True, db_index=True)
     name           = models.CharField(max_length=200)
     description    = models.TextField(blank=True)
     category       = models.CharField(max_length=50, blank=True)
