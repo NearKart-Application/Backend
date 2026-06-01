@@ -209,6 +209,15 @@ class NotificationService:
         )
 
     @staticmethod
+    def notify_invoice_received(customer, store_name: str, invoice_id: str, total: str):
+        NotificationService.send(
+            customer, NotificationType.INVOICE_RECEIVED,
+            title=f'Invoice from {store_name}',
+            body=f'You received an invoice for ₹{total}.',
+            data={'invoice_id': invoice_id},
+        )
+
+    @staticmethod
     def notify_new_review(vendor, store_name: str, rating: int, store_id: str):
         stars = '★' * rating + '☆' * (5 - rating)
         NotificationService.send(

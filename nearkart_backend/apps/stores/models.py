@@ -24,7 +24,7 @@ class StoreCategory(models.TextChoices):
 
 
 class Store(BaseModel):
-    owner       = models.OneToOneField(User, on_delete=models.CASCADE, related_name='store')
+    owner       = models.ForeignKey(User, on_delete=models.CASCADE, related_name='stores')
     name        = models.CharField(max_length=200)
     description = models.TextField(blank=True)
     category    = models.CharField(max_length=20, choices=StoreCategory.choices, default=StoreCategory.OTHER)
@@ -35,6 +35,8 @@ class Store(BaseModel):
     logo_url    = models.URLField(blank=True)
     banner_url  = models.URLField(blank=True)
     qr_code_url = models.URLField(blank=True)
+    license_url = models.URLField(blank=True)
+    gst_url     = models.URLField(blank=True)
 
     is_active         = models.BooleanField(default=True)
     is_verified       = models.BooleanField(default=False)
@@ -120,13 +122,14 @@ class StoreOffer(BaseModel):
 
 
 class Invoice(BaseModel):
-    store          = models.ForeignKey(Store, on_delete=models.CASCADE, related_name='invoices')
-    customer_name  = models.CharField(max_length=200)
-    customer_phone = models.CharField(max_length=20, blank=True)
-    items          = models.JSONField(default=list)  # [{"name": ..., "price": ..., "qty": ...}]
-    notes          = models.TextField(blank=True)
-    total          = models.DecimalField(max_digits=10, decimal_places=2)
-    is_sent        = models.BooleanField(default=False)
+    store             = models.ForeignKey(Store, on_delete=models.CASCADE, related_name='invoices')
+    customer_name     = models.CharField(max_length=200)
+    customer_phone    = models.CharField(max_length=20, blank=True)
+    customer_ns_code  = models.CharField(max_length=30, blank=True)  # NSC-XX-XX-XXXX — used to send in-app notification
+    items             = models.JSONField(default=list)  # [{"name": ..., "price": ..., "qty": ...}]
+    notes             = models.TextField(blank=True)
+    total             = models.DecimalField(max_digits=10, decimal_places=2)
+    is_sent           = models.BooleanField(default=False)
 
     class Meta:
         db_table = 'store_invoices'
@@ -134,3 +137,28 @@ class Invoice(BaseModel):
 
     def __str__(self):
         return f'Invoice #{str(self.id)[:8]} — {self.store.name} → {self.customer_name}'
+
+
+class WebsiteRequest(BaseModel):
+    STATUS_PENDING  = 'pending'
+    STATUS_APPROVED = 'approved'
+    STATUS_REJECTED = 'rejected'
+    STATUS_CHOICES  = [
+        (STATUS_PENDING,  'Pending Review'),
+        (STATUS_APPROVED, 'Approved'),
+        (STATUS_REJECTED, 'Rejected'),
+    ]
+
+    store             = models.OneToOneField(Store, on_delete=models.CASCADE, related_name='website_request')
+    status            = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING, db_index=True)
+    domain_preference = models.CharField(max_length=100, blank=True)
+    notes             = models.TextField(blank=True)
+    admin_notes       = models.TextField(blank=True)
+    reviewed_at       = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'store_website_requests'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'{self.store.name} — website ({self.status})'

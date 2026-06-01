@@ -23,7 +23,8 @@ from core.logging import log_event
 from core.permissions import IsVendor, IsStoreOwner
 from core.utils.cache import CacheService
 from apps.blacklist.services import BlacklistService
-from .models import Store, StoreHours, StoreOffer, Invoice
+from django.utils import timezone as tz
+from .models import Store, StoreHours, StoreOffer, Invoice, WebsiteRequest
 from .serializers import (
     StoreSerializer, StoreListSerializer, StoreReviewSerializer,
     StoreReviewListSerializer, StoreOfferSerializer,
@@ -642,5 +643,263 @@ class StoreInvoiceListCreateView(APIView):
         ser.is_valid(raise_exception=True)
         items = ser.validated_data.get('items', [])
         total = sum(float(i.get('price', 0)) * int(i.get('qty', 1)) for i in items)
-        invoice = ser.save(store=request.user.store, total=total)
+
+        # If vendor provided a customer NS code, auto-fill name and mark as sent
+        ns_code = ser.validated_data.get('customer_ns_code', '').strip().upper()
+        customer_user = None
+        if ns_code:
+            from apps.auth_app.models import User
+            try:
+                customer_user = User.objects.get(profile_id=ns_code)
+                ser.validated_data['customer_name'] = customer_user.get_full_name() or ser.validated_data.get('customer_name', '')
+            except User.DoesNotExist:
+                pass
+
+        invoice = ser.save(
+            store=request.user.store,
+            total=total,
+            is_sent=customer_user is not None,
+        )
+
+        if customer_user is not None:
+            from apps.notifications.services import NotificationService
+            store_name = request.user.store.name
+            threading.Thread(
+                target=NotificationService.notify_invoice_received,
+                args=(customer_user, store_name, str(invoice.id), str(int(total))),
+                daemon=True,
+            ).start()
+
         return Response(InvoiceSerializer(invoice).data, status=status.HTTP_201_CREATED)
+
+
+class VendorStoresListView(APIView):
+    """
+    GET /api/v1/stores/mine/all/
+    Returns all stores owned by the authenticated vendor.
+    Supports multi-location vendors — display-only, no store-switching.
+    """
+    permission_classes = [IsAuthenticated, IsVendor]
+
+    @extend_schema(
+        tags=[_TAG],
+        summary='List all vendor stores',
+        responses={200: StoreListSerializer(many=True)},
+    )
+    def get(self, request):
+        stores = Store.objects.filter(owner=request.user, is_active=True).order_by('created_at')
+        return Response({
+            'count':   stores.count(),
+            'results': StoreListSerializer(stores, many=True).data,
+        })
+
+
+class StoreLocationsView(APIView):
+    """
+    GET /api/v1/stores/<store_id>/locations/
+    Returns all other active locations owned by the same vendor.
+    Used on the customer-facing store detail page to show "More Locations".
+    """
+    permission_classes = [AllowAny]
+
+    @extend_schema(
+        tags=[_TAG],
+        summary='Other locations by same vendor',
+        responses={200: StoreListSerializer(many=True)},
+    )
+    def get(self, request, store_id):
+        try:
+            store = Store.objects.get(id=store_id, is_active=True)
+        except Store.DoesNotExist:
+            return Response({'count': 0, 'results': []})
+        siblings = (
+            Store.objects
+            .filter(owner=store.owner, is_active=True)
+            .exclude(id=store_id)
+            .order_by('created_at')
+        )
+        return Response({
+            'count':   siblings.count(),
+            'results': StoreListSerializer(siblings, many=True).data,
+        })
+
+
+# ── Website Request ────────────────────────────────────────────────────────────
+
+_WEBSITE_CRITERIA = [
+    {
+        'key':         'account_age',
+        'label':       'Account active for 30+ days',
+        'description': 'Your NearSpot account must be at least 30 days old',
+        'required':    '30 days',
+    },
+    {
+        'key':         'store_verified',
+        'label':       'Store verified by NearSpot',
+        'description': 'Your store must be verified by the NearSpot team',
+        'required':    'Verified',
+    },
+    {
+        'key':         'store_complete',
+        'label':       'Store profile complete',
+        'description': 'Logo, banner, and description must all be filled',
+        'required':    'Complete',
+    },
+    {
+        'key':         'products_listed',
+        'label':       '10+ active products',
+        'description': 'Your store must have at least 10 active products listed',
+        'required':    '10',
+    },
+    {
+        'key':         'reviews_quality',
+        'label':       '5+ reviews with 4.0★ average',
+        'description': 'At least 5 customer reviews with an average rating of 4.0 or higher',
+        'required':    '5 reviews / 4.0★',
+    },
+    {
+        'key':         'referrals_done',
+        'label':       '3+ completed referrals',
+        'description': 'You must have referred at least 3 people using your NS code',
+        'required':    '3',
+    },
+    {
+        'key':         'reservations_completed',
+        'label':       '5+ completed reservations',
+        'description': 'Your store must have fulfilled at least 5 customer reservations',
+        'required':    '5',
+    },
+    {
+        'key':         'active_subscription',
+        'label':       'Active NearSpot subscription',
+        'description': 'You must have an active paid subscription plan',
+        'required':    'Active plan',
+    },
+]
+
+
+def _check_eligibility(user):
+    from django.db.models import Avg
+    from apps.loyalty.models import Referral
+    from apps.reservations.models import ReservationStatus
+
+    try:
+        store = user.store
+    except AttributeError:
+        return False, []
+
+    try:
+        has_sub = store.subscriptions.filter(is_active=True).exists()
+    except Exception:
+        has_sub = False
+
+    try:
+        product_count = store.products.filter(is_active=True).count()
+    except Exception:
+        product_count = 0
+
+    try:
+        review_qs    = store.reviews.all()
+        review_count = review_qs.count()
+        avg_rating   = review_qs.aggregate(avg=Avg('rating'))['avg'] or 0.0
+    except Exception:
+        review_count, avg_rating = 0, 0.0
+
+    try:
+        referral_count = Referral.objects.filter(referrer=user, status=Referral.STATUS_COMPLETED).count()
+    except Exception:
+        referral_count = 0
+
+    try:
+        reservation_count = store.reservations.filter(status=ReservationStatus.COMPLETED).count()
+    except Exception:
+        reservation_count = 0
+
+    account_age_days = max((tz.now() - user.created_at).days, 0)
+    store_complete   = bool(store.logo_url and store.banner_url and store.description.strip())
+
+    results = [
+        {'key': 'account_age',           'met': account_age_days >= 30,  'current': f'{account_age_days} days'},
+        {'key': 'store_verified',        'met': store.is_verified,        'current': 'Verified' if store.is_verified else 'Not verified'},
+        {'key': 'store_complete',        'met': store_complete,           'current': 'Complete' if store_complete else 'Incomplete'},
+        {'key': 'products_listed',       'met': product_count >= 10,      'current': str(product_count)},
+        {'key': 'reviews_quality',       'met': review_count >= 5 and avg_rating >= 4.0, 'current': f'{review_count} reviews / {avg_rating:.1f}★'},
+        {'key': 'referrals_done',        'met': referral_count >= 3,      'current': str(referral_count)},
+        {'key': 'reservations_completed','met': reservation_count >= 5,   'current': str(reservation_count)},
+        {'key': 'active_subscription',   'met': has_sub,                  'current': 'Active' if has_sub else 'No plan'},
+    ]
+
+    # Merge static labels/descriptions into results
+    label_map = {c['key']: c for c in _WEBSITE_CRITERIA}
+    for r in results:
+        meta = label_map[r['key']]
+        r['label']       = meta['label']
+        r['description'] = meta['description']
+        r['required']    = meta['required']
+
+    is_eligible = all(r['met'] for r in results)
+    return is_eligible, results
+
+
+class WebsiteRequestView(APIView):
+    """
+    GET  /api/v1/stores/mine/website-request/  — eligibility check + current request status
+    POST /api/v1/stores/mine/website-request/  — submit website request
+    """
+    permission_classes = [IsAuthenticated, IsVendor]
+
+    def get(self, request):
+        is_eligible, criteria = _check_eligibility(request.user)
+        existing = None
+        try:
+            store = request.user.store
+            wr = store.website_request
+            existing = {
+                'id':                str(wr.id),
+                'status':            wr.status,
+                'domain_preference': wr.domain_preference,
+                'admin_notes':       wr.admin_notes,
+                'created_at':        wr.created_at.isoformat(),
+            }
+        except (AttributeError, WebsiteRequest.DoesNotExist):
+            pass
+        except Exception:
+            # Table may not exist yet (migration pending) — return gracefully
+            pass
+        return Response({
+            'is_eligible':    is_eligible,
+            'criteria':       criteria,
+            'existing_request': existing,
+        })
+
+    def post(self, request):
+        is_eligible, criteria = _check_eligibility(request.user)
+        if not is_eligible:
+            unmet = [c['label'] for c in criteria if not c['met']]
+            return Response(
+                {'error': 'not_eligible', 'message': 'Complete all requirements first.', 'unmet': unmet},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            store = request.user.store
+        except AttributeError:
+            return Response({'error': 'no_store', 'message': 'Create a store first.'}, status=400)
+
+        if hasattr(store, 'website_request'):
+            return Response(
+                {'error': 'already_submitted', 'message': 'You have already submitted a website request.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        domain = request.data.get('domain_preference', '').strip().lower()
+        notes  = request.data.get('notes', '').strip()
+
+        wr = WebsiteRequest.objects.create(store=store, domain_preference=domain, notes=notes)
+        log_event('website_request', action='submitted', store_id=str(store.id), user_id=str(request.user.id))
+        return Response({
+            'id':                str(wr.id),
+            'status':            wr.status,
+            'domain_preference': wr.domain_preference,
+            'created_at':        wr.created_at.isoformat(),
+            'message':           'Your website request has been submitted. We will review it and get back to you.',
+        }, status=status.HTTP_201_CREATED)

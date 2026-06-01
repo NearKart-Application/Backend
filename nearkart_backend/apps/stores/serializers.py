@@ -293,5 +293,5 @@ class StoreMobileDetailSerializer(serializers.ModelSerializer):
 class InvoiceSerializer(serializers.ModelSerializer):
     class Meta:
         model  = Invoice
-        fields = ['id', 'customer_name', 'customer_phone', 'items', 'notes', 'total', 'is_sent', 'created_at']
-        read_only_fields = ['id', 'total', 'created_at']
+        fields = ['id', 'customer_name', 'customer_phone', 'customer_ns_code', 'items', 'notes', 'total', 'is_sent', 'created_at']
+        read_only_fields = ['id', 'total', 'created_at', 'is_sent']
