@@ -655,11 +655,27 @@ class StoreInvoiceListCreateView(APIView):
             except User.DoesNotExist:
                 pass
 
-        invoice = ser.save(
-            store=request.user.store,
-            total=total,
-            is_sent=customer_user is not None,
-        )
+        from django.db import transaction as db_transaction
+        with db_transaction.atomic():
+            invoice = ser.save(
+                store=request.user.store,
+                total=total,
+                is_sent=customer_user is not None,
+            )
+
+            # Deduct inventory stock for each item linked to a product
+            from apps.products.inventory_service import InventoryService
+            for item in items:
+                product_id = str(item.get('product_id', '')).strip()
+                if product_id:
+                    qty = max(1, int(item.get('qty', 1)))
+                    InventoryService.deduct_for_invoice(
+                        product_id=product_id,
+                        qty=qty,
+                        changed_by=request.user,
+                        invoice_id=str(invoice.id),
+                        store=request.user.store,
+                    )
 
         if customer_user is not None:
             from apps.notifications.services import NotificationService

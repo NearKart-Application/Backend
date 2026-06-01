@@ -1,7 +1,8 @@
 """
 NearKart — Product Models
-Product, ProductVariant, ProductImage, Wishlist
+Product, ProductVariant, ProductImage, Wishlist, StockMovementLog, StockWatchlist
 """
+from django.conf import settings
 from django.db import models
 from django.contrib.postgres.indexes import GinIndex
 
@@ -78,3 +79,46 @@ class Wishlist(BaseModel):
         db_table        = 'wishlists'
         unique_together = [('user', 'product')]
         ordering        = ['-created_at']
+
+
+class StockMovementReason(models.TextChoices):
+    MANUAL      = 'manual',      'Manual Update'
+    RESERVATION = 'reservation', 'Reservation Deduction'
+    RESTORATION = 'restoration', 'Reservation Restore'
+    RESTOCK     = 'restock',     'Restock'
+    INVOICE     = 'invoice',     'Invoice Sale'
+
+
+class StockMovementLog(BaseModel):
+    variant    = models.ForeignKey(ProductVariant, on_delete=models.CASCADE, related_name='stock_logs')
+    changed_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+                                   null=True, blank=True, related_name='stock_changes')
+    old_qty    = models.IntegerField()
+    new_qty    = models.IntegerField()
+    delta      = models.IntegerField()
+    reason     = models.CharField(max_length=20, choices=StockMovementReason.choices,
+                                  default=StockMovementReason.MANUAL)
+    note       = models.CharField(max_length=200, blank=True)
+
+    class Meta:
+        db_table = 'stock_movement_logs'
+        ordering = ['-created_at']
+        indexes  = [models.Index(fields=['variant', 'created_at'], name='stock_log_variant_idx')]
+
+    def __str__(self):
+        return f'{self.variant} {self.old_qty}→{self.new_qty} ({self.reason})'
+
+
+class StockWatchlist(BaseModel):
+    """Customer subscribes to back-in-stock notification for a product."""
+    customer = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+                                 related_name='stock_watches')
+    product  = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='stock_watchers')
+
+    class Meta:
+        db_table        = 'stock_watchlist'
+        unique_together = [('customer', 'product')]
+        ordering        = ['-created_at']
+
+    def __str__(self):
+        return f'{self.customer} watching {self.product.name}'
