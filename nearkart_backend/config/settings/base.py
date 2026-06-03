@@ -394,6 +394,11 @@ STATIC_ROOT = BASE_DIR / 'staticfiles'
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
+# Public-facing base URL — used to build absolute media URLs in dev (when S3 is not configured).
+# Set to your machine's local IP in .env: SITE_URL=http://192.168.29.165
+# In production this should be your domain: SITE_URL=https://api.nearkart.in
+SITE_URL = env('SITE_URL', default='http://localhost')
+
 # ── INTERNATIONALISATION ───────────────────────────────────────
 LANGUAGE_CODE = 'en-us'
 TIME_ZONE = 'Asia/Kolkata'

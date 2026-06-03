@@ -11,6 +11,7 @@ PUT  /api/v1/stores/<id>/hours/
 """
 import logging
 import threading
+from django.conf import settings
 from django.db import models
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated, AllowAny
@@ -998,3 +999,43 @@ class StaffRemoveView(APIView):
         member.save(update_fields=['is_active'])
         log_event('staff_member', action='removed', store_id=str(store.id), user_id=str(member.user.id))
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class StoreImagesUploadView(APIView):
+    """POST stores/mine/images/ — upload logo and/or banner for the vendor's store."""
+    permission_classes = [IsAuthenticated, IsVendor]
+
+    def post(self, request):
+        from django.core.files.storage import default_storage
+        from django.core.files.base import ContentFile
+        import uuid, os
+
+        try:
+            store = request.user.store
+        except AttributeError:
+            return Response({'error': 'no_store'}, status=status.HTTP_400_BAD_REQUEST)
+
+        updated = {}
+        for field in ('logo', 'banner'):
+            file = request.FILES.get(field)
+            if not file:
+                continue
+            ext = os.path.splitext(file.name)[1].lower() or '.jpg'
+            filename = f'stores/{store.id}/{field}_{uuid.uuid4().hex}{ext}'
+            path = default_storage.save(filename, ContentFile(file.read()))
+            raw_url = default_storage.url(path)
+            url = raw_url if raw_url.startswith('http') else f"{settings.SITE_URL.rstrip('/')}{raw_url}"
+            if field == 'logo':
+                store.logo_url = url
+                updated['logo_url'] = url
+            else:
+                store.banner_url = url
+                updated['banner_url'] = url
+
+        if not updated:
+            return Response({'error': 'no_files', 'message': 'Provide at least one of: logo, banner.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        store.save(update_fields=list(updated.keys()) + ['updated_at'] if hasattr(store, 'updated_at') else list(updated.keys()))
+        CacheService.invalidate_store(str(store.id))
+        log_event('stores', action='images_uploaded', store_id=str(store.id), fields=list(updated.keys()))
+        return Response(updated)

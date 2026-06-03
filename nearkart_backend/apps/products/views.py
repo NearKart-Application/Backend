@@ -327,7 +327,8 @@ class ProductImageUploadView(APIView):
                 ext = os.path.splitext(file.name)[1].lower() or '.jpg'
                 filename = f'products/{product_id}/{uuid.uuid4().hex}{ext}'
                 path = default_storage.save(filename, ContentFile(file.read()))
-                url = request.build_absolute_uri(default_storage.url(path))
+                raw_url = default_storage.url(path)
+                url = raw_url if raw_url.startswith('http') else f"{settings.SITE_URL.rstrip('/')}{raw_url}"
                 is_primary = (existing_count == 0 and i == 0)
                 ProductImage.objects.create(
                     product=product,
@@ -445,6 +446,16 @@ class WishlistListView(APIView):
             .select_related('store').prefetch_related('variants', 'images')
         serializer = ProductListSerializer(products, many=True, context={'request': request})
         return Response({'results': serializer.data, 'count': len(serializer.data)})
+
+
+class GenerateProductCodeView(APIView):
+    """GET /api/v1/products/vendor/generate-code/ — return a unique NKP code for a new product."""
+    permission_classes = [IsAuthenticated, IsVendor]
+
+    @extend_schema(tags=[_TAG], summary='Pre-generate a unique product code')
+    def get(self, request):
+        code = ProductService._generate_product_code()
+        return Response({'product_code': code})
 
 
 class VendorProductListView(APIView):

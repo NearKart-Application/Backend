@@ -5,7 +5,7 @@ from .views import (
     StoreHoursView, StoreReviewListView, StoreOfferView, StoreOfferDeleteView, StoreStatsView,
     VendorReviewReplyView, VendorReviewsListView, MyReviewsView, StoreInvoiceListCreateView,
     VendorStoresListView, StoreLocationsView, WebsiteRequestView,
-    StaffListCreateView, StaffRemoveView,
+    StaffListCreateView, StaffRemoveView, StoreImagesUploadView,
 )
 from apps.blacklist.views import BlacklistToggleView, BlacklistListView
 from apps.admin_panel.views import PublicOfferTemplateListView
@@ -16,6 +16,7 @@ urlpatterns = [
     path('mine/',                    StoreMyView.as_view(),               name='store-mine'),
     path('mine/all/',                VendorStoresListView.as_view(),      name='store-mine-all'),
     path('mine/website-request/',    WebsiteRequestView.as_view(),        name='store-website-request'),
+    path('mine/images/',             StoreImagesUploadView.as_view(),     name='store-images-upload'),
     path('mine/staff/',              StaffListCreateView.as_view(),       name='store-staff-list'),
     path('mine/staff/<uuid:staff_id>/', StaffRemoveView.as_view(),        name='store-staff-remove'),
     path('mine/stats/',              StoreStatsView.as_view(),            name='store-mine-stats'),

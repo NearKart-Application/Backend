@@ -8,6 +8,12 @@ from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
 API_V1 = 'api/v1/'
 
+if settings.DEBUG:
+    from django.conf.urls.static import static
+    urlpatterns_media = static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+else:
+    urlpatterns_media = []
+
 urlpatterns = [
     # ── ADMIN ─────────────────────────────────────────────────
     path('admin/', admin.site.urls),
@@ -54,5 +60,5 @@ urlpatterns = [
 
     # ── LOYALTY & REFERRALS ───────────────────────────────────────
     path(API_V1 + 'loyalty/', include('apps.loyalty.urls')),
-]
+] + urlpatterns_media
 
