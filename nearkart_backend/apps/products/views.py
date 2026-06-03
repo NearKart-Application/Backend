@@ -346,6 +346,31 @@ class ProductImageUploadView(APIView):
             return Response({'error': 'upload_failed', 'message': 'Image upload failed. Please try again.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
+class ProductImageDeleteView(APIView):
+    """DELETE /api/v1/products/<id>/images/<image_id>/ — remove a single product image."""
+    permission_classes = [IsAuthenticated, IsStoreOwner]
+
+    def delete(self, request, product_id, image_id):
+        try:
+            product = Product.objects.get(id=product_id)
+        except Product.DoesNotExist:
+            return Response({'error': 'not_found'}, status=status.HTTP_404_NOT_FOUND)
+        self.check_object_permissions(request, product)
+        deleted, _ = ProductImage.objects.filter(id=image_id, product=product).delete()
+        if not deleted:
+            return Response({'error': 'not_found'}, status=status.HTTP_404_NOT_FOUND)
+        # If no primary left, promote the first remaining image
+        if not product.images.filter(is_primary=True).exists():
+            first = product.images.order_by('order').first()
+            if first:
+                first.is_primary = True
+                first.save(update_fields=['is_primary'])
+        CacheService.invalidate_product_detail(str(product_id))
+        remaining = [{'id': str(img.id), 'image_url': img.image_url, 'is_primary': img.is_primary}
+                     for img in product.images.order_by('order')]
+        return Response({'images': remaining})
+
+
 class ProductWishlistView(APIView):
     permission_classes = [IsAuthenticated]
 

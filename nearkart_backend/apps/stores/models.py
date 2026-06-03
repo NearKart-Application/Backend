@@ -185,3 +185,50 @@ class WebsiteRequest(BaseModel):
 
     def __str__(self):
         return f'{self.store.name} — website ({self.status})'
+
+
+class DiscountCode(BaseModel):
+    PERCENT = 'percent'
+    FLAT    = 'flat'
+    TYPE_CHOICES = [(PERCENT, 'Percent off'), (FLAT, 'Flat amount off')]
+
+    store             = models.ForeignKey(Store, on_delete=models.CASCADE, related_name='discount_codes')
+    code              = models.CharField(max_length=20)
+    description       = models.CharField(max_length=100, blank=True)
+    discount_type     = models.CharField(max_length=10, choices=TYPE_CHOICES, default=PERCENT)
+    value             = models.DecimalField(max_digits=8, decimal_places=2)
+    min_order_amount  = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    max_uses          = models.PositiveIntegerField(null=True, blank=True)
+    uses_count        = models.PositiveIntegerField(default=0)
+    valid_from        = models.DateField(null=True, blank=True)
+    valid_till        = models.DateField(null=True, blank=True)
+    is_active         = models.BooleanField(default=True, db_index=True)
+    created_by        = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='created_discount_codes')
+
+    class Meta:
+        db_table        = 'discount_codes'
+        unique_together = [('store', 'code')]
+        ordering        = ['-created_at']
+
+    def __str__(self):
+        return f'{self.store.name} — {self.code}'
+
+    def is_valid(self, order_amount=None):
+        from django.utils import timezone
+        today = timezone.now().date()
+        if not self.is_active:
+            return False, 'code_inactive'
+        if self.max_uses is not None and self.uses_count >= self.max_uses:
+            return False, 'max_uses_reached'
+        if self.valid_from and today < self.valid_from:
+            return False, 'not_started'
+        if self.valid_till and today > self.valid_till:
+            return False, 'expired'
+        if order_amount is not None and self.min_order_amount and order_amount < self.min_order_amount:
+            return False, 'below_minimum'
+        return True, None
+
+    def calculate_discount(self, order_amount):
+        if self.discount_type == self.PERCENT:
+            return round(float(order_amount) * float(self.value) / 100, 2)
+        return min(float(self.value), float(order_amount))

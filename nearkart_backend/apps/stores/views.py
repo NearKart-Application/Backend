@@ -1039,3 +1039,151 @@ class StoreImagesUploadView(APIView):
         CacheService.invalidate_store(str(store.id))
         log_event('stores', action='images_uploaded', store_id=str(store.id), fields=list(updated.keys()))
         return Response(updated)
+
+
+class VendorDiscountCodeListCreateView(APIView):
+    """GET/POST stores/mine/discount-codes/ — vendor manages their discount codes."""
+    permission_classes = [IsAuthenticated, IsVendor]
+
+    def get(self, request):
+        try:
+            store = request.user.store
+        except AttributeError:
+            return Response([], status=status.HTTP_200_OK)
+        from .models import DiscountCode
+        codes = DiscountCode.objects.filter(store=store)
+        return Response([_serialize_code(c) for c in codes])
+
+    def post(self, request):
+        try:
+            store = request.user.store
+        except AttributeError:
+            return Response({'error': 'no_store'}, status=status.HTTP_400_BAD_REQUEST)
+        from .models import DiscountCode
+        data = request.data
+        code_str = str(data.get('code', '')).upper().strip()
+        if not code_str:
+            return Response({'error': 'code_required'}, status=status.HTTP_400_BAD_REQUEST)
+        if DiscountCode.objects.filter(store=store, code=code_str).exists():
+            return Response({'error': 'code_exists', 'message': f'Code {code_str} already exists for this store.'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            value = float(data.get('value', 0))
+            assert value > 0
+        except (TypeError, ValueError, AssertionError):
+            return Response({'error': 'invalid_value'}, status=status.HTTP_400_BAD_REQUEST)
+        discount_type = data.get('discount_type', 'percent')
+        if discount_type not in ('percent', 'flat'):
+            return Response({'error': 'invalid_type'}, status=status.HTTP_400_BAD_REQUEST)
+        if discount_type == 'percent' and value > 100:
+            return Response({'error': 'invalid_value', 'message': 'Percent discount cannot exceed 100.'}, status=status.HTTP_400_BAD_REQUEST)
+        code = DiscountCode.objects.create(
+            store=store,
+            code=code_str,
+            description=data.get('description', ''),
+            discount_type=discount_type,
+            value=value,
+            min_order_amount=data.get('min_order_amount') or None,
+            max_uses=data.get('max_uses') or None,
+            valid_from=data.get('valid_from') or None,
+            valid_till=data.get('valid_till') or None,
+            is_active=data.get('is_active', True),
+            created_by=request.user,
+        )
+        log_event('stores', action='discount_code_created', store_id=str(store.id), code=code_str)
+        return Response(_serialize_code(code), status=status.HTTP_201_CREATED)
+
+
+class VendorDiscountCodeUpdateView(APIView):
+    """PATCH/DELETE stores/mine/discount-codes/<id>/"""
+    permission_classes = [IsAuthenticated, IsVendor]
+
+    def _get_code(self, request, code_id):
+        from .models import DiscountCode
+        try:
+            store = request.user.store
+        except AttributeError:
+            return None, Response({'error': 'no_store'}, status=400)
+        try:
+            return DiscountCode.objects.get(id=code_id, store=store), None
+        except DiscountCode.DoesNotExist:
+            return None, Response({'error': 'not_found'}, status=404)
+
+    def patch(self, request, code_id):
+        code, err = self._get_code(request, code_id)
+        if err:
+            return err
+        data = request.data
+        for field in ('description', 'discount_type', 'min_order_amount', 'valid_from', 'valid_till', 'is_active', 'max_uses'):
+            if field in data:
+                setattr(code, field, data[field] if data[field] != '' else None)
+        if 'value' in data:
+            try:
+                code.value = float(data['value'])
+            except (TypeError, ValueError):
+                return Response({'error': 'invalid_value'}, status=400)
+        code.save()
+        return Response(_serialize_code(code))
+
+    def delete(self, request, code_id):
+        code, err = self._get_code(request, code_id)
+        if err:
+            return err
+        code.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class ApplyDiscountCodeView(APIView):
+    """POST stores/<store_id>/apply-discount/ — validate a code and calculate the discount."""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, store_id):
+        from .models import DiscountCode
+        code_str = str(request.data.get('code', '')).upper().strip()
+        try:
+            order_amount = float(request.data.get('order_amount', 0))
+        except (TypeError, ValueError):
+            order_amount = 0
+
+        try:
+            code = DiscountCode.objects.get(store_id=store_id, code=code_str)
+        except DiscountCode.DoesNotExist:
+            return Response({'valid': False, 'error': 'code_not_found', 'message': 'Invalid discount code.'})
+
+        valid, reason = code.is_valid(order_amount or None)
+        if not valid:
+            messages = {
+                'code_inactive':    'This code is no longer active.',
+                'max_uses_reached': 'This code has reached its usage limit.',
+                'not_started':      'This code is not active yet.',
+                'expired':          'This code has expired.',
+                'below_minimum':    f'Minimum order amount is ₹{code.min_order_amount}.',
+            }
+            return Response({'valid': False, 'error': reason, 'message': messages.get(reason, 'Code cannot be applied.')})
+
+        discount_amount = code.calculate_discount(order_amount) if order_amount else 0
+        return Response({
+            'valid':           True,
+            'code':            code.code,
+            'discount_type':   code.discount_type,
+            'value':           str(code.value),
+            'discount_amount': discount_amount,
+            'final_amount':    max(0, round(order_amount - discount_amount, 2)),
+            'description':     code.description,
+        })
+
+
+def _serialize_code(c):
+    return {
+        'id':               str(c.id),
+        'code':             c.code,
+        'description':      c.description,
+        'discount_type':    c.discount_type,
+        'value':            str(c.value),
+        'min_order_amount': str(c.min_order_amount) if c.min_order_amount else None,
+        'max_uses':         c.max_uses,
+        'uses_count':       c.uses_count,
+        'valid_from':       str(c.valid_from) if c.valid_from else None,
+        'valid_till':       str(c.valid_till) if c.valid_till else None,
+        'is_active':        c.is_active,
+        'created_at':       c.created_at.isoformat(),
+    }

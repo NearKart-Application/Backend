@@ -6,6 +6,7 @@ from .views import (
     FollowingFeedView,
     VariantListView, VariantStockUpdateView, StockLogView,
     StockAlertsView, StockWatchView, ProductImageUploadView,
+    ProductImageDeleteView,
     GenerateProductCodeView,
 )
 from apps.admin_panel.views import PublicCategoryListView
@@ -26,7 +27,8 @@ urlpatterns = [
     path('<uuid:product_id>/reserve/',      ProductReserveView.as_view(),  name='product-reserve'),
     path('<uuid:product_id>/watch/',        StockWatchView.as_view(),      name='stock-watch'),
     path('<uuid:product_id>/stock-log/',    StockLogView.as_view(),        name='stock-log'),
-    path('<uuid:product_id>/images/',        ProductImageUploadView.as_view(), name='product-images'),
+    path('<uuid:product_id>/images/',                       ProductImageUploadView.as_view(),  name='product-images'),
+    path('<uuid:product_id>/images/<uuid:image_id>/',      ProductImageDeleteView.as_view(),  name='product-image-delete'),
     path('<uuid:product_id>/variants/',     VariantListView.as_view(),     name='variant-list'),
     path('<uuid:product_id>/variants/<uuid:variant_id>/',
          VariantStockUpdateView.as_view(), name='variant-stock-update'),
