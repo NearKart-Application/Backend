@@ -7,6 +7,7 @@
 | [DOCS_MAP.md](DOCS_MAP.md) | **Every doc with its exact file path — find anything instantly** |
 | [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md) | Architecture, what Docker shows, sprint roadmap |
 | [HOW_TO_RUN_AND_TEST.md](HOW_TO_RUN_AND_TEST.md) | Setup venv, run Docker, test in Postman |
+| [LOGGING.md](LOGGING.md) | **Every log channel: file locations, events, jq queries, investigation playbooks** |
 | [sprint_12_production/GOING_TO_PRODUCTION.md](sprint_12_production/GOING_TO_PRODUCTION.md) | **Every dummy value to replace before going live — read this before launch** |
 
 ---

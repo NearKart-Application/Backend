@@ -7,6 +7,7 @@ from .views import (
     LocationUpdateView,
     LogoutView,
     UserSearchView,
+    ClientLogsView,
 )
 
 urlpatterns = [
@@ -17,4 +18,5 @@ urlpatterns = [
     path('me/location/',   LocationUpdateView.as_view(), name='location-update'),
     path('logout/',        LogoutView.as_view(),        name='logout'),
     path('users/search/',  UserSearchView.as_view(),    name='user-search'),
+    path('client-logs/',   ClientLogsView.as_view(),    name='client-logs'),
 ]

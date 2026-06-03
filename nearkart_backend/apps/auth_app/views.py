@@ -3,6 +3,7 @@ NearKart — Auth Views
 POST /api/v1/auth/otp/send/
 POST /api/v1/auth/otp/verify/
 POST /api/v1/auth/token/refresh/
+POST /api/v1/auth/client-logs/
 GET  /api/v1/auth/me/
 PATCH /api/v1/auth/me/
 PUT  /api/v1/auth/me/location/
@@ -105,6 +106,9 @@ class OTPSendView(APIView):
         if not is_dev_bypass and not is_admin_bypass and CacheService.is_rate_limited(
             f'otp:{phone_number}', max_requests=5, window_secs=3600
         ):
+            log_event('security', level='warning', action='otp_rate_limited',
+                      phone=phone_number,
+                      ip=request.META.get('HTTP_X_FORWARDED_FOR', request.META.get('REMOTE_ADDR', '')))
             return Response(
                 {'error': 'rate_limited', 'message': 'Too many OTP requests. Please try again later.'},
                 status=status.HTTP_429_TOO_MANY_REQUESTS,
@@ -198,11 +202,19 @@ class OTPVerifyView(APIView):
                 serializer.validated_data['otp'],
             )
         except ValueError as e:
+            log_event('security', level='warning', action='login_failed',
+                      phone=serializer.validated_data.get('phone_number', ''),
+                      reason='otp_invalid',
+                      ip=request.META.get('HTTP_X_FORWARDED_FOR', request.META.get('REMOTE_ADDR', '')))
             return Response(
                 {'error': 'otp_invalid', 'message': str(e)},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         if user.is_suspended:
+            log_event('security', level='warning', action='login_blocked',
+                      user_id=str(user.id), phone=str(user.phone_number),
+                      reason='account_suspended',
+                      ip=request.META.get('HTTP_X_FORWARDED_FOR', request.META.get('REMOTE_ADDR', '')))
             return Response(
                 {'error': 'account_suspended', 'message': user.suspension_reason or 'Your account has been temporarily suspended. Please contact support.'},
                 status=status.HTTP_403_FORBIDDEN,
@@ -445,3 +457,44 @@ class LogoutView(APIView):
                 pass
         log_event('auth', action='logout', user_id=str(request.user.id), role=request.user.role)
         return Response({'message': 'Logged out successfully'}, status=status.HTTP_200_OK)
+
+
+class ClientLogsView(APIView):
+    """
+    Receives security events shipped from the mobile app (login_failed,
+    login_blocked, etc.) and writes them to security.log with full device context.
+
+    No auth required — events are often sent before a token exists (e.g. login failures).
+    Accepts maximum 50 events per request to prevent abuse.
+    """
+    permission_classes = [AllowAny]
+
+    _ALLOWED_ACTIONS = frozenset({
+        'login_failed', 'login_blocked', 'otp_rate_limited',
+    })
+
+    def post(self, request):
+        events = request.data.get('events', [])
+        if not isinstance(events, list):
+            return Response({'error': 'events must be a list'}, status=400)
+
+        written = 0
+        for event in events[:50]:
+            action = event.get('action', '')
+            if action not in self._ALLOWED_ACTIONS:
+                continue
+            log_event(
+                'client_events',
+                level        = 'warning',
+                action       = action,
+                install_id   = event.get('install_id', ''),
+                device_model = event.get('device_model', ''),
+                os_version   = event.get('os_version', ''),
+                app_version  = event.get('app_version', ''),
+                network_type = event.get('network_type', ''),
+                ip           = request.META.get('HTTP_X_FORWARDED_FOR', request.META.get('REMOTE_ADDR', '')),
+                **{k: v for k, v in event.get('extra', {}).items() if isinstance(v, str)},
+            )
+            written += 1
+
+        return Response({'written': written}, status=status.HTTP_200_OK)

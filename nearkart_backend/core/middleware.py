@@ -114,7 +114,7 @@ class RequestLoggingMiddleware:
         elif response.status_code >= 400:
             level = 'warning'
 
-        from core.logging import log_event
+        from core.logging import log_event, SLOW_REQUEST_MS
         log_event(
             'requests',
             level       = level,
@@ -126,4 +126,36 @@ class RequestLoggingMiddleware:
             user_id     = str(user.id)   if authed else None,
             role        = user.role      if authed else None,
         )
+
+        # ── Security channel: 401 / 403 / 429 are threat signals ─────────
+        if response.status_code in (401, 403, 429):
+            security_action = {
+                401: 'unauthorized_access',
+                403: 'forbidden_access',
+                429: 'rate_limit_exceeded',
+            }[response.status_code]
+            log_event(
+                'security',
+                level   = 'warning',
+                action  = security_action,
+                method  = request.method,
+                path    = request.path,
+                status  = response.status_code,
+                ip      = request.META.get('HTTP_X_FORWARDED_FOR', request.META.get('REMOTE_ADDR', '')),
+                user_id = str(user.id) if authed else None,
+            )
+
+        # ── Performance channel: flag slow responses ──────────────────────
+        if duration >= SLOW_REQUEST_MS:
+            log_event(
+                'performance',
+                level       = 'warning',
+                action      = 'slow_request',
+                method      = request.method,
+                path        = request.path,
+                status      = response.status_code,
+                duration_ms = duration,
+                threshold_ms= SLOW_REQUEST_MS,
+            )
+
         return response

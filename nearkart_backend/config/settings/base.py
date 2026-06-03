@@ -458,6 +458,10 @@ LOGGING = {
         'videos_file':       {**_rotating('videos.log')},
         'billing_file':      {**_rotating('billing.log')},
         'requests_file':     {**_rotating('requests.log')},
+        # ── Security & Performance (always WARNING+) ──────────────
+        'security_file':       {**_rotating('security.log'),       **{'level': 'WARNING'}},
+        'performance_file':    {**_rotating('performance.log'),    **{'level': 'WARNING'}},
+        'client_events_file':  {**_rotating('client_events.log'),  **{'level': 'WARNING'}},
     },
     'root': {
         'handlers': ['console', 'error_file'],
@@ -524,6 +528,24 @@ LOGGING = {
         'nearkart.requests': {
             'handlers':  ['requests_file'],
             'level':     'DEBUG',
+            'propagate': False,
+        },
+        # ── Security: failed auth, 4xx anomalies, brute-force signals ─
+        'nearkart.security': {
+            'handlers':  ['security_file', 'error_file'],
+            'level':     'WARNING',
+            'propagate': False,
+        },
+        # ── Performance: slow requests, slow DB queries ───────────────
+        'nearkart.performance': {
+            'handlers':  ['performance_file'],
+            'level':     'WARNING',
+            'propagate': False,
+        },
+        # ── Client events: security events shipped from mobile app ────
+        'nearkart.client_events': {
+            'handlers':  ['client_events_file', 'security_file'],
+            'level':     'WARNING',
             'propagate': False,
         },
     },
