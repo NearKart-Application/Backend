@@ -49,6 +49,43 @@ def JWTAuthMiddlewareStack(inner):
     return JWTAuthMiddleware(inner)
 
 
+# Paths that contain user-specific data and must never be cached by the client.
+# Pattern is matched as a substring of the request path.
+_NO_CACHE_API_PATHS = (
+    '/auth/me',
+    '/stores/mine',
+    '/products/vendor',
+    '/profile/wishlist',
+    '/stores/mine/staff',
+    '/stores/mine/invoices',
+    '/loyalty/',
+    '/wallet/',
+    '/reservations/',
+    '/notifications/',
+)
+
+
+class NoCachePersonalizedDataMiddleware:
+    """
+    Sets Cache-Control: no-store on API responses that contain user-specific data.
+    This is a server-side safety net — the mobile OkHttp interceptor also excludes
+    these paths from caching, but belt-and-suspenders here prevents stale reads from
+    any client (web, other mobile versions, etc.) that might cache these responses.
+    """
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        response = self.get_response(request)
+        if (request.method == 'GET' and
+                request.path.startswith('/api/') and
+                any(segment in request.path for segment in _NO_CACHE_API_PATHS) and
+                'Cache-Control' not in response):
+            response['Cache-Control'] = 'no-store'
+        return response
+
+
 class RequestLoggingMiddleware:
     """
     Logs every HTTP request to requests.log (human-readable) and app.log (JSON).
