@@ -15,23 +15,34 @@ from drf_spectacular.types import OpenApiTypes
 from core.permissions import IsAdmin, IsMasterAdmin
 from apps.stores.models import Store, WebsiteRequest
 from apps.auth_app.models import User, UserRole
-from .models import PromoBanner, AdminActivityLog
+from .models import PromoBanner, AdminActivityLog, Category, OfferTemplate
 from apps.videos.models import Video
 from apps.products.models import Product
 from apps.billing.models import Transaction
 from .serializers import (
     AdminStoreSerializer, AdminStoreUpdateSerializer, AdminUserSerializer,
     AdminProductSerializer, AdminWebsiteRequestSerializer,
+    CategorySerializer, CategoryCreateSerializer, OfferTemplateSerializer,
 )
 
 logger = logging.getLogger(__name__)
 
 
-def _city_scope(user) -> str:
-    """Return assigned city for location admins; empty string means no filter (master_admin sees all)."""
+def _city_scope(user) -> list:
+    """Return list of assigned cities for location admins; empty list means no filter (master_admin sees all)."""
     if user.role == 'master_admin':
-        return ''
-    return getattr(user, 'admin_assigned_city', '') or ''
+        return []
+    raw = getattr(user, 'admin_assigned_city', '') or ''
+    return [c.strip() for c in raw.split(',') if c.strip()]
+
+
+def _city_q(cities: list, *field_paths: str):
+    """Build an OR Q combining all cities across all field paths with icontains."""
+    q = Q()
+    for field in field_paths:
+        for city in cities:
+            q |= Q(**{f'{field}__icontains': city})
+    return q
 
 
 class PlatformStatsView(APIView):
@@ -126,9 +137,9 @@ class AdminStoreListView(APIView):
     def get(self, request):
         qs = Store.objects.select_related('owner').order_by('-created_at')
 
-        city = _city_scope(request.user)
-        if city:
-            qs = qs.filter(Q(locality__icontains=city) | Q(address__icontains=city))
+        cities = _city_scope(request.user)
+        if cities:
+            qs = qs.filter(_city_q(cities, 'locality', 'address'))
 
         search = request.query_params.get('search', '').strip()
         if search:
@@ -197,12 +208,11 @@ class AdminUserListView(APIView):
     def get(self, request):
         qs = User.objects.order_by('-created_at')
 
-        city = _city_scope(request.user)
-        if city:
-            # Location admins see: vendors with stores in their city, and all admins.
-            # Customers without a store link are only visible to master_admin.
+        cities = _city_scope(request.user)
+        if cities:
+            # Location admins see vendors with stores in any of their assigned cities, plus all admins.
             qs = qs.filter(
-                Q(role='vendor', stores__locality__icontains=city) |
+                _city_q(cities, 'stores__locality') & Q(role='vendor') |
                 Q(role__in=('admin', 'master_admin'))
             ).distinct()
 
@@ -407,8 +417,25 @@ class AdminUserManageView(APIView):
 
 
 class AdminUserDeleteView(APIView):
-    """DELETE /admin-panel/admins/<user_id>/ — remove admin role (master only)."""
+    """PATCH/DELETE /admin-panel/admins/<user_id>/ — update or remove admin (master only)."""
     permission_classes = [IsAuthenticated, IsMasterAdmin]
+
+    def patch(self, request, user_id):
+        try:
+            user = User.objects.get(id=user_id)
+        except User.DoesNotExist:
+            return Response({'error': 'not_found'}, status=404)
+        if user.role == UserRole.MASTER_ADMIN:
+            return Response({'error': 'forbidden', 'message': 'Cannot edit master admin.'}, status=403)
+        update_fields = ['updated_at']
+        if 'full_name' in request.data:
+            user.full_name = request.data['full_name'].strip()
+            update_fields.append('full_name')
+        if 'admin_assigned_city' in request.data:
+            user.admin_assigned_city = request.data['admin_assigned_city'].strip()
+            update_fields.append('admin_assigned_city')
+        user.save(update_fields=update_fields)
+        return Response(_admin_user_dict(user))
 
     def delete(self, request, user_id):
         try:
@@ -443,9 +470,9 @@ class AdminProductListView(APIView):
     def get(self, request):
         qs = Product.objects.select_related('store').prefetch_related('images', 'variants').order_by('-created_at')
 
-        city = _city_scope(request.user)
-        if city:
-            qs = qs.filter(Q(store__locality__icontains=city) | Q(store__address__icontains=city))
+        cities = _city_scope(request.user)
+        if cities:
+            qs = qs.filter(_city_q(cities, 'store__locality', 'store__address'))
 
         search = request.query_params.get('search', '').strip()
         if search:
@@ -677,7 +704,7 @@ class AdminDeleteVideoView(APIView):
 # ── Admin Activity Log ─────────────────────────────────────────────────────────
 
 class AdminActivityLogView(APIView):
-    """GET /admin-panel/activity-log/ — recent admin actions."""
+    """GET/POST /admin-panel/activity-log/ — admin action log."""
     permission_classes = [IsAuthenticated, IsAdminUser]
 
     @extend_schema(
@@ -703,6 +730,272 @@ class AdminActivityLogView(APIView):
             for e in qs
         ]
         return Response({'count': len(results), 'results': results})
+
+    @extend_schema(
+        summary='Create Activity Log Entry',
+        description='Records an admin action. Sent by mobile after add/remove/update admin operations.',
+        tags=['Admin Panel'],
+        responses={201: OpenApiTypes.OBJECT},
+    )
+    def post(self, request):
+        action       = request.data.get('action', '').strip()
+        target_type  = request.data.get('target_type', '').strip()
+        target_id    = request.data.get('target_id', '').strip()
+        target_label = request.data.get('target_label', '').strip()
+        detail       = request.data.get('detail', '').strip()
+        if not action:
+            return Response({'error': 'validation_error', 'message': 'action is required.'}, status=400)
+        _log_action(
+            admin=request.user,
+            action=action,
+            target_type=target_type,
+            target_id=target_id,
+            target_label=target_label,
+            detail=detail,
+        )
+        return Response({'message': 'Logged.'}, status=201)
+
+
+# ── Category Management ────────────────────────────────────────────────────────
+
+class AdminCategoryListCreateView(APIView):
+    """GET/POST /admin-panel/categories/ — list all or create a category (admin only)."""
+    permission_classes = [IsAuthenticated, IsAdmin]
+
+    def get(self, request):
+        categories = Category.objects.all().order_by('display_order', 'name')
+        serializer = CategorySerializer(categories, many=True)
+        return Response({'count': categories.count(), 'results': serializer.data})
+
+    def post(self, request):
+        data = request.data
+        name = data.get('name', '').strip()
+        if not name:
+            return Response({'error': 'validation_error', 'message': 'name is required.'}, status=400)
+
+        # Auto-generate slug from name if not provided
+        slug = data.get('slug', '').strip()
+        if not slug:
+            slug = name.lower().replace(' ', '-')
+
+        if Category.objects.filter(name__iexact=name).exists():
+            return Response({'error': 'conflict', 'message': 'A category with this name already exists.'}, status=409)
+        if Category.objects.filter(slug=slug).exists():
+            return Response({'error': 'conflict', 'message': 'A category with this slug already exists.'}, status=409)
+
+        category = Category.objects.create(
+            name          = name,
+            slug          = slug,
+            icon          = data.get('icon', '').strip(),
+            display_order = int(data.get('display_order', 0)),
+            is_active     = bool(data.get('is_active', True)),
+            created_by    = request.user,
+        )
+        return Response(CategorySerializer(category).data, status=201)
+
+
+class AdminCategoryDetailView(APIView):
+    """PUT/PATCH/DELETE /admin-panel/categories/<category_id>/"""
+    permission_classes = [IsAuthenticated, IsAdmin]
+
+    def _get_category(self, category_id):
+        try:
+            return Category.objects.get(id=category_id)
+        except Category.DoesNotExist:
+            return None
+
+    def put(self, request, category_id):
+        category = self._get_category(category_id)
+        if not category:
+            return Response({'error': 'not_found'}, status=404)
+
+        data = request.data
+        name = data.get('name', '').strip()
+        if not name:
+            return Response({'error': 'validation_error', 'message': 'name is required.'}, status=400)
+
+        slug = data.get('slug', '').strip() or name.lower().replace(' ', '-')
+
+        # Check uniqueness excluding self
+        if Category.objects.filter(name__iexact=name).exclude(id=category_id).exists():
+            return Response({'error': 'conflict', 'message': 'A category with this name already exists.'}, status=409)
+        if Category.objects.filter(slug=slug).exclude(id=category_id).exists():
+            return Response({'error': 'conflict', 'message': 'A category with this slug already exists.'}, status=409)
+
+        category.name          = name
+        category.slug          = slug
+        category.icon          = data.get('icon', '').strip()
+        category.display_order = int(data.get('display_order', 0))
+        category.is_active     = bool(data.get('is_active', True))
+        category.save()
+        return Response(CategorySerializer(category).data)
+
+    def patch(self, request, category_id):
+        category = self._get_category(category_id)
+        if not category:
+            return Response({'error': 'not_found'}, status=404)
+
+        data = request.data
+        if 'name' in data:
+            name = data['name'].strip()
+            if not name:
+                return Response({'error': 'validation_error', 'message': 'name cannot be blank.'}, status=400)
+            if Category.objects.filter(name__iexact=name).exclude(id=category_id).exists():
+                return Response({'error': 'conflict', 'message': 'A category with this name already exists.'}, status=409)
+            category.name = name
+        if 'slug' in data:
+            slug = data['slug'].strip()
+            if Category.objects.filter(slug=slug).exclude(id=category_id).exists():
+                return Response({'error': 'conflict', 'message': 'A category with this slug already exists.'}, status=409)
+            category.slug = slug
+        if 'icon' in data:
+            category.icon = data['icon'].strip()
+        if 'display_order' in data:
+            category.display_order = int(data['display_order'])
+        if 'is_active' in data:
+            category.is_active = bool(data['is_active'])
+        category.save()
+        return Response(CategorySerializer(category).data)
+
+    def delete(self, request, category_id):
+        category = self._get_category(category_id)
+        if not category:
+            return Response({'error': 'not_found'}, status=404)
+        category.delete()
+        return Response(status=204)
+
+
+class PublicCategoryListView(APIView):
+    """GET /admin-panel/categories/public/ or /products/categories/ — active categories for vendors and customers."""
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        categories = Category.objects.filter(is_active=True).order_by('display_order', 'name')
+        serializer = CategorySerializer(categories, many=True)
+        return Response({'count': categories.count(), 'results': serializer.data})
+
+
+# ── Offer Template Management ──────────────────────────────────────────────────
+
+class AdminOfferTemplateListCreateView(APIView):
+    """GET/POST /admin-panel/offer-templates/ — list all or create an offer template (admin only)."""
+    permission_classes = [IsAuthenticated, IsAdmin]
+
+    def get(self, request):
+        templates = OfferTemplate.objects.all().order_by('display_order', 'name')
+        serializer = OfferTemplateSerializer(templates, many=True)
+        return Response({'count': templates.count(), 'results': serializer.data})
+
+    def post(self, request):
+        data = request.data
+        name = data.get('name', '').strip()
+        if not name:
+            return Response({'error': 'validation_error', 'message': 'name is required.'}, status=400)
+
+        is_default = bool(data.get('is_default', False))
+        if is_default:
+            OfferTemplate.objects.filter(is_default=True).update(is_default=False)
+
+        template = OfferTemplate.objects.create(
+            name                 = name,
+            description_template = data.get('description_template', '').strip(),
+            default_discount_pct = data.get('default_discount_pct') or None,
+            badge_text           = data.get('badge_text', '').strip(),
+            emoji                = data.get('emoji', '').strip(),
+            image_url            = data.get('image_url', '').strip(),
+            is_active            = bool(data.get('is_active', True)),
+            is_default           = is_default,
+            display_order        = int(data.get('display_order', 0)),
+            created_by           = request.user,
+        )
+        return Response(OfferTemplateSerializer(template).data, status=201)
+
+
+class AdminOfferTemplateDetailView(APIView):
+    """PUT/PATCH/DELETE /admin-panel/offer-templates/<template_id>/"""
+    permission_classes = [IsAuthenticated, IsAdmin]
+
+    def _get_template(self, template_id):
+        try:
+            return OfferTemplate.objects.get(id=template_id)
+        except OfferTemplate.DoesNotExist:
+            return None
+
+    def put(self, request, template_id):
+        template = self._get_template(template_id)
+        if not template:
+            return Response({'error': 'not_found'}, status=404)
+
+        data = request.data
+        name = data.get('name', '').strip()
+        if not name:
+            return Response({'error': 'validation_error', 'message': 'name is required.'}, status=400)
+
+        is_default = bool(data.get('is_default', False))
+        if is_default and not template.is_default:
+            OfferTemplate.objects.filter(is_default=True).exclude(id=template_id).update(is_default=False)
+
+        template.name                 = name
+        template.description_template = data.get('description_template', '').strip()
+        template.default_discount_pct = data.get('default_discount_pct') or None
+        template.badge_text           = data.get('badge_text', '').strip()
+        template.emoji                = data.get('emoji', '').strip()
+        template.image_url            = data.get('image_url', '').strip()
+        template.is_active            = bool(data.get('is_active', True))
+        template.is_default           = is_default
+        template.display_order        = int(data.get('display_order', 0))
+        template.save()
+        return Response(OfferTemplateSerializer(template).data)
+
+    def patch(self, request, template_id):
+        template = self._get_template(template_id)
+        if not template:
+            return Response({'error': 'not_found'}, status=404)
+
+        data = request.data
+        if 'name' in data:
+            name = data['name'].strip()
+            if not name:
+                return Response({'error': 'validation_error', 'message': 'name cannot be blank.'}, status=400)
+            template.name = name
+        if 'description_template' in data:
+            template.description_template = data['description_template'].strip()
+        if 'default_discount_pct' in data:
+            template.default_discount_pct = data['default_discount_pct'] or None
+        if 'badge_text' in data:
+            template.badge_text = data['badge_text'].strip()
+        if 'emoji' in data:
+            template.emoji = data['emoji'].strip()
+        if 'image_url' in data:
+            template.image_url = data['image_url'].strip()
+        if 'is_active' in data:
+            template.is_active = bool(data['is_active'])
+        if 'is_default' in data:
+            new_is_default = bool(data['is_default'])
+            if new_is_default and not template.is_default:
+                OfferTemplate.objects.filter(is_default=True).exclude(id=template_id).update(is_default=False)
+            template.is_default = new_is_default
+        if 'display_order' in data:
+            template.display_order = int(data['display_order'])
+        template.save()
+        return Response(OfferTemplateSerializer(template).data)
+
+    def delete(self, request, template_id):
+        template = self._get_template(template_id)
+        if not template:
+            return Response({'error': 'not_found'}, status=404)
+        template.delete()
+        return Response(status=204)
+
+
+class PublicOfferTemplateListView(APIView):
+    """GET /admin-panel/offer-templates/public/ or /stores/offer-templates/ — active templates for vendors."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        templates = OfferTemplate.objects.filter(is_active=True).order_by('-is_default', 'display_order', 'name')
+        serializer = OfferTemplateSerializer(templates, many=True)
+        return Response({'count': templates.count(), 'results': serializer.data})
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────

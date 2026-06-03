@@ -67,3 +67,47 @@ class AdminActivityLog(BaseModel):
 
     def __str__(self):
         return f'{self.admin} — {self.action} — {self.target_label}'
+
+
+class Category(BaseModel):
+    name          = models.CharField(max_length=100, unique=True)
+    slug          = models.SlugField(max_length=100, unique=True)
+    icon          = models.CharField(max_length=10, blank=True)   # emoji e.g. "👗"
+    display_order = models.PositiveIntegerField(default=0, db_index=True)
+    is_active     = models.BooleanField(default=True, db_index=True)
+    created_by    = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True, related_name='categories_created',
+    )
+
+    class Meta:
+        db_table = 'admin_categories'
+        ordering = ['display_order', 'name']
+
+    def __str__(self):
+        return self.name
+
+
+class OfferTemplate(BaseModel):
+    name                 = models.CharField(max_length=200)
+    description_template = models.TextField(blank=True)
+    default_discount_pct = models.PositiveSmallIntegerField(null=True, blank=True)
+    badge_text           = models.CharField(max_length=20, blank=True)   # "SALE", "HOT", "DIWALI"
+    emoji                = models.CharField(max_length=10, blank=True)   # "✨"
+    image_url            = models.URLField(blank=True)
+    is_active            = models.BooleanField(default=True, db_index=True)
+    is_default           = models.BooleanField(default=False, db_index=True)
+    display_order        = models.PositiveIntegerField(default=0, db_index=True)
+    created_by           = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True, related_name='offer_templates_created',
+    )
+
+    class Meta:
+        db_table = 'admin_offer_templates'
+        ordering = ['display_order', 'name']
+
+    def __str__(self):
+        return self.name

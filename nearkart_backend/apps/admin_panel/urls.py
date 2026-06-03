@@ -11,6 +11,8 @@ from .views import (
     AdminProductListView, AdminProductDetailView,
     AdminWebsiteRequestListView, AdminWebsiteRequestUpdateView,
     AdminActivityLogView,
+    AdminCategoryListCreateView, AdminCategoryDetailView, PublicCategoryListView,
+    AdminOfferTemplateListCreateView, AdminOfferTemplateDetailView, PublicOfferTemplateListView,
 )
 
 urlpatterns = [
@@ -50,4 +52,14 @@ urlpatterns = [
 
     # Activity log
     path('activity-log/',                         AdminActivityLogView.as_view(),            name='admin-activity-log'),
+
+    # Categories
+    path('categories/public/',                    PublicCategoryListView.as_view(),          name='categories-public'),
+    path('categories/',                           AdminCategoryListCreateView.as_view(),     name='admin-category-list'),
+    path('categories/<uuid:category_id>/',        AdminCategoryDetailView.as_view(),         name='admin-category-detail'),
+
+    # Offer Templates
+    path('offer-templates/public/',               PublicOfferTemplateListView.as_view(),     name='offer-templates-public'),
+    path('offer-templates/',                      AdminOfferTemplateListCreateView.as_view(), name='admin-offer-template-list'),
+    path('offer-templates/<uuid:template_id>/',   AdminOfferTemplateDetailView.as_view(),    name='admin-offer-template-detail'),
 ]

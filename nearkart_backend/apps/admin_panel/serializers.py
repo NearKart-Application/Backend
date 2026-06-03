@@ -7,6 +7,7 @@ from drf_spectacular.utils import extend_schema_field
 from apps.stores.models import Store, WebsiteRequest
 from apps.auth_app.models import User
 from apps.products.models import Product
+from .models import Category, OfferTemplate
 
 
 class AdminStoreSerializer(serializers.ModelSerializer):
@@ -24,11 +25,13 @@ class AdminStoreSerializer(serializers.ModelSerializer):
             'wallet_balance', 'performance_score',
             'owner_phone', 'owner_name', 'owner_profile_id',
             'product_count', 'video_count',
+            'license_url', 'gst_url',
             'created_at',
         ]
         read_only_fields = [
             'id', 'address', 'locality', 'owner_phone', 'owner_name', 'owner_profile_id',
             'product_count', 'video_count',
+            'license_url', 'gst_url',
             'wallet_balance', 'performance_score', 'created_at',
         ]
 
@@ -107,3 +110,27 @@ class AdminWebsiteRequestSerializer(serializers.ModelSerializer):
             'reviewed_at', 'created_at',
         ]
         read_only_fields = ['id', 'store_id', 'store_name', 'created_at']
+
+
+class CategorySerializer(serializers.ModelSerializer):
+    class Meta:
+        model  = Category
+        fields = ['id', 'name', 'slug', 'icon', 'display_order', 'is_active', 'created_at']
+        read_only_fields = ['id', 'created_at']
+
+
+class CategoryCreateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model  = Category
+        fields = ['name', 'slug', 'icon', 'display_order', 'is_active']
+
+
+class OfferTemplateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model  = OfferTemplate
+        fields = [
+            'id', 'name', 'description_template', 'default_discount_pct',
+            'badge_text', 'emoji', 'image_url', 'is_active', 'is_default',
+            'display_order', 'created_at',
+        ]
+        read_only_fields = ['id', 'created_at']

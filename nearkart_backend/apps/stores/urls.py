@@ -8,8 +8,10 @@ from .views import (
     StaffListCreateView, StaffRemoveView,
 )
 from apps.blacklist.views import BlacklistToggleView, BlacklistListView
+from apps.admin_panel.views import PublicOfferTemplateListView
 
 urlpatterns = [
+    path('offer-templates/',         PublicOfferTemplateListView.as_view(), name='store-offer-templates'),
     path('nearby/',                  NearbyStoresView.as_view(),         name='stores-nearby'),
     path('mine/',                    StoreMyView.as_view(),               name='store-mine'),
     path('mine/all/',                VendorStoresListView.as_view(),      name='store-mine-all'),
