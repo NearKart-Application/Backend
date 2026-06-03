@@ -58,7 +58,7 @@ class User(AbstractBaseUser, PermissionsMixin, BaseModel):
     is_staff = models.BooleanField(default=False)
     is_suspended = models.BooleanField(default=False)
     suspension_reason = models.CharField(max_length=500, blank=True, default='')
-    admin_assigned_city = models.CharField(max_length=100, blank=True, default='')
+    admin_assigned_city = models.CharField(max_length=500, blank=True, default='')
     registered_location = gis_models.PointField(
         srid=4326, null=True, blank=True, spatial_index=True
     )

@@ -27,10 +27,18 @@ class NotificationListView(APIView):
         responses={200: NotificationSerializer(many=True)},
     )
     def get(self, request):
-        notifications = Notification.objects.filter(
-            recipient=request.user
-        ).order_by('-created_at')[:50]
-        return Response(NotificationSerializer(notifications, many=True).data)
+        page      = max(int(request.query_params.get('page', 1)), 1)
+        page_size = min(max(int(request.query_params.get('page_size', 20)), 1), 100)
+        qs        = Notification.objects.filter(recipient=request.user).order_by('-created_at')
+        total     = qs.count()
+        offset    = (page - 1) * page_size
+        results   = qs[offset: offset + page_size]
+        return Response({
+            'count':    total,
+            'page':     page,
+            'has_next': offset + page_size < total,
+            'results':  NotificationSerializer(results, many=True).data,
+        })
 
 
 class NotificationUnreadCountView(APIView):

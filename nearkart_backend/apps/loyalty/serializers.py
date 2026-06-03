@@ -7,6 +7,7 @@ from .services import POINTS_PER_RUPEE, MIN_REDEEM, MAX_REDEEM
 
 
 class LoyaltyBalanceSerializer(serializers.ModelSerializer):
+    referral_code       = serializers.SerializerMethodField()
     points_value_rupees = serializers.SerializerMethodField()
     referrals_count     = serializers.SerializerMethodField()
 
@@ -16,6 +17,9 @@ class LoyaltyBalanceSerializer(serializers.ModelSerializer):
             'balance', 'total_earned', 'total_redeemed',
             'referral_code', 'points_value_rupees', 'referrals_count',
         ]
+
+    def get_referral_code(self, obj):
+        return obj.user.profile_id
 
     def get_points_value_rupees(self, obj):
         return obj.balance // POINTS_PER_RUPEE
@@ -31,7 +35,7 @@ class LoyaltyTransactionSerializer(serializers.ModelSerializer):
 
 
 class ApplyReferralSerializer(serializers.Serializer):
-    referral_code = serializers.CharField(max_length=10, min_length=4)
+    referral_code = serializers.CharField(max_length=16, min_length=13)
 
     def validate_referral_code(self, value):
         return value.strip().upper()

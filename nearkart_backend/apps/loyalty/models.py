@@ -1,22 +1,16 @@
 """
 NearKart — Loyalty & Referral Models
-LoyaltyAccount  : one per user, holds points balance + unique referral code
+LoyaltyAccount  : one per user, holds points balance
 LoyaltyTransaction : earn / redeem history
 Referral        : tracks who referred whom
-"""
-import random
-import string
 
+The user's profile_id (NS code) is the referral code — no separate field needed.
+"""
 from django.conf import settings
 from django.db import models
 from django.utils import timezone
 
 from core.models import BaseModel
-
-
-def _make_referral_code() -> str:
-    chars = string.ascii_uppercase + string.digits
-    return 'NS' + ''.join(random.choices(chars, k=6))
 
 
 class LoyaltyAccount(BaseModel):
@@ -28,23 +22,17 @@ class LoyaltyAccount(BaseModel):
     balance        = models.PositiveIntegerField(default=0)
     total_earned   = models.PositiveIntegerField(default=0)
     total_redeemed = models.PositiveIntegerField(default=0)
-    referral_code  = models.CharField(max_length=10, unique=True)
 
     class Meta:
         db_table = 'loyalty_accounts'
 
     def __str__(self):
-        return f'{self.user.phone_number} — {self.balance} pts ({self.referral_code})'
+        return f'{self.user.phone_number} — {self.balance} pts'
 
     @classmethod
     def get_or_create_for(cls, user) -> 'LoyaltyAccount':
-        try:
-            return cls.objects.get(user=user)
-        except cls.DoesNotExist:
-            code = _make_referral_code()
-            while cls.objects.filter(referral_code=code).exists():
-                code = _make_referral_code()
-            return cls.objects.create(user=user, referral_code=code)
+        obj, _ = cls.objects.get_or_create(user=user)
+        return obj
 
 
 class LoyaltyTransaction(BaseModel):
@@ -83,7 +71,7 @@ class Referral(BaseModel):
 
     referrer       = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='referrals_given')
     referred       = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='referral_received')
-    referral_code  = models.CharField(max_length=10)
+    referral_code  = models.CharField(max_length=16)
     status         = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING)
     points_awarded = models.PositiveIntegerField(default=0)
     completed_at   = models.DateTimeField(null=True, blank=True)

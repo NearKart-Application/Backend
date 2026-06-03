@@ -11,7 +11,7 @@ from datetime import timedelta
 
 from core.models import BaseModel
 from apps.stores.models import Store
-from apps.products.models import Product
+from apps.products.models import Product, ProductVariant
 
 
 class ReservationStatus(models.TextChoices):
@@ -26,6 +26,8 @@ class Reservation(BaseModel):
     store       = models.ForeignKey(Store,   on_delete=models.CASCADE, related_name='reservations')
     customer    = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='reservations')
     product     = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='reservations')
+    variant     = models.ForeignKey(ProductVariant, on_delete=models.SET_NULL,
+                                    null=True, blank=True, related_name='reservations')
     quantity    = models.PositiveIntegerField(default=1)
     note        = models.TextField(blank=True)         # customer note to vendor
     vendor_note = models.TextField(blank=True)         # vendor response

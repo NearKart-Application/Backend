@@ -40,9 +40,9 @@ class LoyaltyService:
         if Referral.objects.filter(referred=user, status=Referral.STATUS_COMPLETED).exists():
             raise ValueError('You have already applied a referral code.')
 
-        # Resolve referrer account
+        # Resolve referrer by profile_id (the NS code IS the referral code)
         try:
-            referrer_account = LoyaltyAccount.objects.get(referral_code=code)
+            referrer_account = LoyaltyAccount.objects.get(user__profile_id=code)
         except LoyaltyAccount.DoesNotExist:
             raise ValueError('Invalid referral code. Please check and try again.')
 

@@ -29,14 +29,26 @@ class IsVendor(BasePermission):
 
 
 class IsAdmin(BasePermission):
-    """User must be authenticated with role=admin."""
+    """User must be authenticated with role=admin or master_admin."""
     message = 'Admin access only.'
 
     def has_permission(self, request, view):
         return (
             request.user and
             request.user.is_authenticated and
-            request.user.role == 'admin'
+            request.user.role in ('admin', 'master_admin')
+        )
+
+
+class IsMasterAdmin(BasePermission):
+    """User must be authenticated with role=master_admin."""
+    message = 'Master admin access only.'
+
+    def has_permission(self, request, view):
+        return (
+            request.user and
+            request.user.is_authenticated and
+            request.user.role == 'master_admin'
         )
 
 

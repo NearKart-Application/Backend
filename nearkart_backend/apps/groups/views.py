@@ -127,14 +127,14 @@ class GroupAddMemberView(APIView):
         summary='Add member',
         description=(
             'Admin adds a member. '
-            '**Customer groups:** provide `profile_id` (e.g. NK-A3X9K2). '
+            '**Customer groups:** provide `profile_id` (e.g. NS-SF-KU-4X2B). '
             '**Vendor groups:** provide `user_id` (UUID from eligible-members list). '
             'For vendor groups, the user must follow the store.'
         ),
         request=AddMemberSerializer,
         responses={201: OpenApiTypes.OBJECT},
         examples=[
-            OpenApiExample('By Profile ID (customer group)', value={'profile_id': 'NK-A3X9K2'}, request_only=True),
+            OpenApiExample('By Profile ID (customer group)', value={'profile_id': 'NS-SF-KU-4X2B'}, request_only=True),
             OpenApiExample('By User ID (vendor group)',      value={'user_id': '{{user_id}}'},    request_only=True),
         ],
     )

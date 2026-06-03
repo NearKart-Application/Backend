@@ -32,13 +32,14 @@ class ConversationSerializer(serializers.ModelSerializer):
     store_name       = serializers.CharField(source='store.name', read_only=True)
     store_id         = serializers.UUIDField(source='store.id', read_only=True)
     customer_phone   = serializers.CharField(source='customer.phone_number', read_only=True)
+    customer_name    = serializers.CharField(source='customer.full_name', read_only=True)
     my_unread_count  = serializers.SerializerMethodField()
     last_message     = serializers.SerializerMethodField()
 
     class Meta:
         model  = Conversation
         fields = [
-            'id', 'store_id', 'store_name', 'customer_phone',
+            'id', 'store_id', 'store_name', 'customer_phone', 'customer_name',
             'my_unread_count', 'last_message', 'last_message_at',
             'is_active', 'created_at',
         ]

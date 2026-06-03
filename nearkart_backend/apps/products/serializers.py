@@ -39,7 +39,8 @@ class ProductSerializer(serializers.ModelSerializer):
             'distance_km', 'is_wishlisted',
             'created_at', 'last_updated_at',
         ]
-        read_only_fields = ['id', 'store_id', 'store_name', 'product_code', 'created_at', 'last_updated_at']
+        read_only_fields = ['id', 'store_id', 'store_name', 'created_at', 'last_updated_at']
+        extra_kwargs = {'product_code': {'required': False, 'allow_blank': True}}
 
     @extend_schema_field(serializers.FloatField(allow_null=True))
     def get_distance_km(self, obj):

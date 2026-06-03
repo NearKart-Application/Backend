@@ -8,10 +8,11 @@ from .models import Reservation, ReservationStatus
 
 
 class ReservationCreateSerializer(serializers.Serializer):
-    store_id        = serializers.UUIDField()
-    product_id      = serializers.UUIDField()
-    quantity        = serializers.IntegerField(min_value=1, max_value=100, default=1)
-    note            = serializers.CharField(max_length=500, allow_blank=True, default='')
+    store_id         = serializers.UUIDField()
+    product_id       = serializers.UUIDField()
+    variant_id       = serializers.UUIDField(required=False, allow_null=True, default=None)
+    quantity         = serializers.IntegerField(min_value=1, max_value=100, default=1)
+    note             = serializers.CharField(max_length=500, allow_blank=True, default='')
     points_to_redeem = serializers.IntegerField(min_value=0, default=0, required=False)
 
 
@@ -45,15 +46,18 @@ class ReservationCustomerSerializer(serializers.Serializer):
 
 
 class ReservationSerializer(serializers.ModelSerializer):
-    product  = ReservationProductSerializer(read_only=True)
-    store    = ReservationStoreSerializer(read_only=True)
-    customer = ReservationCustomerSerializer(read_only=True)
-    hours_left = serializers.FloatField(read_only=True)
+    product      = ReservationProductSerializer(read_only=True)
+    store        = ReservationStoreSerializer(read_only=True)
+    customer     = ReservationCustomerSerializer(read_only=True)
+    hours_left   = serializers.FloatField(read_only=True)
+    variant_id   = serializers.UUIDField(source='variant.id',   read_only=True, allow_null=True)
+    variant_name = serializers.CharField(source='variant.name', read_only=True, allow_null=True)
 
     class Meta:
         model  = Reservation
         fields = [
             'id', 'store', 'customer', 'product',
+            'variant_id', 'variant_name',
             'quantity', 'note', 'vendor_note',
             'status', 'expires_at', 'hours_left',
             'points_redeemed', 'discount_amount',

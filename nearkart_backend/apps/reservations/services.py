@@ -9,6 +9,7 @@ from django.conf import settings
 from django.utils import timezone
 
 from apps.notifications.services import NotificationService
+from apps.products.inventory_service import InventoryService
 from .models import Reservation, ReservationStatus
 
 logger = logging.getLogger(__name__)
@@ -18,13 +19,21 @@ class ReservationService:
 
     @staticmethod
     def create(customer, store, product, quantity: int, note: str = '',
-               points_redeemed: int = 0, discount_amount=0) -> Reservation:
+               points_redeemed: int = 0, discount_amount=0, variant=None) -> Reservation:
         hold_hours = getattr(settings, 'RESERVATION_HOLD_HOURS', 2)
         expires_at = timezone.now() + timedelta(hours=hold_hours)
+
+        # Deduct stock from the selected variant before creating the reservation
+        if variant is not None:
+            ok = InventoryService.deduct_for_reservation(variant, quantity)
+            if not ok:
+                raise ValueError('insufficient_stock')
+
         reservation = Reservation.objects.create(
             customer=customer,
             store=store,
             product=product,
+            variant=variant,
             quantity=quantity,
             note=note,
             expires_at=expires_at,
@@ -61,6 +70,10 @@ class ReservationService:
             reservation.save(update_fields=['status', 'vendor_note', 'updated_at'])
         else:
             reservation.save(update_fields=['status', 'updated_at'])
+        if reservation.variant_id:
+            InventoryService.restore_for_reservation(
+                reservation.variant, reservation.quantity, str(reservation.id)
+            )
         logger.info('[reservations] cancelled %s', reservation.id)
         NotificationService.notify_reservation_cancelled(
             reservation.customer,
@@ -93,6 +106,8 @@ class ReservationService:
             logger.info('[reservations] expired %d reservation(s)', count)
             for r in to_expire:
                 NotificationService.notify_reservation_expired(r.customer, r.store.name, str(r.id))
+                if r.variant_id:
+                    InventoryService.restore_for_reservation(r.variant, r.quantity, str(r.id))
         return count
 
     @staticmethod
