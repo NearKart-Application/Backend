@@ -42,10 +42,10 @@ class UserSerializer(serializers.ModelSerializer):
 
 
 class UserSearchSerializer(serializers.ModelSerializer):
-    """Public search result — exposes name and profile_id only. No phone number."""
+    """Public search result — exposes name, profile_id, and role only. No phone number."""
     class Meta:
         model = User
-        fields = ['id', 'profile_id', 'full_name']
+        fields = ['id', 'profile_id', 'full_name', 'role']
         read_only_fields = fields
 
 
