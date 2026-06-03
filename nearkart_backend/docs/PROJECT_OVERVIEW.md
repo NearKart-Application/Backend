@@ -79,3 +79,4 @@ built in later sprints. Right now you can only test via:
 | S18 | Rating Badges + Pull-to-Refresh | Done ✅ | `apps/products/` (serializers) · `docs/sprint_18_ratings_refresh/` |
 | S19 | Search Filters + Sort · Follow Feed · Vendor Invoices · Map Enhancements | Done ✅ | `apps/products/` · `apps/stores/` · `docs/sprint_19_search_filters_follow_invoices_map/` |
 | S20 | Admin Panel · NS Code System (NSC/NSB prefixes + Option C regeneration) · User Suspension · Activity Log · Video Deletion · Create User · Search by NS Code | Done ✅ | `apps/admin_panel/` · `apps/auth_app/` · `core/utils/codes.py` · `docs/sprint_20_admin_panel/` |
+| S21 | Admin Category Management · Admin Offer Template Management · Vendor template chip integration (API-driven, default auto-select) | Done ✅ | `apps/admin_panel/` · `apps/products/` · `apps/stores/` · `docs/sprint_21_admin_categories_offer_templates/` |
