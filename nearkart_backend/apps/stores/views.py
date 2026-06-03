@@ -24,12 +24,12 @@ from core.permissions import IsVendor, IsStoreOwner
 from core.utils.cache import CacheService
 from apps.blacklist.services import BlacklistService
 from django.utils import timezone as tz
-from .models import Store, StoreHours, StoreOffer, Invoice, WebsiteRequest
+from .models import Store, StoreHours, StoreOffer, Invoice, WebsiteRequest, StaffMember, StaffRole
 from .serializers import (
     StoreSerializer, StoreListSerializer, StoreReviewSerializer,
     StoreReviewListSerializer, StoreOfferSerializer,
     StoreHoursSerializer, StoreMobileDetailSerializer, VendorReplySerializer,
-    InvoiceSerializer,
+    InvoiceSerializer, StaffMemberSerializer,
 )
 from .services import StoreService, QRService
 
@@ -919,3 +919,82 @@ class WebsiteRequestView(APIView):
             'created_at':        wr.created_at.isoformat(),
             'message':           'Your website request has been submitted. We will review it and get back to you.',
         }, status=status.HTTP_201_CREATED)
+
+
+class StaffListCreateView(APIView):
+    """
+    GET  stores/mine/staff/  — list all staff members for the vendor's store
+    POST stores/mine/staff/  — add a user as staff by phone number
+    """
+    permission_classes = [IsAuthenticated, IsVendor]
+
+    @extend_schema(tags=[_TAG], summary='List store staff members')
+    def get(self, request):
+        try:
+            store = request.user.store
+        except AttributeError:
+            return Response({'error': 'no_store'}, status=400)
+        members = store.staff_members.filter(is_active=True).select_related('user').order_by('created_at')
+        return Response(StaffMemberSerializer(members, many=True).data)
+
+    @extend_schema(tags=[_TAG], summary='Add a staff member by phone number')
+    def post(self, request):
+        try:
+            store = request.user.store
+        except AttributeError:
+            return Response({'error': 'no_store'}, status=400)
+
+        phone = request.data.get('phone', '').strip()
+        role  = request.data.get('role', StaffRole.STAFF)
+
+        if not phone:
+            return Response({'error': 'phone_required', 'message': 'Phone number is required.'}, status=400)
+        if role not in StaffRole.values:
+            return Response({'error': 'invalid_role', 'message': f'Role must be one of {StaffRole.values}.'}, status=400)
+
+        from apps.auth_app.models import User
+        try:
+            user = User.objects.get(phone_number=phone)
+        except User.DoesNotExist:
+            return Response({'error': 'user_not_found', 'message': 'No NearKart account found with that phone number.'}, status=404)
+
+        if user == request.user:
+            return Response({'error': 'self_add', 'message': 'You cannot add yourself as staff.'}, status=400)
+
+        member, created = StaffMember.objects.get_or_create(
+            store=store, user=user,
+            defaults={'role': role, 'invited_by': request.user, 'is_active': True},
+        )
+        if not created:
+            if member.is_active:
+                return Response({'error': 'already_staff', 'message': 'This user is already a staff member.'}, status=400)
+            # Re-activate if previously removed
+            member.is_active = True
+            member.role = role
+            member.invited_by = request.user
+            member.save(update_fields=['is_active', 'role', 'invited_by'])
+
+        log_event('staff_member', action='added', store_id=str(store.id), user_id=str(user.id), role=role)
+        return Response(StaffMemberSerializer(member).data, status=status.HTTP_201_CREATED)
+
+
+class StaffRemoveView(APIView):
+    """DELETE stores/mine/staff/<staff_id>/ — deactivate a staff member"""
+    permission_classes = [IsAuthenticated, IsVendor]
+
+    @extend_schema(tags=[_TAG], summary='Remove a staff member')
+    def delete(self, request, staff_id):
+        try:
+            store = request.user.store
+        except AttributeError:
+            return Response({'error': 'no_store'}, status=400)
+
+        try:
+            member = StaffMember.objects.get(id=staff_id, store=store, is_active=True)
+        except StaffMember.DoesNotExist:
+            return Response({'error': 'not_found'}, status=404)
+
+        member.is_active = False
+        member.save(update_fields=['is_active'])
+        log_event('staff_member', action='removed', store_id=str(store.id), user_id=str(member.user.id))
+        return Response(status=status.HTTP_204_NO_CONTENT)

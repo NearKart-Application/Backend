@@ -4,12 +4,18 @@ from .views import (
     StoreUpdateView, StoreFollowView, StoreReviewView, StoreQRCodeView,
     StoreHoursView, StoreReviewListView, StoreOfferView, StoreOfferDeleteView, StoreStatsView,
     VendorReviewReplyView, VendorReviewsListView, MyReviewsView, StoreInvoiceListCreateView,
+    VendorStoresListView, StoreLocationsView, WebsiteRequestView,
+    StaffListCreateView, StaffRemoveView,
 )
 from apps.blacklist.views import BlacklistToggleView, BlacklistListView
 
 urlpatterns = [
     path('nearby/',                  NearbyStoresView.as_view(),         name='stores-nearby'),
     path('mine/',                    StoreMyView.as_view(),               name='store-mine'),
+    path('mine/all/',                VendorStoresListView.as_view(),      name='store-mine-all'),
+    path('mine/website-request/',    WebsiteRequestView.as_view(),        name='store-website-request'),
+    path('mine/staff/',              StaffListCreateView.as_view(),       name='store-staff-list'),
+    path('mine/staff/<uuid:staff_id>/', StaffRemoveView.as_view(),        name='store-staff-remove'),
     path('mine/stats/',              StoreStatsView.as_view(),            name='store-mine-stats'),
     path('mine/reviews/',            MyReviewsView.as_view(),             name='my-reviews'),
     path('mine/invoices/',           StoreInvoiceListCreateView.as_view(), name='store-invoices'),
@@ -25,7 +31,8 @@ urlpatterns = [
     path('<uuid:store_id>/offers/',  StoreOfferView.as_view(),    name='store-offers'),
     path('<uuid:store_id>/offers/<uuid:offer_id>/', StoreOfferDeleteView.as_view(), name='store-offer-delete'),
     path('<uuid:store_id>/qr-code/', StoreQRCodeView.as_view(),   name='store-qr-code'),
-    path('<uuid:store_id>/hours/',   StoreHoursView.as_view(),    name='store-hours'),
+    path('<uuid:store_id>/hours/',      StoreHoursView.as_view(),       name='store-hours'),
+    path('<uuid:store_id>/locations/', StoreLocationsView.as_view(),   name='store-locations'),
     # Blacklist
     path('<uuid:store_id>/blacklist/',                           BlacklistListView.as_view(),   name='store-blacklist-list'),
     path('<uuid:store_id>/blacklist/<uuid:customer_id>/',        BlacklistToggleView.as_view(), name='store-blacklist-toggle'),

@@ -139,6 +139,29 @@ class Invoice(BaseModel):
         return f'Invoice #{str(self.id)[:8]} — {self.store.name} → {self.customer_name}'
 
 
+class StaffRole(models.TextChoices):
+    MANAGER = 'manager', 'Manager'
+    STAFF   = 'staff',   'Staff'
+
+
+class StaffMember(BaseModel):
+    """A user who is a staff member of a store (invited by the store owner)."""
+    store      = models.ForeignKey(Store, on_delete=models.CASCADE, related_name='staff_members')
+    user       = models.ForeignKey(User,  on_delete=models.CASCADE, related_name='staff_roles')
+    role       = models.CharField(max_length=20, choices=StaffRole.choices, default=StaffRole.STAFF)
+    is_active  = models.BooleanField(default=True)
+    invited_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True,
+                                   related_name='invited_staff')
+
+    class Meta:
+        db_table       = 'store_staff_members'
+        unique_together = [('store', 'user')]
+        ordering        = ['created_at']
+
+    def __str__(self):
+        return f'{self.user.full_name or self.user.phone_number} @ {self.store.name} ({self.role})'
+
+
 class WebsiteRequest(BaseModel):
     STATUS_PENDING  = 'pending'
     STATUS_APPROVED = 'approved'
