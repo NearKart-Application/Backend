@@ -35,7 +35,7 @@ class OTPVerifySerializer(serializers.Serializer):
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ['id', 'profile_id', 'phone_number', 'role', 'full_name', 'email', 'admin_assigned_city', 'is_suspended', 'created_at']
+        fields = ['id', 'profile_id', 'phone_number', 'role', 'full_name', 'email', 'avatar', 'admin_assigned_city', 'is_suspended', 'created_at']
         # role is excluded from read_only_fields — it can be set via PATCH when empty (new user).
         # MeView.patch() enforces the "only settable once" constraint.
         read_only_fields = ['id', 'profile_id', 'phone_number', 'is_suspended', 'created_at']

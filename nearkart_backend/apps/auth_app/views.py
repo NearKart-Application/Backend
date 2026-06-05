@@ -459,6 +459,32 @@ class LogoutView(APIView):
         return Response({'message': 'Logged out successfully'}, status=status.HTTP_200_OK)
 
 
+class AvatarUploadView(APIView):
+    """POST auth/me/avatar/ — upload or replace the user's profile photo."""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        from django.core.files.storage import default_storage
+        from django.core.files.base import ContentFile
+        import uuid, os
+
+        file = request.FILES.get('avatar')
+        if not file:
+            return Response({'error': 'no_file', 'message': 'Provide an image in the `avatar` field.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        ext = os.path.splitext(file.name)[1].lower() or '.jpg'
+        filename = f'avatars/{request.user.id}/avatar_{uuid.uuid4().hex}{ext}'
+        path = default_storage.save(filename, ContentFile(file.read()))
+        raw_url = default_storage.url(path)
+        from django.conf import settings as _s
+        avatar_url = raw_url if raw_url.startswith('http') else f"{_s.SITE_URL.rstrip('/')}{raw_url}"
+
+        request.user.avatar = avatar_url
+        request.user.save(update_fields=['avatar'])
+        log_event('auth', action='avatar_uploaded', user_id=str(request.user.id))
+        return Response({'avatar': avatar_url})
+
+
 class ClientLogsView(APIView):
     """
     Receives security events shipped from the mobile app (login_failed,
