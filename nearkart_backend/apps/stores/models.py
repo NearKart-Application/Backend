@@ -232,3 +232,38 @@ class DiscountCode(BaseModel):
         if self.discount_type == self.PERCENT:
             return round(float(order_amount) * float(self.value) / 100, 2)
         return min(float(self.value), float(order_amount))
+
+
+class BroadcastChannel(BaseModel):
+    store          = models.ForeignKey(Store, on_delete=models.CASCADE, related_name='broadcast_channels')
+    name           = models.CharField(max_length=100)
+    description    = models.TextField(blank=True)
+    auto_subscribe = models.BooleanField(default=True)
+
+    class Meta:
+        db_table = 'broadcast_channels'
+        ordering = ['-created_at']
+
+    @property
+    def subscriber_count(self):
+        return self.store.followers.count()
+
+    @property
+    def post_count(self):
+        return self.posts.count()
+
+    def __str__(self):
+        return f'{self.store.name} — {self.name}'
+
+
+class BroadcastPost(BaseModel):
+    channel   = models.ForeignKey(BroadcastChannel, on_delete=models.CASCADE, related_name='posts')
+    content   = models.TextField()
+    image_url = models.URLField(blank=True)
+
+    class Meta:
+        db_table = 'broadcast_posts'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'{self.channel.name} — {self.content[:40]}'

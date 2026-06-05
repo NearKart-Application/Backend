@@ -25,7 +25,7 @@ from core.permissions import IsVendor, IsStoreOwner
 from core.utils.cache import CacheService
 from apps.blacklist.services import BlacklistService
 from django.utils import timezone as tz
-from .models import Store, StoreHours, StoreOffer, Invoice, WebsiteRequest, StaffMember, StaffRole
+from .models import Store, StoreHours, StoreOffer, Invoice, WebsiteRequest, StaffMember, StaffRole, BroadcastChannel, BroadcastPost
 from .serializers import (
     StoreSerializer, StoreListSerializer, StoreReviewSerializer,
     StoreReviewListSerializer, StoreOfferSerializer,
@@ -1187,3 +1187,106 @@ def _serialize_code(c):
         'is_active':        c.is_active,
         'created_at':       c.created_at.isoformat(),
     }
+
+
+# ── Broadcast Channels ────────────────────────────────────────────────────────
+
+def _serialize_channel(ch):
+    return {
+        'id':               str(ch.id),
+        'name':             ch.name,
+        'description':      ch.description,
+        'auto_subscribe':   ch.auto_subscribe,
+        'subscriber_count': ch.subscriber_count,
+        'post_count':       ch.post_count,
+        'created_at':       ch.created_at.isoformat(),
+    }
+
+def _serialize_post(p):
+    return {
+        'id':         str(p.id),
+        'content':    p.content,
+        'image_url':  p.image_url or None,
+        'created_at': p.created_at.isoformat(),
+    }
+
+
+class VendorBroadcastChannelListCreateView(APIView):
+    """GET/POST stores/mine/broadcast-channels/"""
+    permission_classes = [IsAuthenticated, IsVendor]
+
+    def get(self, request):
+        try:
+            store = request.user.store
+        except AttributeError:
+            return Response([], status=status.HTTP_200_OK)
+        channels = BroadcastChannel.objects.filter(store=store)
+        return Response([_serialize_channel(c) for c in channels])
+
+    def post(self, request):
+        try:
+            store = request.user.store
+        except AttributeError:
+            return Response({'error': 'no_store'}, status=status.HTTP_400_BAD_REQUEST)
+        name = request.data.get('name', '').strip()
+        if not name:
+            return Response({'error': 'name_required'}, status=status.HTTP_400_BAD_REQUEST)
+        channel = BroadcastChannel.objects.create(
+            store=store,
+            name=name,
+            description=request.data.get('description', '').strip(),
+            auto_subscribe=request.data.get('auto_subscribe', True),
+        )
+        log_event('broadcasts', action='channel_created', store_id=str(store.id), channel_id=str(channel.id))
+        return Response(_serialize_channel(channel), status=status.HTTP_201_CREATED)
+
+
+class VendorBroadcastPostListCreateView(APIView):
+    """GET/POST stores/mine/broadcast-channels/{channel_id}/posts/"""
+    permission_classes = [IsAuthenticated, IsVendor]
+
+    def _get_channel(self, request, channel_id):
+        try:
+            store = request.user.store
+        except AttributeError:
+            return None
+        return BroadcastChannel.objects.filter(id=channel_id, store=store).first()
+
+    def get(self, request, channel_id):
+        channel = self._get_channel(request, channel_id)
+        if not channel:
+            return Response({'error': 'not_found'}, status=status.HTTP_404_NOT_FOUND)
+        posts = channel.posts.all()
+        return Response([_serialize_post(p) for p in posts])
+
+    def post(self, request, channel_id):
+        channel = self._get_channel(request, channel_id)
+        if not channel:
+            return Response({'error': 'not_found'}, status=status.HTTP_404_NOT_FOUND)
+        content = request.data.get('content', '').strip()
+        if not content:
+            return Response({'error': 'content_required'}, status=status.HTTP_400_BAD_REQUEST)
+        post = BroadcastPost.objects.create(channel=channel, content=content)
+        log_event('broadcasts', action='post_created', channel_id=str(channel.id))
+        return Response(_serialize_post(post), status=status.HTTP_201_CREATED)
+
+
+class CustomerBroadcastChannelListView(APIView):
+    """GET stores/{store_id}/broadcast-channels/ — customer read-only"""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, store_id):
+        channels = BroadcastChannel.objects.filter(store__id=store_id, store__is_active=True)
+        return Response([_serialize_channel(c) for c in channels])
+
+
+class CustomerBroadcastPostListView(APIView):
+    """GET stores/{store_id}/broadcast-channels/{channel_id}/posts/ — customer read-only"""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, store_id, channel_id):
+        channel = BroadcastChannel.objects.filter(id=channel_id, store__id=store_id, store__is_active=True).first()
+        if not channel:
+            return Response({'error': 'not_found'}, status=status.HTTP_404_NOT_FOUND)
+        posts = channel.posts.all()
+        return Response([_serialize_post(p) for p in posts])
