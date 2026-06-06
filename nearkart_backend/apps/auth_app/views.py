@@ -373,6 +373,10 @@ class LocationUpdateView(APIView):
         is_first = request.user.registered_location is None
         JWTService.update_location(request.user, lat, lng)
 
+        if city:
+            request.user.location_city = city
+            request.user.save(update_fields=['location_city'])
+
         # Option C: one-time NS code area regeneration when city is first set
         if is_first and city:
             code = request.user.profile_id or ''
@@ -393,6 +397,35 @@ class LocationUpdateView(APIView):
 
     # Mobile sends PATCH — alias to put so both methods work
     patch = put
+
+
+class PopularLocationsView(APIView):
+    """Return top 8 most-selected location cities across all users."""
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        tags=[_TAG],
+        summary='Popular locations',
+        description='Returns the top 8 most-selected cities by all users.',
+        responses={200: inline_serializer('PopularLocationsResponse', fields={
+            'results': s.ListField(child=inline_serializer('PopularLocation', fields={
+                'city': s.CharField(),
+                'count': s.IntegerField(),
+            })),
+        })},
+    )
+    def get(self, request):
+        from django.db.models import Count
+        from .models import User
+        cities = (
+            User.objects
+            .exclude(location_city='')
+            .values('location_city')
+            .annotate(count=Count('id'))
+            .order_by('-count')[:8]
+        )
+        results = [{'city': row['location_city'], 'count': row['count']} for row in cities]
+        return Response({'results': results})
 
 
 class UserSearchView(APIView):
@@ -476,8 +509,7 @@ class AvatarUploadView(APIView):
         filename = f'avatars/{request.user.id}/avatar_{uuid.uuid4().hex}{ext}'
         path = default_storage.save(filename, ContentFile(file.read()))
         raw_url = default_storage.url(path)
-        from django.conf import settings as _s
-        avatar_url = raw_url if raw_url.startswith('http') else f"{_s.SITE_URL.rstrip('/')}{raw_url}"
+        avatar_url = raw_url if raw_url.startswith('http') else request.build_absolute_uri(raw_url)
 
         request.user.avatar = avatar_url
         request.user.save(update_fields=['avatar'])
