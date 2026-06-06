@@ -169,8 +169,8 @@ class StoreReviewSerializer(serializers.ModelSerializer):
 
     class Meta:
         model  = StoreReview
-        fields = ['id', 'user_phone', 'rating', 'comment', 'vendor_reply', 'vendor_reply_at', 'created_at']
-        read_only_fields = ['id', 'user_phone', 'vendor_reply', 'vendor_reply_at', 'created_at']
+        fields = ['id', 'user_phone', 'rating', 'comment', 'is_verified', 'vendor_reply', 'vendor_reply_at', 'created_at']
+        read_only_fields = ['id', 'user_phone', 'is_verified', 'vendor_reply', 'vendor_reply_at', 'created_at']
 
     def validate_rating(self, value):
         if not 1 <= value <= 5:
@@ -184,7 +184,7 @@ class StoreReviewListSerializer(serializers.ModelSerializer):
 
     class Meta:
         model  = StoreReview
-        fields = ['id', 'user_name', 'rating', 'comment', 'vendor_reply', 'vendor_reply_at', 'created_at']
+        fields = ['id', 'user_name', 'rating', 'comment', 'is_verified', 'vendor_reply', 'vendor_reply_at', 'created_at']
 
     @extend_schema_field(serializers.CharField())
     def get_user_name(self, obj):
@@ -293,8 +293,43 @@ class StoreMobileDetailSerializer(serializers.ModelSerializer):
 class InvoiceSerializer(serializers.ModelSerializer):
     class Meta:
         model  = Invoice
-        fields = ['id', 'customer_name', 'customer_phone', 'customer_ns_code', 'items', 'notes', 'total', 'is_sent', 'created_at']
+        fields = [
+            'id', 'customer_name', 'customer_phone', 'customer_ns_code',
+            'items', 'notes', 'total', 'is_sent', 'created_at',
+            'discount_type', 'discount_value',
+        ]
         read_only_fields = ['id', 'total', 'created_at', 'is_sent']
+
+
+class CustomerInvoiceSerializer(serializers.ModelSerializer):
+    """Invoice as seen by the customer — includes store info for the Purchase History screen."""
+    store_id    = serializers.UUIDField(source='store.id', read_only=True)
+    store_name  = serializers.CharField(source='store.name', read_only=True)
+    store_logo  = serializers.URLField(source='store.logo_url', read_only=True)
+    store_address = serializers.CharField(source='store.address', read_only=True)
+    store_phone = serializers.CharField(source='store.phone', read_only=True)
+
+    class Meta:
+        model  = Invoice
+        fields = [
+            'id', 'store_id', 'store_name', 'store_logo', 'store_address', 'store_phone',
+            'customer_name', 'customer_phone', 'customer_ns_code',
+            'items', 'notes', 'total',
+            'discount_type', 'discount_value',
+            'is_sent', 'created_at',
+        ]
+        read_only_fields = fields
+
+
+class StoreFollowerSerializer(serializers.Serializer):
+    full_name  = serializers.SerializerMethodField()
+    profile_id = serializers.SerializerMethodField()
+
+    def get_full_name(self, obj):
+        return obj.user.full_name or 'NearKart User'
+
+    def get_profile_id(self, obj):
+        return obj.user.profile_id or ''
 
 
 class StaffMemberSerializer(serializers.ModelSerializer):

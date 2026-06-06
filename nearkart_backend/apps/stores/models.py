@@ -94,6 +94,7 @@ class StoreReview(BaseModel):
     comment = models.TextField(blank=True)
     vendor_reply    = models.TextField(blank=True, default='')
     vendor_reply_at = models.DateTimeField(null=True, blank=True)
+    is_verified     = models.BooleanField(default=False)  # True when gated by invoice NS code
 
     class Meta:
         db_table        = 'store_reviews'
@@ -122,14 +123,20 @@ class StoreOffer(BaseModel):
 
 
 class Invoice(BaseModel):
+    DISCOUNT_AMOUNT  = 'amount'
+    DISCOUNT_PERCENT = 'percent'
+    DISCOUNT_CHOICES = [(DISCOUNT_AMOUNT, 'Fixed Amount'), (DISCOUNT_PERCENT, 'Percentage')]
+
     store             = models.ForeignKey(Store, on_delete=models.CASCADE, related_name='invoices')
     customer_name     = models.CharField(max_length=200)
     customer_phone    = models.CharField(max_length=20, blank=True)
     customer_ns_code  = models.CharField(max_length=30, blank=True)  # NSC-XX-XX-XXXX — used to send in-app notification
-    items             = models.JSONField(default=list)  # [{"name": ..., "price": ..., "qty": ...}]
+    items             = models.JSONField(default=list)  # [{"name": ..., "price": ..., "qty": ..., "product_id": ...}]
     notes             = models.TextField(blank=True)
     total             = models.DecimalField(max_digits=10, decimal_places=2)
     is_sent           = models.BooleanField(default=False)
+    discount_type     = models.CharField(max_length=10, choices=DISCOUNT_CHOICES, null=True, blank=True)
+    discount_value    = models.DecimalField(max_digits=10, decimal_places=2, default=0)
 
     class Meta:
         db_table = 'store_invoices'

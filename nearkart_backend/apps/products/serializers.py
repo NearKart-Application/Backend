@@ -4,7 +4,7 @@ NearKart — Product Serializers
 from django.db import models
 from rest_framework import serializers
 from drf_spectacular.utils import extend_schema_field
-from .models import Product, ProductVariant, ProductImage, Wishlist
+from .models import Product, ProductVariant, ProductImage, Wishlist, ProductReview
 
 
 class ProductVariantSerializer(serializers.ModelSerializer):
@@ -22,12 +22,14 @@ class ProductImageSerializer(serializers.ModelSerializer):
 
 
 class ProductSerializer(serializers.ModelSerializer):
-    variants     = ProductVariantSerializer(many=True, required=False)
-    images       = ProductImageSerializer(many=True, read_only=True)
-    store_name   = serializers.CharField(source='store.name', read_only=True)
-    store_id     = serializers.UUIDField(source='store.id', read_only=True)
-    distance_km  = serializers.SerializerMethodField(read_only=True)
+    variants      = ProductVariantSerializer(many=True, required=False)
+    images        = ProductImageSerializer(many=True, read_only=True)
+    store_name    = serializers.CharField(source='store.name', read_only=True)
+    store_id      = serializers.UUIDField(source='store.id', read_only=True)
+    distance_km   = serializers.SerializerMethodField(read_only=True)
     is_wishlisted = serializers.SerializerMethodField(read_only=True)
+    primary_image = serializers.SerializerMethodField(read_only=True)
+    stock_total   = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model  = Product
@@ -36,11 +38,22 @@ class ProductSerializer(serializers.ModelSerializer):
             'name', 'description', 'category',
             'status', 'is_visible', 'base_price',
             'variants', 'images',
+            'primary_image', 'stock_total',
             'distance_km', 'is_wishlisted',
             'created_at', 'last_updated_at',
         ]
         read_only_fields = ['id', 'store_id', 'store_name', 'created_at', 'last_updated_at']
         extra_kwargs = {'product_code': {'required': False, 'allow_blank': True}}
+
+    @extend_schema_field(serializers.URLField(allow_null=True))
+    def get_primary_image(self, obj):
+        images = list(obj.images.all())
+        img = next((i for i in images if i.is_primary), None) or (images[0] if images else None)
+        return img.image_url if img else None
+
+    @extend_schema_field(serializers.IntegerField())
+    def get_stock_total(self, obj):
+        return sum(v.stock_quantity for v in obj.variants.all())
 
     @extend_schema_field(serializers.FloatField(allow_null=True))
     def get_distance_km(self, obj):
@@ -231,3 +244,33 @@ class MobileProductDetailSerializer(serializers.ModelSerializer):
         if request and request.user.is_authenticated:
             return obj.wishlisted_by.filter(user=request.user).exists()
         return False
+
+
+class ProductReviewSerializer(serializers.ModelSerializer):
+    class Meta:
+        model  = ProductReview
+        fields = ['id', 'rating', 'content', 'created_at']
+        read_only_fields = ['id', 'created_at']
+
+    def validate_rating(self, value):
+        if not 1 <= value <= 5:
+            raise serializers.ValidationError('Rating must be between 1 and 5.')
+        return value
+
+
+class ProductReviewListSerializer(serializers.ModelSerializer):
+    """Public read — shows reviewer name initials, not phone."""
+    reviewer_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model  = ProductReview
+        fields = ['id', 'reviewer_name', 'rating', 'content', 'created_at']
+
+    @extend_schema_field(serializers.CharField())
+    def get_reviewer_name(self, obj):
+        name = getattr(obj.reviewer, 'full_name', '') or ''
+        if name:
+            parts = name.split()
+            return f'{parts[0]} {"*" * (len(parts[1]) if len(parts) > 1 else 0)}'.strip()
+        phone = obj.reviewer.phone_number or ''
+        return phone[:4] + '****' + phone[-2:] if len(phone) >= 6 else '****'

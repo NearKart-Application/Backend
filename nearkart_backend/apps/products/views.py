@@ -21,9 +21,8 @@ from core.logging import log_event
 from core.permissions import IsVendor, IsStoreOwner
 from core.utils.cache import CacheService
 from core.utils.upload_tracker import UploadTracker
-from apps.billing.services import BillingService
-from .models import Product, ProductVariant, ProductImage, StockWatchlist, StockMovementReason
-from .serializers import ProductSerializer, ProductListSerializer, MobileProductDetailSerializer
+from .models import Product, ProductVariant, ProductImage, StockWatchlist, StockMovementReason, ProductReview
+from .serializers import ProductSerializer, ProductListSerializer, MobileProductDetailSerializer, ProductReviewSerializer, ProductReviewListSerializer
 from .services import ProductService
 from .inventory_service import InventoryService, LOW_STOCK_THRESHOLD
 
@@ -214,12 +213,6 @@ class ProductCreateView(APIView):
                 {'error': 'validation_error', 'message': 'Create a store first before adding products.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        allowed, msg = BillingService.check_product_limit(request.user.store)
-        if not allowed:
-            return Response(
-                {'error': 'plan_limit_reached', 'message': msg},
-                status=status.HTTP_403_FORBIDDEN,
-            )
         upload_allowed, upload_count = UploadTracker.check_and_increment(
             str(request.user.id),
             UploadTracker.MEDIA_PHOTO,
@@ -328,7 +321,7 @@ class ProductImageUploadView(APIView):
                 filename = f'products/{product_id}/{uuid.uuid4().hex}{ext}'
                 path = default_storage.save(filename, ContentFile(file.read()))
                 raw_url = default_storage.url(path)
-                url = raw_url if raw_url.startswith('http') else f"{settings.SITE_URL.rstrip('/')}{raw_url}"
+                url = raw_url if raw_url.startswith('http') else request.build_absolute_uri(raw_url)
                 is_primary = (existing_count == 0 and i == 0)
                 ProductImage.objects.create(
                     product=product,
@@ -663,3 +656,87 @@ class StockWatchView(APIView):
             customer=request.user, product_id=product_id
         ).delete()
         return Response({'watching': False, 'deleted': deleted > 0})
+
+
+class ProductReviewView(APIView):
+    """
+    GET  /products/<id>/reviews/  — list reviews (public)
+    POST /products/<id>/reviews/  — create or update review (customer, verified purchase)
+    """
+
+    def get_permissions(self):
+        if self.request.method == 'GET':
+            return [AllowAny()]
+        return [IsAuthenticated()]
+
+    @extend_schema(tags=[_TAG], summary='List product reviews', auth=[])
+    def get(self, request, product_id):
+        try:
+            product = Product.objects.get(id=product_id)
+        except Product.DoesNotExist:
+            return Response({'error': 'not_found', 'message': 'Product not found.'}, status=status.HTTP_404_NOT_FOUND)
+        reviews = product.reviews.select_related('reviewer').order_by('-created_at')[:50]
+        data = {
+            'results': ProductReviewListSerializer(reviews, many=True).data,
+            'count':   reviews.count(),
+            'avg_rating': round(
+                sum(r.rating for r in reviews) / len(reviews) if reviews else 0, 1
+            ),
+        }
+        return Response(data)
+
+    @extend_schema(tags=[_TAG], summary='Create or update a verified product review', request=ProductReviewSerializer)
+    def post(self, request, product_id):
+        try:
+            product = Product.objects.get(id=product_id)
+        except Product.DoesNotExist:
+            return Response({'error': 'not_found', 'message': 'Product not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        # Verify: customer's NS code must appear in an invoice for this product's store
+        ns_code = request.user.profile_id or ''
+        if not ns_code:
+            return Response(
+                {'error': 'no_ns_code', 'message': 'Your account has no NS code. Complete your profile first.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        from apps.stores.models import Invoice
+        eligible_invoice = None
+        invoices = Invoice.objects.filter(store=product.store, customer_ns_code=ns_code)
+        for inv in invoices:
+            for item in (inv.items or []):
+                if str(item.get('product_id', '')).strip() == str(product.id):
+                    eligible_invoice = inv
+                    break
+            if eligible_invoice:
+                break
+
+        if not eligible_invoice:
+            return Response(
+                {'error': 'not_eligible',
+                 'message': 'You can only review a product you purchased from this store.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        serializer = ProductReviewSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        review, _ = ProductReview.objects.update_or_create(
+            product=product, reviewer=request.user,
+            defaults={
+                'rating':  serializer.validated_data['rating'],
+                'content': serializer.validated_data.get('content', ''),
+                'invoice': eligible_invoice,
+            },
+        )
+        # Notify vendor
+        try:
+            from apps.notifications.services import NotificationService
+            NotificationService.notify_new_review(
+                product.store.owner,
+                request.user.full_name or request.user.phone_number,
+                review.rating,
+                product.store.name,
+            )
+        except Exception:
+            pass
+        return Response(ProductReviewSerializer(review).data, status=status.HTTP_201_CREATED)

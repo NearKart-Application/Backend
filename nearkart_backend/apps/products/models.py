@@ -1,6 +1,6 @@
 """
 NearKart — Product Models
-Product, ProductVariant, ProductImage, Wishlist, StockMovementLog, StockWatchlist
+Product, ProductVariant, ProductImage, Wishlist, StockMovementLog, StockWatchlist, ProductReview
 """
 from django.conf import settings
 from django.db import models
@@ -123,3 +123,28 @@ class StockWatchlist(BaseModel):
 
     def __str__(self):
         return f'{self.customer} watching {self.product.name}'
+
+
+class ProductReview(BaseModel):
+    """
+    Verified-purchase product review.
+    A customer can only review a product if their NS code (profile_id) appears
+    in an invoice from the product's store that contains this product's ID.
+    One review per customer per product.
+    """
+    product  = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='reviews')
+    invoice  = models.ForeignKey(
+        'stores.Invoice', on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='product_reviews',
+    )
+    reviewer = models.ForeignKey(User, on_delete=models.CASCADE, related_name='product_reviews')
+    rating   = models.PositiveSmallIntegerField()   # 1–5
+    content  = models.TextField(blank=True)
+
+    class Meta:
+        db_table        = 'product_reviews'
+        unique_together = [('product', 'reviewer')]
+        ordering        = ['-created_at']
+
+    def __str__(self):
+        return f'{self.product.name} — {self.rating}★ by {self.reviewer}'

@@ -62,12 +62,12 @@ class StoreService:
         return True  # followed
 
     @staticmethod
-    def add_review(user, store, rating: int, comment: str = ''):
+    def add_review(user, store, rating: int, comment: str = '', is_verified: bool = False):
         from .models import StoreReview
         from apps.notifications.services import NotificationService
         review, created = StoreReview.objects.update_or_create(
             user=user, store=store,
-            defaults={'rating': rating, 'comment': comment},
+            defaults={'rating': rating, 'comment': comment, 'is_verified': is_verified},
         )
         # Recalculate store performance score
         avg = store.reviews.aggregate(

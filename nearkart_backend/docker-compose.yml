@@ -217,7 +217,7 @@ services:
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf
       - ./staticfiles:/app/staticfiles
-      - ./nearkart_backend/media:/app/media
+      - ./media:/app/media
     ports:
       - "80:80"
     depends_on:

@@ -30,7 +30,8 @@ from .serializers import (
     StoreSerializer, StoreListSerializer, StoreReviewSerializer,
     StoreReviewListSerializer, StoreOfferSerializer,
     StoreHoursSerializer, StoreMobileDetailSerializer, VendorReplySerializer,
-    InvoiceSerializer, StaffMemberSerializer,
+    InvoiceSerializer, StaffMemberSerializer, StoreFollowerSerializer,
+    CustomerInvoiceSerializer,
 )
 from .services import StoreService, QRService
 
@@ -238,6 +239,32 @@ class StoreFollowView(APIView):
         return Response({'followed': False, 'message': 'Unfollowed store.'})
 
 
+class StoreFollowerListView(APIView):
+    """
+    GET /api/v1/stores/mine/followers/ — list the vendor's store followers.
+    Returns name + NS code only; no phone or email exposed.
+    """
+    permission_classes = [IsAuthenticated, IsVendor]
+
+    @extend_schema(tags=[_TAG], summary='List store followers')
+    def get(self, request):
+        if not hasattr(request.user, 'store'):
+            return Response({'results': [], 'count': 0})
+        from apps.stores.models import StoreFollow
+        qs = (
+            StoreFollow.objects
+            .filter(store=request.user.store)
+            .select_related('user')
+            .order_by('-created_at')
+        )
+        count = qs.count()
+        page      = max(1, int(request.query_params.get('page', 1)))
+        page_size = min(50, max(1, int(request.query_params.get('page_size', 30))))
+        start = (page - 1) * page_size
+        ser = StoreFollowerSerializer(qs[start:start + page_size], many=True)
+        return Response({'results': ser.data, 'count': count})
+
+
 class StoreReviewView(APIView):
     """
     GET  /stores/<id>/reviews/ — list reviews (public, also accepted at /review/)
@@ -292,23 +319,30 @@ class StoreReviewView(APIView):
                 {'error': 'blacklisted', 'message': 'You cannot review this store.'},
                 status=status.HTTP_403_FORBIDDEN,
             )
-        # Gate: only customers with a completed reservation at this store can review
+        # Gate: completed reservation OR invoice with customer's NS code
         from apps.reservations.models import Reservation, ReservationStatus
-        has_completed = Reservation.objects.filter(
+        has_reservation = Reservation.objects.filter(
             customer=request.user, store=store, status=ReservationStatus.COMPLETED,
         ).exists()
-        if not has_completed:
+        ns_code = request.user.profile_id or ''
+        has_invoice = (
+            bool(ns_code) and
+            Invoice.objects.filter(store=store, customer_ns_code=ns_code).exists()
+        )
+        if not (has_reservation or has_invoice):
             return Response(
-                {'error': 'no_completed_reservation',
-                 'message': 'You can only review a store after completing a reservation there.'},
+                {'error': 'not_eligible',
+                 'message': 'You can only review a store after a completed reservation or purchase there.'},
                 status=status.HTTP_403_FORBIDDEN,
             )
+        is_verified = has_invoice
         serializer = StoreReviewSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         review = StoreService.add_review(
             request.user, store,
             serializer.validated_data['rating'],
             serializer.validated_data.get('comment', ''),
+            is_verified=is_verified,
         )
         CacheService.invalidate_store_reviews(str(store_id))
         # Notify vendor
@@ -318,6 +352,70 @@ class StoreReviewView(APIView):
         except Exception:
             pass
         return Response(StoreReviewSerializer(review).data)
+
+
+class StoreReviewEligibilityView(APIView):
+    """
+    GET /stores/<id>/review-eligibility/
+    Returns whether the authenticated customer can review this store and
+    which products (from their invoices at this store) they can review.
+    """
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(tags=[_TAG], summary='Check review eligibility for store + products')
+    def get(self, request, store_id):
+        try:
+            store = Store.objects.get(id=store_id, is_active=True)
+        except Store.DoesNotExist:
+            return Response({'error': 'not_found', 'message': 'Store not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        from apps.reservations.models import Reservation, ReservationStatus
+        from apps.products.models import Product, ProductReview
+
+        ns_code = request.user.profile_id or ''
+
+        # Shop review eligibility
+        has_reservation = Reservation.objects.filter(
+            customer=request.user, store=store, status=ReservationStatus.COMPLETED,
+        ).exists()
+        has_invoice = (
+            bool(ns_code) and
+            Invoice.objects.filter(store=store, customer_ns_code=ns_code).exists()
+        )
+        can_review_shop = has_reservation or has_invoice
+        has_shop_review = store.reviews.filter(user=request.user).exists()
+
+        # Product review eligibility — scan all invoices for this customer at this store
+        eligible_products = []
+        if ns_code:
+            invoices = Invoice.objects.filter(store=store, customer_ns_code=ns_code)
+            seen_product_ids = set()
+            reviewed_ids = set(
+                ProductReview.objects.filter(reviewer=request.user)
+                .values_list('product_id', flat=True)
+            )
+            for inv in invoices:
+                for item in (inv.items or []):
+                    pid_str = str(item.get('product_id', '')).strip()
+                    if not pid_str or pid_str in seen_product_ids:
+                        continue
+                    seen_product_ids.add(pid_str)
+                    try:
+                        product = Product.objects.get(id=pid_str)
+                    except (Product.DoesNotExist, Exception):
+                        continue
+                    eligible_products.append({
+                        'product_id':   str(product.id),
+                        'product_name': product.name,
+                        'invoice_id':   str(inv.id),
+                        'has_reviewed': product.id in reviewed_ids,
+                    })
+
+        return Response({
+            'can_review_shop':  can_review_shop,
+            'has_shop_review':  has_shop_review,
+            'eligible_products': eligible_products,
+        })
 
 
 class StoreQRCodeView(APIView):
@@ -643,7 +741,39 @@ class StoreInvoiceListCreateView(APIView):
         ser = InvoiceSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
         items = ser.validated_data.get('items', [])
-        total = sum(float(i.get('price', 0)) * int(i.get('qty', 1)) for i in items)
+        subtotal = sum(float(i.get('price', 0)) * int(i.get('qty', 1)) for i in items)
+        discount_type  = ser.validated_data.get('discount_type') or ''
+        discount_value = float(ser.validated_data.get('discount_value') or 0)
+        if discount_type == 'amount':
+            total = max(0.0, subtotal - discount_value)
+        elif discount_type == 'percent':
+            total = subtotal * max(0.0, (1 - discount_value / 100))
+        else:
+            total = subtotal
+
+        # Stock pre-check: validate all linked products have enough stock before saving
+        from apps.products.models import Product
+        from django.db.models import Sum
+        stock_errors = []
+        for item in items:
+            product_id = str(item.get('product_id', '')).strip()
+            if not product_id:
+                continue
+            qty = max(1, int(item.get('qty', 1)))
+            try:
+                product = Product.objects.get(id=product_id, store=request.user.store)
+                available = product.variants.aggregate(total=Sum('stock_quantity'))['total'] or 0
+                if qty > available:
+                    stock_errors.append(
+                        f'"{product.name}": requested {qty}, only {available} in stock'
+                    )
+            except Product.DoesNotExist:
+                pass
+        if stock_errors:
+            return Response(
+                {'error': 'insufficient_stock', 'message': 'Not enough stock for: ' + '; '.join(stock_errors)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         # If vendor provided a customer NS code, auto-fill name and mark as sent
         ns_code = ser.validated_data.get('customer_ns_code', '').strip().upper()
@@ -652,7 +782,7 @@ class StoreInvoiceListCreateView(APIView):
             from apps.auth_app.models import User
             try:
                 customer_user = User.objects.get(profile_id=ns_code)
-                ser.validated_data['customer_name'] = customer_user.get_full_name() or ser.validated_data.get('customer_name', '')
+                ser.validated_data['customer_name'] = customer_user.full_name or ser.validated_data.get('customer_name', '')
             except User.DoesNotExist:
                 pass
 
@@ -688,6 +818,359 @@ class StoreInvoiceListCreateView(APIView):
             ).start()
 
         return Response(InvoiceSerializer(invoice).data, status=status.HTTP_201_CREATED)
+
+
+class CustomerPurchaseHistoryView(APIView):
+    """
+    GET /api/v1/stores/purchases/
+    Returns all invoices where customer_ns_code matches the authenticated customer's profile_id.
+    Used on the customer-facing Purchase History screen.
+    """
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        tags=[_TAG],
+        summary='Customer purchase history',
+        responses={200: CustomerInvoiceSerializer(many=True)},
+    )
+    def get(self, request):
+        profile_id = getattr(request.user, 'profile_id', None)
+        if not profile_id:
+            return Response({'results': [], 'count': 0})
+        invoices = (
+            Invoice.objects
+            .filter(customer_ns_code__iexact=profile_id)
+            .select_related('store')
+            .order_by('-created_at')
+        )
+        return Response({
+            'results': CustomerInvoiceSerializer(invoices, many=True).data,
+            'count':   invoices.count(),
+        })
+
+
+class InvoiceExportView(APIView):
+    """
+    GET /api/v1/stores/mine/invoices/export/?period=daily&format=csv
+    Exports vendor invoices for a period as CSV or PDF (one row per line item).
+    period: daily | weekly | monthly
+    format: csv  | pdf
+    """
+    permission_classes = [IsAuthenticated, IsVendor]
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _period_range(period):
+        from datetime import timedelta
+        from django.utils.timezone import now
+        today = now().date()
+        if period == 'daily':
+            start = now().replace(hour=0, minute=0, second=0, microsecond=0)
+            label = f"Daily_{today}"
+        elif period == 'weekly':
+            start = now() - timedelta(days=today.weekday())
+            start = start.replace(hour=0, minute=0, second=0, microsecond=0)
+            label = f"Weekly_{start.date()}_to_{today}"
+        else:
+            start = now().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+            label = f"Monthly_{today.strftime('%B_%Y')}"
+        return start, label, today
+
+    @staticmethod
+    def _product_meta(product_ids):
+        """Return {product_id_str: (category, subcategory)} for a set of IDs."""
+        from apps.products.models import Product
+        qs = Product.objects.filter(id__in=product_ids).values('id', 'category', 'subcategory')
+        return {str(p['id']): (p['category'] or '', p['subcategory'] or '') for p in qs}
+
+    @staticmethod
+    def _discount_label(inv):
+        if inv.discount_type == 'percent':
+            return f"{inv.discount_value}%"
+        if inv.discount_type == 'amount':
+            return f"Rs.{inv.discount_value}"
+        return '-'
+
+    @staticmethod
+    def _build_rows(invoices, product_meta):
+        """
+        One row per line item (Shopify/QuickBooks style).
+        Returns list of dicts with all fields.
+        """
+        rows = []
+        for inv in invoices:
+            inv_id      = str(inv.id)[:8].upper()
+            date        = inv.created_at.strftime('%d %b %Y %H:%M')
+            customer    = inv.customer_name
+            phone       = inv.customer_phone
+            ns_code     = inv.customer_ns_code or '-'
+            discount    = InvoiceExportView._discount_label(inv)
+            inv_total   = float(inv.total)
+            notes       = inv.notes or ''
+
+            for it in (inv.items or []):
+                pid          = str(it.get('product_id', '') or '')
+                cat, subcat  = product_meta.get(pid, ('', ''))
+                qty          = int(it.get('qty', 1))
+                unit_price   = float(it.get('price', 0))
+                item_total   = qty * unit_price
+                rows.append({
+                    'inv_id':     inv_id,
+                    'date':       date,
+                    'customer':   customer,
+                    'phone':      phone,
+                    'ns_code':    ns_code,
+                    'category':   cat,
+                    'subcategory':subcat,
+                    'product_id': pid or '-',
+                    'product':    it.get('name', ''),
+                    'qty':        qty,
+                    'unit_price': unit_price,
+                    'item_total': item_total,
+                    'discount':   discount,
+                    'inv_total':  inv_total,
+                    'notes':      notes,
+                })
+        return rows
+
+    # ------------------------------------------------------------------
+    # Main handler
+    # ------------------------------------------------------------------
+    def get(self, request):
+        import csv
+        import io
+        from django.http import HttpResponse
+        from django.utils.timezone import now
+
+        if not hasattr(request.user, 'store'):
+            return Response({'error': 'no_store'}, status=status.HTTP_400_BAD_REQUEST)
+
+        period    = request.query_params.get('period', 'monthly')
+        fmt       = request.query_params.get('format', 'csv').lower()
+        store     = request.user.store
+        start, label, today = self._period_range(period)
+
+        invoices = list(
+            Invoice.objects
+            .filter(store=store, created_at__gte=start)
+            .order_by('created_at')
+        )
+
+        # Collect all product IDs across all invoices for a single DB lookup
+        all_pids = {
+            str(it.get('product_id', ''))
+            for inv in invoices
+            for it in (inv.items or [])
+            if it.get('product_id')
+        }
+        product_meta = self._product_meta(all_pids)
+        rows         = self._build_rows(invoices, product_meta)
+
+        store_safe = store.name.replace(' ', '_')
+        filename   = f"{store_safe}_Sales_{label}"
+
+        period_label = {'daily': 'Today', 'weekly': 'This Week', 'monthly': 'This Month'}.get(period, period.title())
+        grand_total  = sum(float(inv.total) for inv in invoices)
+        total_items  = sum(int(it.get('qty', 1)) for inv in invoices for it in (inv.items or []))
+
+        # ── CSV ───────────────────────────────────────────────────────────────
+        if fmt == 'csv':
+            buf    = io.StringIO()
+            writer = csv.writer(buf)
+
+            # Report header block
+            writer.writerow([f"Sales Report — {store.name}"])
+            writer.writerow([f"Period: {period_label}  |  Generated: {today.strftime('%d %b %Y')}"])
+            writer.writerow([f"Total Invoices: {len(invoices)}  |  Total Items Sold: {total_items}  |  Grand Total: Rs.{grand_total:.2f}"])
+            writer.writerow([])
+
+            # Column headers
+            writer.writerow([
+                'Invoice ID', 'Date', 'Customer Name', 'Phone', 'NS Code',
+                'Category', 'Subcategory', 'Product ID', 'Product Name',
+                'Qty', 'Unit Price (Rs.)', 'Item Total (Rs.)',
+                'Discount', 'Invoice Total (Rs.)', 'Notes',
+            ])
+
+            for r in rows:
+                writer.writerow([
+                    r['inv_id'], r['date'], r['customer'], r['phone'], r['ns_code'],
+                    r['category'], r['subcategory'], r['product_id'], r['product'],
+                    r['qty'], f"{r['unit_price']:.2f}", f"{r['item_total']:.2f}",
+                    r['discount'], f"{r['inv_total']:.2f}", r['notes'],
+                ])
+
+            writer.writerow([])
+            writer.writerow(['', '', '', '', '', '', '', '', 'GRAND TOTAL',
+                             total_items, '', f"{grand_total:.2f}", '', '', ''])
+
+            resp = HttpResponse(buf.getvalue(), content_type='text/csv; charset=utf-8')
+            resp['Content-Disposition'] = f'attachment; filename="{filename}.csv"'
+            return resp
+
+        # ── PDF ───────────────────────────────────────────────────────────────
+        from reportlab.lib.pagesizes import A4, landscape
+        from reportlab.lib import colors
+        from reportlab.lib.units import mm
+        from reportlab.platypus import (
+            SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, HRFlowable
+        )
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
+
+        BRAND     = colors.HexColor('#E91E63')
+        BRAND_LT  = colors.HexColor('#FCE4EC')
+        GREY      = colors.HexColor('#757575')
+        STRIPE    = colors.HexColor('#FFF8F9')
+        HEADER_BG = colors.HexColor('#212121')
+
+        buf = io.BytesIO()
+        doc = SimpleDocTemplate(
+            buf, pagesize=landscape(A4),
+            leftMargin=12*mm, rightMargin=12*mm,
+            topMargin=12*mm, bottomMargin=12*mm,
+        )
+        styles = getSampleStyleSheet()
+
+        s_title  = ParagraphStyle('nk_title',  fontSize=18, fontName='Helvetica-Bold', textColor=BRAND, spaceAfter=2)
+        s_sub    = ParagraphStyle('nk_sub',    fontSize=9,  fontName='Helvetica',      textColor=GREY,  spaceAfter=10)
+        s_label  = ParagraphStyle('nk_label',  fontSize=8,  fontName='Helvetica-Bold', textColor=GREY)
+        s_value  = ParagraphStyle('nk_value',  fontSize=10, fontName='Helvetica-Bold', textColor=HEADER_BG)
+        s_footer = ParagraphStyle('nk_footer', fontSize=7,  fontName='Helvetica',      textColor=GREY, alignment=TA_CENTER)
+        s_cell   = ParagraphStyle('nk_cell',   fontSize=7,  fontName='Helvetica',      leading=9)
+        s_cell_b = ParagraphStyle('nk_cell_b', fontSize=7,  fontName='Helvetica-Bold', leading=9)
+
+        elements = []
+
+        # ── Page header ──────────────────────────────────────────────
+        elements.append(Paragraph(f"{store.name}", s_title))
+        elements.append(Paragraph(
+            f"Sales Report  •  {period_label}  •  Generated {today.strftime('%d %B %Y')}",
+            s_sub,
+        ))
+        elements.append(HRFlowable(width='100%', thickness=1, color=BRAND, spaceAfter=8))
+
+        # ── Summary KPI boxes ─────────────────────────────────────────
+        kpi_data = [[
+            Paragraph('TOTAL INVOICES', s_label),
+            Paragraph('ITEMS SOLD', s_label),
+            Paragraph('GROSS REVENUE', s_label),
+            Paragraph('NET REVENUE', s_label),
+        ], [
+            Paragraph(str(len(invoices)), s_value),
+            Paragraph(str(total_items), s_value),
+            Paragraph(f"Rs.{sum(sum(float(it.get('price',0))*int(it.get('qty',1)) for it in (inv.items or [])) for inv in invoices):.2f}", s_value),
+            Paragraph(f"Rs.{grand_total:.2f}", s_value),
+        ]]
+        kpi_widths = [doc.width / 4] * 4
+        kpi_table  = Table(kpi_data, colWidths=kpi_widths)
+        kpi_table.setStyle(TableStyle([
+            ('BACKGROUND',   (0,0), (-1,-1), BRAND_LT),
+            ('ROUNDEDCORNERS', [4]),
+            ('BOX',          (0,0), (-1,-1), 0.5, BRAND),
+            ('LINEAFTER',    (0,0), (2,-1),  0.5, BRAND),
+            ('TOPPADDING',   (0,0), (-1,-1), 6),
+            ('BOTTOMPADDING',(0,0), (-1,-1), 6),
+            ('LEFTPADDING',  (0,0), (-1,-1), 10),
+            ('RIGHTPADDING', (0,0), (-1,-1), 10),
+            ('VALIGN',       (0,0), (-1,-1), 'MIDDLE'),
+        ]))
+        elements.append(kpi_table)
+        elements.append(Spacer(1, 6*mm))
+
+        # ── Item table ────────────────────────────────────────────────
+        col_headers = [
+            'Invoice ID', 'Date & Time', 'Customer', 'NS Code',
+            'Category', 'Sub-category', 'Product ID', 'Product Name',
+            'Qty', 'Unit Price', 'Item Total', 'Discount', 'Inv. Total', 'Notes',
+        ]
+        tdata = [[Paragraph(h, s_cell_b) for h in col_headers]]
+
+        for r in rows:
+            tdata.append([
+                Paragraph(r['inv_id'],     s_cell),
+                Paragraph(r['date'],       s_cell),
+                Paragraph(f"{r['customer']}\n{r['phone']}", s_cell),
+                Paragraph(r['ns_code'],    s_cell),
+                Paragraph(r['category'],   s_cell),
+                Paragraph(r['subcategory'],s_cell),
+                Paragraph(r['product_id'][:12], s_cell),
+                Paragraph(r['product'],    s_cell),
+                Paragraph(str(r['qty']),   s_cell),
+                Paragraph(f"Rs.{r['unit_price']:.2f}", s_cell),
+                Paragraph(f"Rs.{r['item_total']:.2f}", s_cell),
+                Paragraph(r['discount'],   s_cell),
+                Paragraph(f"Rs.{r['inv_total']:.2f}", s_cell),
+                Paragraph(r['notes'][:40] if r['notes'] else '-', s_cell),
+            ])
+
+        # Grand total row
+        tdata.append([
+            Paragraph('', s_cell_b),
+            Paragraph('', s_cell_b),
+            Paragraph(f"{len(invoices)} invoice(s)", s_cell_b),
+            Paragraph('', s_cell_b),
+            Paragraph('', s_cell_b),
+            Paragraph('', s_cell_b),
+            Paragraph('', s_cell_b),
+            Paragraph('GRAND TOTAL', s_cell_b),
+            Paragraph(str(total_items), s_cell_b),
+            Paragraph('', s_cell_b),
+            Paragraph(f"Rs.{grand_total:.2f}", s_cell_b),
+            Paragraph('', s_cell_b),
+            Paragraph('', s_cell_b),
+            Paragraph('', s_cell_b),
+        ])
+
+        page_w = doc.width
+        col_widths = [
+            18*mm, 22*mm, 32*mm, 22*mm,   # inv_id, date, customer, ns_code
+            20*mm, 20*mm, 24*mm, 35*mm,   # cat, subcat, product_id, product name
+            10*mm, 18*mm, 18*mm,           # qty, unit, item_total
+            16*mm, 18*mm, 25*mm,           # discount, inv_total, notes
+        ]
+        item_table = Table(tdata, colWidths=col_widths, repeatRows=1)
+        item_table.setStyle(TableStyle([
+            # Header row
+            ('BACKGROUND',    (0,0), (-1,0), HEADER_BG),
+            ('TEXTCOLOR',     (0,0), (-1,0), colors.white),
+            ('FONTNAME',      (0,0), (-1,0), 'Helvetica-Bold'),
+            ('FONTSIZE',      (0,0), (-1,0), 7),
+            # Data rows
+            ('FONTSIZE',      (0,1), (-1,-2), 7),
+            ('ROWBACKGROUNDS',(0,1), (-1,-2), [colors.white, STRIPE]),
+            # Grand total row
+            ('BACKGROUND',    (0,-1), (-1,-1), BRAND_LT),
+            ('FONTNAME',      (0,-1), (-1,-1), 'Helvetica-Bold'),
+            ('LINEABOVE',     (0,-1), (-1,-1), 1, BRAND),
+            # Right-align numeric columns
+            ('ALIGN',         (8,0), (-1,-1), 'RIGHT'),
+            # Grid
+            ('GRID',          (0,0), (-1,-2), 0.25, colors.HexColor('#E0E0E0')),
+            ('LINEBELOW',     (0,0), (-1,0),  0.5,  BRAND),
+            # Padding
+            ('TOPPADDING',    (0,0), (-1,-1), 3),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 3),
+            ('LEFTPADDING',   (0,0), (-1,-1), 3),
+            ('RIGHTPADDING',  (0,0), (-1,-1), 3),
+            ('VALIGN',        (0,0), (-1,-1), 'TOP'),
+        ]))
+        elements.append(item_table)
+        elements.append(Spacer(1, 6*mm))
+        elements.append(HRFlowable(width='100%', thickness=0.5, color=GREY))
+        elements.append(Spacer(1, 2*mm))
+        elements.append(Paragraph(
+            f"Generated by NearKart  •  {store.name}  •  {today.strftime('%d %B %Y')}  •  Confidential",
+            s_footer,
+        ))
+
+        doc.build(elements)
+        buf.seek(0)
+        resp = HttpResponse(buf.getvalue(), content_type='application/pdf')
+        resp['Content-Disposition'] = f'attachment; filename="{filename}.pdf"'
+        return resp
 
 
 class VendorStoresListView(APIView):
@@ -786,12 +1269,6 @@ _WEBSITE_CRITERIA = [
         'description': 'Your store must have fulfilled at least 5 customer reservations',
         'required':    '5',
     },
-    {
-        'key':         'active_subscription',
-        'label':       'Active NearSpot subscription',
-        'description': 'You must have an active paid subscription plan',
-        'required':    'Active plan',
-    },
 ]
 
 
@@ -804,11 +1281,6 @@ def _check_eligibility(user):
         store = user.store
     except AttributeError:
         return False, []
-
-    try:
-        has_sub = store.subscriptions.filter(is_active=True).exists()
-    except Exception:
-        has_sub = False
 
     try:
         product_count = store.products.filter(is_active=True).count()
@@ -843,7 +1315,6 @@ def _check_eligibility(user):
         {'key': 'reviews_quality',       'met': review_count >= 5 and avg_rating >= 4.0, 'current': f'{review_count} reviews / {avg_rating:.1f}★'},
         {'key': 'referrals_done',        'met': referral_count >= 3,      'current': str(referral_count)},
         {'key': 'reservations_completed','met': reservation_count >= 5,   'current': str(reservation_count)},
-        {'key': 'active_subscription',   'met': has_sub,                  'current': 'Active' if has_sub else 'No plan'},
     ]
 
     # Merge static labels/descriptions into results
@@ -1024,7 +1495,7 @@ class StoreImagesUploadView(APIView):
             filename = f'stores/{store.id}/{field}_{uuid.uuid4().hex}{ext}'
             path = default_storage.save(filename, ContentFile(file.read()))
             raw_url = default_storage.url(path)
-            url = raw_url if raw_url.startswith('http') else f"{settings.SITE_URL.rstrip('/')}{raw_url}"
+            url = raw_url if raw_url.startswith('http') else request.build_absolute_uri(raw_url)
             if field == 'logo':
                 store.logo_url = url
                 updated['logo_url'] = url
@@ -1239,6 +1710,38 @@ class VendorBroadcastChannelListCreateView(APIView):
         )
         log_event('broadcasts', action='channel_created', store_id=str(store.id), channel_id=str(channel.id))
         return Response(_serialize_channel(channel), status=status.HTTP_201_CREATED)
+
+
+class VendorBroadcastChannelDetailView(APIView):
+    """PATCH/DELETE stores/mine/broadcast-channels/{channel_id}/"""
+    permission_classes = [IsAuthenticated, IsVendor]
+
+    def _get_channel(self, request, channel_id):
+        try:
+            store = request.user.store
+        except AttributeError:
+            return None
+        return BroadcastChannel.objects.filter(id=channel_id, store=store).first()
+
+    def patch(self, request, channel_id):
+        channel = self._get_channel(request, channel_id)
+        if not channel:
+            return Response({'error': 'not_found'}, status=status.HTTP_404_NOT_FOUND)
+        name = request.data.get('name', '').strip()
+        if name:
+            channel.name = name
+        description = request.data.get('description')
+        if description is not None:
+            channel.description = description.strip()
+        channel.save()
+        return Response(_serialize_channel(channel))
+
+    def delete(self, request, channel_id):
+        channel = self._get_channel(request, channel_id)
+        if not channel:
+            return Response({'error': 'not_found'}, status=status.HTTP_404_NOT_FOUND)
+        channel.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class VendorBroadcastPostListCreateView(APIView):
