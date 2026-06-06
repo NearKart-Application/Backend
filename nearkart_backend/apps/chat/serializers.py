@@ -39,7 +39,7 @@ class ConversationSerializer(serializers.ModelSerializer):
     class Meta:
         model  = Conversation
         fields = [
-            'id', 'store_id', 'store_name', 'customer_phone', 'customer_name',
+            'id', 'store_id', 'store_name', 'customer_id', 'customer_phone', 'customer_name',
             'my_unread_count', 'last_message', 'last_message_at',
             'is_active', 'created_at',
         ]

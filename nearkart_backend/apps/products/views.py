@@ -125,22 +125,28 @@ class FollowingFeedView(APIView):
         tags=[_TAG],
         summary='Products from followed stores',
         parameters=[
-            OpenApiParameter('lat',   float, description='Latitude',        required=False),
-            OpenApiParameter('lng',   float, description='Longitude',       required=False),
-            OpenApiParameter('limit', int,   description='Max results (default 20)', required=False),
+            OpenApiParameter('lat',       float, description='Latitude',                     required=False),
+            OpenApiParameter('lng',       float, description='Longitude',                    required=False),
+            OpenApiParameter('per_store', int,   description='Max products per store (default 3)', required=False),
         ],
         responses={200: ProductListSerializer(many=True)},
     )
     def get(self, request):
         from apps.stores.models import StoreFollow
-        limit = int(request.query_params.get('limit', 20))
+        per_store = int(request.query_params.get('per_store', 3))
         followed_ids = StoreFollow.objects.filter(user=request.user).values_list('store_id', flat=True)
-        qs = Product.objects.filter(
-            store_id__in=followed_ids,
-            status='active',
-            is_visible=True,
-        ).select_related('store').prefetch_related('variants', 'images').order_by('-created_at')[:limit]
-        serialized = ProductListSerializer(qs, many=True, context={'request': request}).data
+        results = []
+        for store_id in followed_ids:
+            store_products = list(
+                Product.objects.filter(
+                    store_id=store_id,
+                    status='active',
+                    is_visible=True,
+                ).select_related('store').prefetch_related('variants', 'images').order_by('-created_at')[:per_store]
+            )
+            results.extend(store_products)
+        results.sort(key=lambda p: p.created_at, reverse=True)
+        serialized = ProductListSerializer(results, many=True, context={'request': request}).data
         return Response({'count': len(serialized), 'next': None, 'previous': None, 'results': serialized})
 
 
