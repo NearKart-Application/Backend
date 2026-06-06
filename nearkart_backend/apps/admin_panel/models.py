@@ -28,6 +28,7 @@ class PromoBanner(BaseModel):
     image_url     = models.URLField(blank=True)
     link_type     = models.CharField(max_length=20, choices=LINK_CHOICES, default=LINK_NONE)
     link_value    = models.CharField(max_length=500, blank=True)  # store_id / product_id / category / url
+    target_city   = models.CharField(max_length=100, blank=True)   # empty = show globally
     display_order = models.PositiveIntegerField(default=0, db_index=True)
     is_active     = models.BooleanField(default=True, db_index=True)
     starts_at     = models.DateTimeField(null=True, blank=True)

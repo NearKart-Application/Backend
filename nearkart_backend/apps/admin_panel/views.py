@@ -277,6 +277,7 @@ class PublicBannersView(APIView):
 
     def get(self, request):
         now = timezone.now()
+        city = (request.query_params.get('city') or '').strip()
         banners = PromoBanner.objects.filter(
             is_active=True,
         ).filter(
@@ -284,6 +285,9 @@ class PublicBannersView(APIView):
         ).filter(
             Q(ends_at__isnull=True) | Q(ends_at__gte=now)
         ).order_by('display_order', '-created_at')
+
+        if city:
+            banners = banners.filter(Q(target_city='') | Q(target_city__iexact=city))
 
         data = [_banner_to_dict(b) for b in banners]
         return Response({'count': len(data), 'results': data})
@@ -313,6 +317,7 @@ class AdminBannerListCreateView(APIView):
             image_url     = data.get('image_url', '').strip(),
             link_type     = data.get('link_type', PromoBanner.LINK_NONE),
             link_value    = data.get('link_value', '').strip(),
+            target_city   = data.get('target_city', '').strip(),
             display_order = int(data.get('display_order', 0)),
             is_active     = bool(data.get('is_active', True)),
             starts_at     = data.get('starts_at') or None,
@@ -334,7 +339,7 @@ class AdminBannerDetailView(APIView):
             return Response({'error': 'not_found'}, status=404)
 
         data = request.data
-        for field in ['title', 'subtitle', 'badge_text', 'image_url', 'link_type', 'link_value']:
+        for field in ['title', 'subtitle', 'badge_text', 'image_url', 'link_type', 'link_value', 'target_city']:
             if field in data:
                 setattr(banner, field, str(data[field]).strip())
         if 'display_order' in data:
@@ -1034,6 +1039,7 @@ def _banner_to_dict(b: PromoBanner) -> dict:
         'image_url':     b.image_url,
         'link_type':     b.link_type,
         'link_value':    b.link_value,
+        'target_city':   b.target_city,
         'display_order': b.display_order,
         'is_active':     b.is_active,
         'is_paid':       b.is_paid,
