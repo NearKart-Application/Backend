@@ -639,6 +639,8 @@ class StoreOfferView(APIView):
         offer = StoreOffer.objects.create(store=store, **serializer.validated_data)
         CacheService.delete(CacheService.store_detail_key(str(store.id)))
         CacheService.invalidate_store_offers(str(store_id))
+        if store.location:
+            CacheService.invalidate_store_caches(store.location.y, store.location.x)
         from apps.stores.models import StoreFollow
         follower_ids = list(StoreFollow.objects.filter(store=store).values_list('user_id', flat=True))
         if follower_ids:
@@ -692,6 +694,8 @@ class StoreOfferDeleteView(APIView):
         offer.is_active = False
         offer.save(update_fields=['is_active'])
         CacheService.invalidate_store_offers(str(store_id))
+        if store.location:
+            CacheService.invalidate_store_caches(store.location.y, store.location.x)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 

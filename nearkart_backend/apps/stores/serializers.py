@@ -71,9 +71,10 @@ class StoreListSerializer(serializers.ModelSerializer):
     rating            = serializers.SerializerMethodField()
     review_count      = serializers.SerializerMethodField()
     follower_count    = serializers.SerializerMethodField()
-    has_offer         = serializers.SerializerMethodField()
-    top_offer_label   = serializers.SerializerMethodField()
-    open_status_label = serializers.SerializerMethodField()
+    has_offer           = serializers.SerializerMethodField()
+    top_offer_label     = serializers.SerializerMethodField()
+    active_offer_labels = serializers.SerializerMethodField()
+    open_status_label   = serializers.SerializerMethodField()
     todays_hours      = serializers.SerializerMethodField()
     top_subcategories = serializers.SerializerMethodField()
 
@@ -84,7 +85,7 @@ class StoreListSerializer(serializers.ModelSerializer):
             'avatar', 'cover_image', 'is_open', 'is_verified',
             'performance_score', 'lat', 'lng', 'distance_km',
             'rating', 'review_count', 'follower_count',
-            'has_offer', 'top_offer_label', 'open_status_label', 'todays_hours',
+            'has_offer', 'top_offer_label', 'active_offer_labels', 'open_status_label', 'todays_hours',
             'top_subcategories',
         ]
 
@@ -131,6 +132,19 @@ class StoreListSerializer(serializers.ModelSerializer):
         if offer.discount_pct:
             label += f' · {offer.discount_pct}% off'
         return label
+
+    @extend_schema_field(serializers.ListField(child=serializers.CharField()))
+    def get_active_offer_labels(self, obj):
+        # Latest 5 active non-expired offers — uses prefetched queryset, zero DB hit
+        labels = []
+        for offer in obj.offers.all():
+            if len(labels) >= 5:
+                break
+            label = offer.title
+            if offer.discount_pct:
+                label += f' · {offer.discount_pct}% off'
+            labels.append(label)
+        return labels
 
     @extend_schema_field(serializers.CharField())
     def get_open_status_label(self, obj):

@@ -9,12 +9,13 @@ Algorithms implemented:
 """
 import logging
 import requests
+from datetime import date
 from django.conf import settings
 from django.contrib.gis.geos import Point
 from django.contrib.gis.db.models.functions import Distance
 from django.contrib.gis.measure import D
 from django.db.models import (
-    Count, Avg, Prefetch, Exists, OuterRef,
+    Count, Avg, Prefetch, Exists, OuterRef, Q,
     ExpressionWrapper, FloatField, Case, When, F, Value,
 )
 from django.db.models.functions import Coalesce
@@ -90,7 +91,10 @@ def get_nearby_stores(lat: float, lng: float,
         ).prefetch_related(
             Prefetch('hours', queryset=StoreHours.objects.filter(is_closed=False)),
             Prefetch('offers', queryset=StoreOffer.objects.filter(
-                is_active=True).order_by('-created_at')),
+                is_active=True
+            ).filter(
+                Q(valid_till__isnull=True) | Q(valid_till__gte=date.today())
+            ).order_by('-created_at')),
         ).order_by('-relevance_score')
 
         if category and category != 'all':

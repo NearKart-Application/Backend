@@ -259,9 +259,10 @@ class CacheService:
     @staticmethod
     def invalidate_store_caches(lat: float, lng: float):
         """Bust all nearby-store cache keys for the grid cell containing this location."""
-        for radius in [1, 2, 3, 5]:
+        for radius in [1, 2, 3, 5, 10]:
             for category in ['all', 'fashion', 'jewellery', 'footwear',
-                              'decor', 'furniture', 'gifts', 'beauty']:
+                              'decor', 'furniture', 'gifts', 'beauty',
+                              'food', 'electronics']:
                 CacheService.delete(
                     CacheService.nearby_stores_key(lat, lng, radius, category)
                 )

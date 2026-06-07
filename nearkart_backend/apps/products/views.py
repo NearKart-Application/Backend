@@ -274,6 +274,21 @@ class ProductUpdateView(APIView):
         serializer = ProductSerializer(product, data=request.data, partial=True, context={'request': request})
         serializer.is_valid(raise_exception=True)
         product = ProductService.update(product, serializer.validated_data)
+
+        # If sale_price provided, apply it to the first variant (drives is_on_sale + discount %)
+        sale_price_raw = request.data.get('sale_price')
+        if sale_price_raw is not None:
+            from decimal import Decimal, InvalidOperation
+            try:
+                sale_price = Decimal(str(sale_price_raw))
+                variant = product.variants.order_by('created_at').first()
+                if variant:
+                    # Clear sale if sale_price >= base_price
+                    variant.price = sale_price if sale_price < product.base_price else product.base_price
+                    variant.save(update_fields=['price'])
+            except (InvalidOperation, ValueError):
+                pass
+
         CacheService.invalidate_product_detail(str(product_id))
         log_event('products', action='product_updated', product_id=str(product_id),
                   store_id=str(product.store_id), user_id=str(request.user.id))
