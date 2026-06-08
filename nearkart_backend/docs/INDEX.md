@@ -40,6 +40,7 @@
 | S21 — Admin Category Management + Offer Templates | [sprint_21_admin_categories_offer_templates/](sprint_21_admin_categories_offer_templates/README.md) | Done ✅ | [TESTING_CHECKLIST.md](sprint_21_admin_categories_offer_templates/TESTING_CHECKLIST.md) · [POSTMAN_GUIDE.md](sprint_21_admin_categories_offer_templates/POSTMAN_GUIDE.md) |
 | S23 — Store Hours Sync · Discount Codes · Image Gallery | [sprint_23_store_hours_discounts_gallery/](sprint_23_store_hours_discounts_gallery/README.md) | Done ✅ | [TESTING_CHECKLIST.md](sprint_23_store_hours_discounts_gallery/TESTING_CHECKLIST.md) · [POSTMAN_GUIDE.md](sprint_23_store_hours_discounts_gallery/POSTMAN_GUIDE.md) |
 | S25 — Store Offer Labels · Sale Price PATCH · Broadcast Seed · Cache Invalidation | [sprint_25_map_integration/](sprint_25_map_integration/README.md) | Done ✅ | [TESTING_CHECKLIST.md](sprint_25_map_integration/TESTING_CHECKLIST.md) · [POSTMAN_GUIDE.md](sprint_25_map_integration/POSTMAN_GUIDE.md) |
+| S26 — Structured Product ID System (`NS-{ShopAbbr}-{LocalityCode}-{CategoryCode}-{Unique}`) | [sprint_26_product_id_system/](sprint_26_product_id_system/README.md) | Done ✅ | [TESTING_CHECKLIST.md](sprint_26_product_id_system/TESTING_CHECKLIST.md) · [POSTMAN_GUIDE.md](sprint_26_product_id_system/POSTMAN_GUIDE.md) |
 
 ---
 
