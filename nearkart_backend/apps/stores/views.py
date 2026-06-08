@@ -712,15 +712,36 @@ class StoreStatsView(APIView):
             })
         store = request.user.store
         from apps.reservations.models import Reservation
+        from apps.chat.models import Conversation
+        from django.db.models import Sum
+        from core.utils.cache import CacheService
+
         active_res = Reservation.objects.filter(
             store=store, status__in=['pending', 'confirmed']
         ).count()
+
+        # Unique store views — sum HyperLogLog counts over last 30 days
+        store_views = sum(CacheService.get_unique_visitors_range(str(store.id), days=30).values())
+
+        # Unread chat conversations (vendor hasn't replied)
+        inquiries_pending = Conversation.objects.filter(
+            store=store, unread_count_vendor__gt=0
+        ).count()
+
+        # Active products where all variants are out of stock
+        products_need_action = store.products.filter(status='active').annotate(
+            total_stock=Sum('variants__stock_quantity')
+        ).filter(total_stock=0).count()
+
         return Response({
-            'store_name':          store.name,
-            'store_address':       store.address,
-            'active_reservations': active_res,
-            'total_products':      store.products.filter(status='active').count(),
-            'follower_count':      store.followers.count(),
+            'store_name':            store.name,
+            'store_address':         store.address,
+            'active_reservations':   active_res,
+            'total_products':        store.products.filter(status='active').count(),
+            'follower_count':        store.followers.count(),
+            'store_views':           store_views,
+            'inquiries_pending':     inquiries_pending,
+            'products_need_action':  products_need_action,
         })
 
 
