@@ -48,6 +48,18 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
 
     async def receive_json(self, content):
         msg_type = content.get('type')
+
+        if msg_type == 'typing':
+            await self.channel_layer.group_send(
+                self.group_name,
+                {
+                    'type':      'typing_event',
+                    'sender_id': str(self.user.id),
+                    'is_typing': bool(content.get('is_typing', False)),
+                },
+            )
+            return
+
         if msg_type != 'chat_message':
             return
 
@@ -66,10 +78,19 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
         # Push notification to recipient (async, best-effort)
         await self._push_to_recipient(text)
 
-    # ── event handler (called by channel layer group_send) ──────────────────
+    # ── event handlers (called by channel layer group_send) ─────────────────
 
     async def chat_message(self, event):
         await self.send_json(event['message'])
+
+    async def typing_event(self, event):
+        # Don't echo typing back to the sender
+        if event['sender_id'] == str(self.user.id):
+            return
+        await self.send_json({
+            'type':      'typing',
+            'is_typing': event['is_typing'],
+        })
 
     # ── helpers (DB) ─────────────────────────────────────────────────────────
 

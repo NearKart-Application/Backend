@@ -65,7 +65,7 @@ class AddMemberSerializer(serializers.Serializer):
     Customer groups: provide profile_id.
     Vendor groups: provide user_id (UUID from eligible-members list).
     """
-    profile_id = serializers.CharField(max_length=12, required=False, allow_blank=True)
+    profile_id = serializers.CharField(max_length=16, required=False, allow_blank=True)
     user_id    = serializers.UUIDField(required=False)
 
     def validate(self, attrs):
