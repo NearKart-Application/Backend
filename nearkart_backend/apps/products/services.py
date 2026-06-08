@@ -11,27 +11,79 @@ from core.utils.geo import get_nearby_products
 logger = logging.getLogger(__name__)
 
 
+_CATEGORY_CODES = {
+    'fashion':     'FASH',
+    'jewellery':   'JEWE',
+    'footwear':    'FOOT',
+    'decor':       'DECO',
+    'furniture':   'FURN',
+    'gifts':       'GIFT',
+    'beauty':      'BEAU',
+    'food':        'FOOD',
+    'electronics': 'ELEC',
+}
+
+
+def _store_abbreviation(store) -> str:
+    """Return a unique initials-based abbreviation for the store (e.g. VE, VE2)."""
+    import re
+    from apps.stores.models import Store
+
+    words = re.sub(r'[^a-zA-Z\s]', '', store.name.strip()).split()
+    raw = ''.join(w[0].upper() for w in words if w) or 'NS'
+
+    # Count stores with the same raw initials created before this one
+    rank = 0
+    for s in Store.objects.filter(created_at__lt=store.created_at).order_by('created_at').only('name'):
+        s_words = re.sub(r'[^a-zA-Z\s]', '', s.name.strip()).split()
+        if ''.join(w[0].upper() for w in s_words if w) == raw:
+            rank += 1
+    return raw if rank == 0 else f'{raw}{rank + 1}'
+
+
+def _locality_code(store) -> str:
+    """Return a 3-char uppercase alpha code from the store's locality."""
+    import re
+    src = store.locality or store.address or ''
+    alpha = re.sub(r'[^a-zA-Z]', '', src)
+    return alpha[:3].upper() if alpha else 'GEN'
+
+
 class ProductService:
 
     @staticmethod
-    def _generate_product_code() -> str:
-        """Generate a unique product code like NKP-A3B7C2 (retry on collision)."""
+    def _generate_product_code(store=None, category: str = '') -> str:
+        """Generate NS-{ShopAbbr}-{LocalityCode}-{CategoryCode}-{Unique} product code."""
         import random, string
         from .models import Product
+
+        if store is not None:
+            shop_abbr  = _store_abbreviation(store)
+            loc_code   = _locality_code(store)
+            cat_code   = _CATEGORY_CODES.get(category.lower().strip(), 'GEN')
+            prefix     = f'NS-{shop_abbr}-{loc_code}-{cat_code}'
+        else:
+            prefix = 'NS'
+
         for _ in range(10):
-            suffix = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
-            code = f'NKP-{suffix}'
+            suffix = ''.join(random.choices(string.ascii_uppercase + string.digits, k=5))
+            code = f'{prefix}-{suffix}'
             if not Product.objects.filter(product_code=code).exists():
                 return code
-        # Fallback: longer suffix to virtually eliminate collision
-        suffix = ''.join(random.choices(string.ascii_uppercase + string.digits, k=9))
-        return f'NKP-{suffix}'
+        suffix = ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
+        return f'{prefix}-{suffix}'
 
     @staticmethod
     def create(store, validated_data: dict):
         from .models import Product, StockMovementLog, StockMovementReason
         variants_data = validated_data.pop('variants', [])
-        validated_data.setdefault('product_code', ProductService._generate_product_code())
+        validated_data.setdefault(
+            'product_code',
+            ProductService._generate_product_code(
+                store=store,
+                category=validated_data.get('category', ''),
+            )
+        )
         product = Product.objects.create(store=store, **validated_data)
         for v in variants_data:
             initial_qty = v.get('stock_quantity', 0)

@@ -493,7 +493,9 @@ class GenerateProductCodeView(APIView):
 
     @extend_schema(tags=[_TAG], summary='Pre-generate a unique product code')
     def get(self, request):
-        code = ProductService._generate_product_code()
+        category = request.query_params.get('category', '')
+        store = getattr(request.user, 'store', None)
+        code = ProductService._generate_product_code(store=store, category=category)
         return Response({'product_code': code})
 
 
