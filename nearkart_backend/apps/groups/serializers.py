@@ -6,7 +6,7 @@ from drf_spectacular.utils import extend_schema_field
 
 from apps.products.models import Product
 from core.validators import validate_no_external_links
-from .models import Group, GroupMember, GroupSharedProduct, GroupType
+from .models import Group, GroupMember, GroupMessage, GroupSharedProduct, GroupType
 
 
 class GroupCreateSerializer(serializers.Serializer):
@@ -107,6 +107,16 @@ class ShareProductSerializer(serializers.Serializer):
 
     def validate_note(self, value):
         return validate_no_external_links(value)
+
+
+class GroupMessageSerializer(serializers.ModelSerializer):
+    sender_id         = serializers.UUIDField(source='sender.id',         read_only=True)
+    sender_name       = serializers.CharField(source='sender.full_name',  read_only=True)
+    sender_profile_id = serializers.CharField(source='sender.profile_id', read_only=True)
+
+    class Meta:
+        model  = GroupMessage
+        fields = ['id', 'sender_id', 'sender_name', 'sender_profile_id', 'content', 'created_at']
 
 
 class EligibleMemberSerializer(serializers.Serializer):

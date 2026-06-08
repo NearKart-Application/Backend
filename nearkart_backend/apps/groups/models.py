@@ -54,6 +54,22 @@ class GroupMember(BaseModel):
         return f'{self.user} in {self.group} ({self.role})'
 
 
+class GroupMessage(BaseModel):
+    group   = models.ForeignKey(Group, on_delete=models.CASCADE, related_name='messages')
+    sender  = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='group_messages')
+    content = models.TextField()
+
+    class Meta:
+        db_table = 'group_messages'
+        ordering = ['created_at']
+        indexes  = [
+            models.Index(fields=['group', 'created_at'], name='grp_msg_group_time_idx'),
+        ]
+
+    def __str__(self):
+        return f'{self.sender.full_name} in {self.group.name}: {self.content[:40]}'
+
+
 class GroupSharedProduct(BaseModel):
     group        = models.ForeignKey(Group, on_delete=models.CASCADE, related_name='shared_products')
     product      = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='group_shares')

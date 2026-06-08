@@ -9,6 +9,7 @@ from .views import (
     GroupMakeAdminView,
     GroupRemoveAdminView,
     GroupEligibleMembersView,
+    GroupMessageListView,
     GroupProductListView,
     GroupFinalizeProductView,
 )
@@ -22,6 +23,7 @@ urlpatterns = [
     path('<uuid:group_id>/members/<uuid:user_id>/remove-admin/',      GroupRemoveAdminView.as_view(),   name='group-remove-admin'),
     path('<uuid:group_id>/leave/',                                    GroupLeaveView.as_view(),         name='group-leave'),
     path('<uuid:group_id>/eligible-members/',                         GroupEligibleMembersView.as_view(), name='group-eligible-members'),
+    path('<uuid:group_id>/messages/',                                 GroupMessageListView.as_view(),   name='group-messages'),
     path('<uuid:group_id>/products/',                                 GroupProductListView.as_view(),   name='group-products'),
     path('<uuid:group_id>/products/<uuid:sp_id>/finalize/',           GroupFinalizeProductView.as_view(), name='group-finalize-product'),
 ]

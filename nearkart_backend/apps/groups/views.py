@@ -12,12 +12,13 @@ from drf_spectacular.types import OpenApiTypes
 
 from apps.auth_app.models import User
 from apps.products.models import Product
-from .models import Group, GroupSharedProduct, GroupType
+from .models import Group, GroupMessage, GroupSharedProduct, GroupType
 from .services import GroupService
 from .serializers import (
     GroupCreateSerializer,
     GroupSerializer,
     GroupDetailSerializer,
+    GroupMessageSerializer,
     AddMemberSerializer,
     ShareProductSerializer,
     SharedProductSerializer,
@@ -383,6 +384,57 @@ class GroupProductListView(APIView):
             note=ser.validated_data.get('note', ''),
         )
         return Response(SharedProductSerializer(shared).data, status=201)
+
+
+class GroupMessageListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def _get_group(self, group_id, user):
+        try:
+            group = Group.objects.get(id=group_id, is_active=True)
+        except Group.DoesNotExist:
+            return None
+        if not GroupService.is_member(group, user):
+            return None
+        return group
+
+    @extend_schema(
+        tags=[_TAG],
+        summary='List group messages',
+        description='Returns the last 100 messages for the group. Members only.',
+        parameters=[OpenApiParameter('group_id', OpenApiTypes.UUID, location=OpenApiParameter.PATH)],
+        responses={200: GroupMessageSerializer(many=True)},
+    )
+    def get(self, request, group_id):
+        group = self._get_group(group_id, request.user)
+        if not group:
+            return Response({'error': 'not_found', 'message': 'Group not found.'}, status=404)
+        messages = (
+            GroupMessage.objects
+            .select_related('sender')
+            .filter(group=group)
+            .order_by('created_at')[:100]
+        )
+        return Response(GroupMessageSerializer(messages, many=True).data)
+
+    @extend_schema(
+        tags=[_TAG],
+        summary='Send group message (REST fallback)',
+        description='Send a message via REST. Prefer the WebSocket consumer for real-time delivery.',
+        request=GroupMessageSerializer,
+        responses={201: GroupMessageSerializer},
+    )
+    def post(self, request, group_id):
+        group = self._get_group(group_id, request.user)
+        if not group:
+            return Response({'error': 'not_found', 'message': 'Group not found.'}, status=404)
+
+        content = (request.data.get('content') or '').strip()
+        if not content:
+            return Response({'error': 'empty', 'message': 'Message cannot be empty.'}, status=400)
+
+        msg = GroupMessage.objects.create(group=group, sender=request.user, content=content)
+        return Response(GroupMessageSerializer(msg).data, status=201)
 
 
 class GroupFinalizeProductView(APIView):

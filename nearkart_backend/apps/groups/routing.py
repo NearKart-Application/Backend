@@ -1,5 +1,7 @@
 from django.urls import re_path
 
-# WebSocket routes — implemented in Sprint 5
-group_urlpatterns = []
+from .consumers import GroupConsumer
 
+group_urlpatterns = [
+    re_path(r'^ws/groups/(?P<group_id>[0-9a-f-]{36})/$', GroupConsumer.as_asgi()),
+]
