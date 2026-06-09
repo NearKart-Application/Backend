@@ -25,7 +25,7 @@ from rest_framework.views import APIView
 
 from core.logging import log_event
 from core.permissions import IsVendor
-from .models import Plan, Transaction
+from .models import Coupon, Plan, Transaction
 from .razorpay_service import RazorpayService
 from .serializers import PlanSerializer, SubscriptionSerializer, TransactionSerializer
 from .services import BillingService
@@ -174,9 +174,16 @@ class SubscribeView(APIView):
                  'message': f'Plan "{plan_name}" not found. Valid plans: free, basic, premium.'},
                 status=status.HTTP_404_NOT_FOUND,
             )
-        store = request.user.store
+        store       = request.user.store
+        coupon_code = (request.data.get('coupon_code') or '').strip()
+        coupon      = None
+        if coupon_code:
+            coupon, err = BillingService.validate_coupon(coupon_code, plan)
+            if coupon is None:
+                return Response({'error': 'invalid_coupon', 'message': err}, status=status.HTTP_400_BAD_REQUEST)
+
         try:
-            sub = BillingService.subscribe(store, plan)
+            sub = BillingService.subscribe(store, plan, coupon=coupon)
         except ValueError as e:
             return Response(
                 {'error': 'insufficient_balance', 'message': str(e)},
@@ -184,7 +191,8 @@ class SubscribeView(APIView):
             )
         log_event('billing', action='plan_subscribed', store_id=str(store.id),
                   user_id=str(request.user.id), plan=plan_name,
-                  price=str(plan.price), expires_at=str(sub.expires_at))
+                  price=str(plan.price), coupon=coupon_code or None,
+                  expires_at=str(sub.expires_at))
         return Response(SubscriptionSerializer(sub).data)
 
 
@@ -232,6 +240,52 @@ class TransactionListView(APIView):
 # ── Razorpay Payment Views ─────────────────────────────────────────────────────
 
 
+class CouponValidateView(APIView):
+    permission_classes = [IsAuthenticated, IsVendor]
+
+    @extend_schema(
+        tags=[_TAG],
+        summary='Validate a coupon code for a plan (vendor only)',
+        request=inline_serializer('CouponValidateRequest', fields={
+            'code':      s.CharField(help_text='Coupon code'),
+            'plan_name': s.CharField(help_text='Plan slug: basic | premium'),
+        }),
+        responses={
+            200: OpenApiResponse(
+                response=inline_serializer('CouponValidateResponse', fields={
+                    'valid':            s.BooleanField(),
+                    'discount_percent': s.IntegerField(),
+                    'final_price':      s.CharField(),
+                    'message':          s.CharField(),
+                })
+            ),
+        },
+    )
+    def post(self, request):
+        code      = (request.data.get('code') or '').strip()
+        plan_name = (request.data.get('plan_name') or '').strip().lower()
+
+        if not code or not plan_name:
+            return Response({'error': 'validation_error', 'message': 'code and plan_name are required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            plan = Plan.objects.get(name=plan_name, is_active=True)
+        except Plan.DoesNotExist:
+            return Response({'error': 'not_found', 'message': f'Plan "{plan_name}" not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        coupon, err = BillingService.validate_coupon(code, plan)
+        if coupon is None:
+            return Response({'valid': False, 'discount_percent': 0, 'final_price': str(plan.price), 'message': err})
+
+        final_price = BillingService.apply_discount(plan.price, coupon)
+        return Response({
+            'valid':            True,
+            'discount_percent': coupon.discount_percent,
+            'final_price':      str(final_price),
+            'message':          f'{coupon.discount_percent}% off applied!' + (' Subscription is free!' if final_price == 0 else ''),
+        })
+
+
 class PaymentInitiateView(APIView):
     permission_classes = [IsAuthenticated, IsVendor]
 
@@ -240,29 +294,32 @@ class PaymentInitiateView(APIView):
         summary='Initiate Razorpay payment for a plan (vendor only)',
         description=(
             'Creates a Razorpay order for the selected plan price.\n\n'
-            'The app uses the returned `order_id` and `razorpay_key_id` to open '
-            'the Razorpay checkout SDK. After payment succeeds call **POST /billing/payment/verify/**.\n\n'
+            'If a coupon_code is provided and reduces price to 0, returns a direct subscription '
+            'instead of a Razorpay order (field `coupon_free: true`).\n\n'
             '**Dev mode:** returns a mock order — no real payment processed.'
         ),
         request=inline_serializer('PaymentInitiateRequest', fields={
-            'plan_name': s.CharField(help_text='Plan slug: basic | premium'),
+            'plan_name':   s.CharField(help_text='Plan slug: basic | premium'),
+            'coupon_code': s.CharField(required=False, help_text='Optional coupon code'),
         }),
         responses={
             200: OpenApiResponse(
                 response=inline_serializer('PaymentInitiateResponse', fields={
-                    'order_id':       s.CharField(),
-                    'amount':         s.IntegerField(help_text='Amount in paise (₹×100)'),
-                    'currency':       s.CharField(),
-                    'plan_name':      s.CharField(),
-                    'receipt':        s.CharField(),
+                    'order_id':        s.CharField(),
+                    'amount':          s.IntegerField(help_text='Amount in paise (₹×100)'),
+                    'currency':        s.CharField(),
+                    'plan_name':       s.CharField(),
+                    'receipt':         s.CharField(),
                     'razorpay_key_id': s.CharField(),
+                    'coupon_free':     s.BooleanField(help_text='True if coupon made it free — no Razorpay needed'),
                 })
             ),
-            400: OpenApiResponse(description='Free plan or invalid plan name'),
+            400: OpenApiResponse(description='Invalid plan or coupon'),
         },
         examples=[
             OpenApiExample('Initiate Basic',   request_only=True, value={'plan_name': 'basic'}),
             OpenApiExample('Initiate Premium', request_only=True, value={'plan_name': 'premium'}),
+            OpenApiExample('Coupon free',      request_only=True, value={'plan_name': 'basic', 'coupon_code': 'NEARSPOT100'}),
         ],
     )
     def post(self, request):
@@ -271,28 +328,44 @@ class PaymentInitiateView(APIView):
                 {'error': 'no_store', 'message': 'You do not have a store yet.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        plan_name = (request.data.get('plan_name') or '').strip().lower()
+        plan_name   = (request.data.get('plan_name')   or '').strip().lower()
+        coupon_code = (request.data.get('coupon_code') or '').strip()
+
         try:
             plan = Plan.objects.get(name=plan_name, is_active=True)
         except Plan.DoesNotExist:
             return Response(
-                {'error': 'not_found', 'message': f'Plan "{plan_name}" not found. Valid paid plans: basic, premium.'},
+                {'error': 'not_found', 'message': f'Plan "{plan_name}" not found.'},
                 status=status.HTTP_404_NOT_FOUND,
             )
-        if plan.price <= 0:
-            return Response(
-                {'error': 'validation_error', 'message': 'Free plan requires no payment. Use POST /billing/subscribe/ directly.'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
 
-        store = request.user.store
+        coupon = None
+        if coupon_code:
+            coupon, err = BillingService.validate_coupon(coupon_code, plan)
+            if coupon is None:
+                return Response({'error': 'invalid_coupon', 'message': err}, status=status.HTTP_400_BAD_REQUEST)
+
+        final_price = BillingService.apply_discount(plan.price, coupon)
+
+        # Coupon makes it free — subscribe directly, no Razorpay needed
+        if final_price == 0:
+            store = request.user.store
+            sub   = BillingService.subscribe(store, plan, coupon=coupon)
+            return Response({
+                'coupon_free':  True,
+                'plan_name':    plan_name,
+                'subscription': SubscriptionSerializer(sub).data,
+            })
+
+        store   = request.user.store
         receipt = f'store_{str(store.id)[:8]}_{plan_name}_{int(timezone.now().timestamp())}'
-        order = RazorpayService.create_order(
-            amount_inr=plan.price,
+        order   = RazorpayService.create_order(
+            amount_inr=final_price,
             receipt=receipt,
             notes={'store_id': str(store.id), 'plan': plan_name},
         )
         return Response({
+            'coupon_free':     False,
             'order_id':        order['id'],
             'amount':          order['amount'],
             'currency':        order['currency'],

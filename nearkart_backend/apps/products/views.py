@@ -19,6 +19,7 @@ import rest_framework.serializers as s
 
 from core.logging import log_event
 from core.permissions import IsVendor, IsStoreOwner
+from apps.billing.services import BillingService
 from core.utils.cache import CacheService
 from core.utils.upload_tracker import UploadTracker
 from .models import Product, ProductVariant, ProductImage, StockWatchlist, StockMovementReason, ProductReview
@@ -218,6 +219,12 @@ class ProductCreateView(APIView):
             return Response(
                 {'error': 'validation_error', 'message': 'Create a store first before adding products.'},
                 status=status.HTTP_400_BAD_REQUEST,
+            )
+        allowed, msg = BillingService.check_product_limit(request.user.store)
+        if not allowed:
+            return Response(
+                {'error': 'subscription_required', 'message': msg},
+                status=status.HTTP_403_FORBIDDEN,
             )
         upload_allowed, upload_count = UploadTracker.check_and_increment(
             str(request.user.id),

@@ -1,8 +1,7 @@
 """
 NearKart — Billing Models
-Plan, Subscription, Transaction
+Plan, Subscription, Transaction, Coupon
 """
-from django.conf import settings
 from django.db import models
 
 from core.models import BaseModel
@@ -78,3 +77,21 @@ class Transaction(BaseModel):
 
     def __str__(self):
         return f'{self.store.name} — {self.type} ₹{self.amount}'
+
+
+class Coupon(BaseModel):
+    """Discount coupon — 100% off = free subscription without payment."""
+    code             = models.CharField(max_length=50, unique=True, db_index=True)
+    discount_percent = models.PositiveIntegerField(default=100)          # 1–100; 100 = free
+    applicable_plans = models.ManyToManyField(Plan, blank=True,          # empty = all plans
+                                              related_name='coupons')
+    max_uses         = models.PositiveIntegerField(default=0)            # 0 = unlimited
+    used_count       = models.PositiveIntegerField(default=0)
+    expires_at       = models.DateTimeField(null=True, blank=True)
+    is_active        = models.BooleanField(default=True)
+
+    class Meta:
+        db_table = 'billing_coupons'
+
+    def __str__(self):
+        return f'{self.code} ({self.discount_percent}% off)'

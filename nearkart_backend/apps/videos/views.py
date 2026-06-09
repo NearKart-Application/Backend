@@ -30,6 +30,7 @@ from core.logging import log_event
 from core.permissions import IsVendor
 from core.utils.cache import CacheService
 from core.utils.upload_tracker import UploadTracker
+from apps.billing.services import BillingService
 from .models import Video, VideoProductTag
 from .serializers import (
     VideoSerializer, VideoUploadRequestSerializer,
@@ -80,6 +81,12 @@ class VideoUploadRequestView(APIView):
             return Response(
                 {'error': 'validation_error', 'message': 'Create a store first before uploading videos.'},
                 status=status.HTTP_400_BAD_REQUEST,
+            )
+        allowed, msg = BillingService.check_video_limit(request.user.store)
+        if not allowed:
+            return Response(
+                {'error': 'subscription_required', 'message': msg},
+                status=status.HTTP_403_FORBIDDEN,
             )
         upload_allowed, upload_count = UploadTracker.check_and_increment(
             str(request.user.id),

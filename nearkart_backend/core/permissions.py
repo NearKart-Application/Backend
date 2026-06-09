@@ -78,3 +78,20 @@ class IsStoreOwner(BasePermission):
         if hasattr(obj, 'store'):
             return obj.store.owner == request.user
         return False
+
+
+class IsVendorSubscribed(BasePermission):
+    """Vendor must have an active (non-expired) subscription."""
+    message = 'An active subscription is required. Please subscribe to a plan in Billing & Plans.'
+
+    def has_permission(self, request, view):
+        from django.utils import timezone
+        if not (request.user and request.user.is_authenticated and request.user.role == 'vendor'):
+            return False
+        if not hasattr(request.user, 'store'):
+            return False
+        try:
+            sub = request.user.store.subscription
+            return sub.is_active and sub.expires_at > timezone.now()
+        except Exception:
+            return False

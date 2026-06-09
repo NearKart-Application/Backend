@@ -8,31 +8,22 @@ from apps.billing.models import Plan
 
 PLANS = [
     {
-        'name':          Plan.SLUG_FREE,
-        'display_name':  'Free Plan',
-        'price':         '0.00',
-        'duration_days': 30,
-        'video_limit':   3,
-        'product_limit': 10,
-        'description':   'Up to 3 videos and 10 products. No payment required.',
-    },
-    {
         'name':          Plan.SLUG_BASIC,
         'display_name':  'Basic Plan',
-        'price':         '499.00',
+        'price':         '299.00',
         'duration_days': 30,
         'video_limit':   20,
-        'product_limit': 50,
-        'description':   'Up to 20 videos and 50 products. ₹499/month.',
+        'product_limit': 0,
+        'description':   'Full inventory, your own website, store on map, offer cards, customer chat, reservations, group deals and analytics.',
     },
     {
         'name':          Plan.SLUG_PREMIUM,
         'display_name':  'Premium Plan',
-        'price':         '999.00',
+        'price':         '599.00',
         'duration_days': 30,
         'video_limit':   0,
         'product_limit': 0,
-        'description':   'Unlimited videos and products. ₹999/month.',
+        'description':   'Everything in Basic plus verified badge, priority in search results, unlimited videos and advanced analytics.',
     },
 ]
 
