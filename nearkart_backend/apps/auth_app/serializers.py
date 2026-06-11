@@ -20,8 +20,9 @@ class OTPSendSerializer(serializers.Serializer):
 
 
 class OTPVerifySerializer(serializers.Serializer):
-    phone_number = serializers.CharField(max_length=15)
-    otp = serializers.CharField(min_length=6, max_length=6)
+    phone_number  = serializers.CharField(max_length=15)
+    otp           = serializers.CharField(min_length=6, max_length=6)
+    referral_code = serializers.CharField(max_length=16, required=False, allow_blank=True, default='')
 
     def validate_phone_number(self, value):
         return re.sub(r'\s+', '', value)

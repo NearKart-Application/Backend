@@ -2,6 +2,7 @@
 NearKart — Admin Panel Views
 """
 import logging
+from decimal import Decimal, InvalidOperation
 from django.db.models import Count, Sum, Q
 from django.utils import timezone
 
@@ -9,7 +10,8 @@ from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, IsAdminUser, AllowAny
-from drf_spectacular.utils import extend_schema, OpenApiParameter
+from drf_spectacular.utils import extend_schema, inline_serializer, OpenApiParameter
+from rest_framework import serializers as s
 from drf_spectacular.types import OpenApiTypes
 
 from core.permissions import IsAdmin, IsMasterAdmin
@@ -45,6 +47,15 @@ def _city_q(cities: list, *field_paths: str):
     return q
 
 
+def _in_scope(user, locality: str) -> bool:
+    """True if master admin, or if the locality matches any of the admin's cities."""
+    cities = _city_scope(user)
+    if not cities:
+        return True
+    locality = (locality or '').lower()
+    return any(c.lower() in locality for c in cities)
+
+
 class PlatformStatsView(APIView):
     """GET /admin-panel/stats/ — platform-wide aggregated statistics."""
     permission_classes = [IsAuthenticated, IsAdminUser]
@@ -56,44 +67,64 @@ class PlatformStatsView(APIView):
         responses={200: OpenApiTypes.OBJECT},
     )
     def get(self, request):
-        user_counts = User.objects.aggregate(
-            total     = Count('id'),
-            vendors   = Count('id', filter=Q(role='vendor')),
-            customers = Count('id', filter=Q(role='customer')),
-            active    = Count('id', filter=Q(is_active=True)),
-        )
+        cities = _city_scope(request.user)
 
-        store_counts = Store.objects.aggregate(
+        store_qs = Store.objects.all()
+        if cities:
+            store_qs = store_qs.filter(_city_q(cities, 'locality', 'address'))
+
+        store_ids = store_qs.values_list('id', flat=True)
+
+        store_counts = store_qs.aggregate(
             total    = Count('id'),
             active   = Count('id', filter=Q(is_active=True)),
             verified = Count('id', filter=Q(is_verified=True)),
             open     = Count('id', filter=Q(is_open=True)),
         )
 
-        video_counts = Video.objects.aggregate(
+        vendor_qs = User.objects.filter(role='vendor', stores__id__in=store_ids).distinct()
+        if cities:
+            customer_qs  = User.objects.filter(role='customer').filter(_city_q(cities, 'location_city')).distinct()
+            user_total   = vendor_qs.count() + customer_qs.count()
+            user_active  = vendor_qs.filter(is_active=True).count() + customer_qs.filter(is_active=True).count()
+        else:
+            user_counts  = User.objects.aggregate(
+                total     = Count('id'),
+                vendors   = Count('id', filter=Q(role='vendor')),
+                customers = Count('id', filter=Q(role='customer')),
+                active    = Count('id', filter=Q(is_active=True)),
+            )
+            user_total   = user_counts['total']
+            user_active  = user_counts['active']
+            customer_qs  = User.objects.filter(role='customer')
+
+        video_qs = Video.objects.filter(store_id__in=store_ids)
+        video_counts = video_qs.aggregate(
             total      = Count('id'),
             ready      = Count('id', filter=Q(status='ready')),
             total_views= Sum('view_count'),
             total_likes= Sum('like_count'),
         )
 
-        product_count = Product.objects.filter(status='active').count()
-        pending_website_requests = WebsiteRequest.objects.filter(status='pending').count()
+        product_count = Product.objects.filter(status='active', store_id__in=store_ids).count()
+        pending_website_requests = WebsiteRequest.objects.filter(
+            status='pending', store_id__in=store_ids
+        ).count()
 
         revenue = Transaction.objects.filter(
-            type='subscription'
+            type='subscription', store_id__in=store_ids
         ).aggregate(total=Sum('amount'))['total'] or 0
 
         topup_total = Transaction.objects.filter(
-            type='topup'
+            type='topup', store_id__in=store_ids
         ).aggregate(total=Sum('amount'))['total'] or 0
 
         return Response({
             'users': {
-                'total':     user_counts['total'],
-                'vendors':   user_counts['vendors'],
-                'customers': user_counts['customers'],
-                'active':    user_counts['active'],
+                'total':     user_total,
+                'vendors':   vendor_qs.count(),
+                'customers': customer_qs.count(),
+                'active':    user_active,
             },
             'stores': {
                 'total':    store_counts['total'],
@@ -180,6 +211,9 @@ class AdminStoreUpdateView(APIView):
         except Store.DoesNotExist:
             return Response({'error': 'not_found', 'message': 'Store not found.'}, status=404)
 
+        if not _in_scope(request.user, f'{store.locality} {store.address}'):
+            return Response({'error': 'forbidden', 'message': 'Store is outside your assigned city.'}, status=403)
+
         serializer = AdminStoreUpdateSerializer(store, data=request.data, partial=True)
         if not serializer.is_valid():
             return Response(serializer.errors, status=400)
@@ -210,11 +244,9 @@ class AdminUserListView(APIView):
 
         cities = _city_scope(request.user)
         if cities:
-            # Location admins see vendors with stores in any of their assigned cities, plus all admins.
-            qs = qs.filter(
-                _city_q(cities, 'stores__locality') & Q(role='vendor') |
-                Q(role__in=('admin', 'master_admin'))
-            ).distinct()
+            city_vendors   = _city_q(cities, 'stores__locality', 'stores__address') & Q(role='vendor')
+            city_customers = _city_q(cities, 'location_city') & Q(role='customer')
+            qs = qs.filter(city_vendors | city_customers).distinct()
 
         search = request.query_params.get('search', '').strip()
         if search:
@@ -249,12 +281,25 @@ class AdminUserToggleActiveView(APIView):
     )
     def post(self, request, user_id):
         try:
-            user = User.objects.get(id=user_id)
+            user = User.objects.select_related('store').get(id=user_id)
         except User.DoesNotExist:
             return Response({'error': 'not_found', 'message': 'User not found.'}, status=404)
 
         if user.id == request.user.id:
             return Response({'error': 'forbidden', 'message': 'Cannot deactivate your own account.'}, status=400)
+
+        cities = _city_scope(request.user)
+        if cities:
+            user_locality = ''
+            if user.role == 'vendor':
+                try:
+                    user_locality = user.store.locality or user.store.address
+                except Exception:
+                    pass
+            else:
+                user_locality = user.location_city or ''
+            if not _in_scope(request.user, user_locality):
+                return Response({'error': 'forbidden', 'message': 'User is outside your assigned city.'}, status=403)
 
         user.is_active = not user.is_active
         user.save(update_fields=['is_active'])
@@ -301,6 +346,12 @@ class AdminBannerListCreateView(APIView):
 
     def get(self, request):
         banners = PromoBanner.objects.all().order_by('display_order', '-created_at')
+        cities = _city_scope(request.user)
+        if cities:
+            city_q = Q(target_city='')
+            for c in cities:
+                city_q |= Q(target_city__icontains=c)
+            banners = banners.filter(city_q)
         return Response({'count': banners.count(), 'results': [_banner_to_dict(b) for b in banners]})
 
     def post(self, request):
@@ -512,6 +563,9 @@ class AdminProductDetailView(APIView):
         except Product.DoesNotExist:
             return Response({'error': 'not_found', 'message': 'Product not found.'}, status=404)
 
+        if not _in_scope(request.user, f'{product.store.locality} {product.store.address}'):
+            return Response({'error': 'forbidden', 'message': 'Product is outside your assigned city.'}, status=403)
+
         allowed_fields = ['status', 'is_visible']
         data = {k: v for k, v in request.data.items() if k in allowed_fields}
         serializer = AdminProductSerializer(product, data=data, partial=True)
@@ -519,6 +573,7 @@ class AdminProductDetailView(APIView):
             return Response(serializer.errors, status=400)
 
         serializer.save()
+        _log_action(request.user, 'update_product', 'product', str(product.id), product.name, str(data))
         logger.info(f'[admin] product {product.id} updated by staff {request.user.id}: {data}')
         return Response(AdminProductSerializer(product).data)
 
@@ -540,6 +595,10 @@ class AdminWebsiteRequestListView(APIView):
     )
     def get(self, request):
         qs = WebsiteRequest.objects.select_related('store').order_by('-created_at')
+
+        cities = _city_scope(request.user)
+        if cities:
+            qs = qs.filter(_city_q(cities, 'store__locality', 'store__address'))
 
         status_filter = request.query_params.get('status', '').strip()
         if status_filter:
@@ -565,6 +624,9 @@ class AdminWebsiteRequestUpdateView(APIView):
             wr = WebsiteRequest.objects.select_related('store').get(id=request_id)
         except WebsiteRequest.DoesNotExist:
             return Response({'error': 'not_found', 'message': 'Website request not found.'}, status=404)
+
+        if not _in_scope(request.user, f'{wr.store.locality} {wr.store.address}'):
+            return Response({'error': 'forbidden', 'message': 'Request is outside your assigned city.'}, status=403)
 
         new_status = request.data.get('status', '').strip()
         if new_status and new_status not in (WebsiteRequest.STATUS_PENDING, WebsiteRequest.STATUS_APPROVED, WebsiteRequest.STATUS_REJECTED):
@@ -631,12 +693,25 @@ class AdminUserSuspendView(APIView):
     )
     def post(self, request, user_id):
         try:
-            user = User.objects.get(id=user_id)
+            user = User.objects.select_related('store').get(id=user_id)
         except User.DoesNotExist:
             return Response({'error': 'not_found', 'message': 'User not found.'}, status=404)
 
         if user.id == request.user.id:
             return Response({'error': 'forbidden', 'message': 'Cannot suspend your own account.'}, status=400)
+
+        cities = _city_scope(request.user)
+        if cities:
+            user_locality = ''
+            if user.role == 'vendor':
+                try:
+                    user_locality = user.store.locality or user.store.address
+                except Exception:
+                    pass
+            else:
+                user_locality = user.location_city or ''
+            if not _in_scope(request.user, user_locality):
+                return Response({'error': 'forbidden', 'message': 'User is outside your assigned city.'}, status=403)
 
         suspend = bool(request.data.get('suspend', True))
         reason  = request.data.get('reason', '').strip()
@@ -675,6 +750,9 @@ class AdminStoreVideoListView(APIView):
         except Store.DoesNotExist:
             return Response({'error': 'not_found', 'message': 'Store not found.'}, status=404)
 
+        if not _in_scope(request.user, f'{store.locality} {store.address}'):
+            return Response({'error': 'forbidden', 'message': 'Store is outside your assigned city.'}, status=403)
+
         videos = Video.objects.filter(store=store).order_by('-created_at')
         data = [_video_to_dict(v) for v in videos]
         return Response({'count': len(data), 'store_id': str(store.id), 'store_name': store.name, 'results': data})
@@ -696,6 +774,9 @@ class AdminDeleteVideoView(APIView):
             video = Video.objects.select_related('store').get(id=video_id)
         except Video.DoesNotExist:
             return Response({'error': 'not_found', 'message': 'Video not found.'}, status=404)
+
+        if not _in_scope(request.user, f'{video.store.locality} {video.store.address}'):
+            return Response({'error': 'forbidden', 'message': 'Video is outside your assigned city.'}, status=403)
 
         store_name = video.store.name
         title      = video.title
@@ -719,7 +800,12 @@ class AdminActivityLogView(APIView):
         responses={200: OpenApiTypes.OBJECT},
     )
     def get(self, request):
-        qs = AdminActivityLog.objects.select_related('admin').order_by('-created_at')[:100]
+        cities = _city_scope(request.user)
+        log_qs = AdminActivityLog.objects.select_related('admin').order_by('-created_at')
+        if cities:
+            # City admins see only their own actions
+            log_qs = log_qs.filter(admin=request.user)
+        qs = log_qs[:100]
         results = [
             {
                 'id':           str(e.id),
@@ -1060,3 +1146,465 @@ def _admin_user_dict(u: User) -> dict:
         'admin_assigned_city':  u.admin_assigned_city,
         'created_at':           u.created_at.isoformat(),
     }
+
+
+# ── Vendor Coupon Management ─────────────────────────────────────────────────
+
+
+import random
+import string
+
+from apps.billing.models import Coupon, Plan as BillingPlan, CouponRedemption
+from apps.notifications.services import NotificationService
+
+
+def _generate_coupon_code(store_name: str) -> str:
+    """Auto-generate: NS-{STORENAME_6CHARS}-{RANDOM6}"""
+    name_part   = ''.join(c for c in store_name.upper() if c.isalnum())[:6].ljust(6, 'X')
+    random_part = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+    return f'NS-{name_part}-{random_part}'
+
+
+def _coupon_dict(c: Coupon, include_redemptions: bool = False) -> dict:
+    plans = list(c.applicable_plans.values('name', 'display_name'))
+    data  = {
+        'id':               str(c.id),
+        'code':             c.code,
+        'discount_percent': c.discount_percent,
+        'plans':            plans,
+        'max_uses':         c.max_uses,
+        'used_count':       c.used_count,
+        'expires_at':       c.expires_at.isoformat() if c.expires_at else None,
+        'is_active':        c.is_active,
+        'is_vendor_specific': c.is_vendor_specific,
+        'target_store':     {
+            'id':   str(c.target_store.id),
+            'name': c.target_store.name,
+        } if c.target_store else None,
+        'created_by': {
+            'id':        str(c.created_by.id),
+            'full_name': c.created_by.full_name,
+            'role':      c.created_by.role,
+        } if c.created_by else None,
+        'created_at': c.created_at.isoformat(),
+        'status':     'availed' if c.used_count > 0 and c.max_uses == 1 else
+                      ('expired' if (c.expires_at and c.expires_at < timezone.now()) or not c.is_active else 'active'),
+    }
+    if include_redemptions:
+        redemptions = []
+        for r in c.redemptions.select_related('store', 'subscription').all():
+            redemptions.append({
+                'store':          {'id': str(r.store.id), 'name': r.store.name},
+                'plan_name':      r.plan_name,
+                'plan_display':   r.plan_display,
+                'original_price': str(r.original_price),
+                'discount_given': str(r.discount_given),
+                'price_paid':     str(r.price_paid),
+                'redeemed_at':    r.redeemed_at.isoformat(),
+            })
+        data['redemptions'] = redemptions
+    return data
+
+
+class AdminCouponListCreateView(APIView):
+    """
+    GET  /admin-panel/coupons/  — list all vendor-specific coupons
+    POST /admin-panel/coupons/  — create a new vendor-specific coupon
+    """
+    permission_classes = [IsAuthenticated, IsAdmin]
+
+    @extend_schema(
+        tags=['Admin Panel'],
+        summary='List vendor-specific coupons (admin)',
+        parameters=[
+            OpenApiParameter('status', str, description='Filter: active | availed | expired'),
+        ],
+        responses={200: OpenApiTypes.OBJECT},
+    )
+    def get(self, request):
+        cities = _city_scope(request.user)
+        qs     = Coupon.objects.filter(
+            target_store__isnull=False
+        ).select_related(
+            'target_store', 'created_by'
+        ).prefetch_related('applicable_plans').order_by('-created_at')
+
+        if cities:
+            qs = qs.filter(_city_q(cities, 'target_store__locality', 'target_store__address'))
+
+        status_filter = request.query_params.get('status', '').lower()
+        now = timezone.now()
+        if status_filter == 'active':
+            qs = qs.filter(is_active=True).filter(
+                Q(expires_at__isnull=True) | Q(expires_at__gt=now)
+            ).filter(Q(max_uses=0) | Q(used_count__lt=1))
+        elif status_filter == 'availed':
+            qs = qs.filter(used_count__gte=1, max_uses=1)
+        elif status_filter == 'expired':
+            qs = qs.filter(Q(is_active=False) | Q(expires_at__lte=now))
+
+        return Response([_coupon_dict(c) for c in qs])
+
+    @extend_schema(
+        tags=['Admin Panel'],
+        summary='Create a vendor-specific coupon (admin)',
+        request=inline_serializer('CreateVendorCouponRequest', fields={
+            'store_id':         s.UUIDField(help_text='Target store ID'),
+            'plan_name':        s.CharField(help_text='Plan slug: basic | premium (or empty for all)'),
+            'discount_percent': s.IntegerField(help_text='Discount 1-100; 100 = free'),
+            'expires_at':       s.DateTimeField(required=False, help_text='Optional expiry datetime'),
+        }),
+        responses={201: OpenApiTypes.OBJECT},
+    )
+    def post(self, request):
+        store_id         = (request.data.get('store_id')         or '').strip()
+        plan_name        = (request.data.get('plan_name')         or '').strip().lower()
+        discount_percent = request.data.get('discount_percent', 100)
+        expires_at_raw   = request.data.get('expires_at')
+
+        if not store_id:
+            return Response({'error': 'validation_error', 'message': 'store_id is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            discount_percent = int(discount_percent)
+            if not (1 <= discount_percent <= 100):
+                raise ValueError()
+        except (ValueError, TypeError):
+            return Response({'error': 'validation_error', 'message': 'discount_percent must be 1–100.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            target_store = Store.objects.get(id=store_id)
+        except (Store.DoesNotExist, Exception):
+            return Response({'error': 'not_found', 'message': 'Store not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        if not _in_scope(request.user, f'{target_store.locality} {target_store.address}'):
+            return Response({'error': 'forbidden', 'message': 'Store is outside your assigned city.'}, status=status.HTTP_403_FORBIDDEN)
+
+        plan_obj = None
+        if plan_name:
+            try:
+                plan_obj = BillingPlan.objects.get(name=plan_name, is_active=True)
+            except BillingPlan.DoesNotExist:
+                return Response({'error': 'not_found', 'message': f'Plan "{plan_name}" not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        expires_at = None
+        if expires_at_raw:
+            from django.utils.dateparse import parse_datetime
+            expires_at = parse_datetime(str(expires_at_raw))
+            if expires_at is None:
+                return Response({'error': 'validation_error', 'message': 'Invalid expires_at format.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        code = _generate_coupon_code(target_store.name)
+        coupon = Coupon.objects.create(
+            code=code,
+            discount_percent=discount_percent,
+            max_uses=1,          # single-use vendor coupon
+            target_store=target_store,
+            created_by=request.user,
+            expires_at=expires_at,
+            is_active=True,
+        )
+        if plan_obj:
+            coupon.applicable_plans.set([plan_obj])
+
+        # Send push notification to vendor
+        plan_display = plan_obj.display_name if plan_obj else 'Any Plan'
+        try:
+            NotificationService.notify_vendor_coupon(
+                target_store.owner, plan_display, discount_percent, code,
+            )
+        except Exception as exc:
+            logger.warning('Failed to send vendor coupon notification: %s', exc)
+
+        return Response(_coupon_dict(coupon), status=status.HTTP_201_CREATED)
+
+
+class AdminCouponDetailView(APIView):
+    """
+    GET    /admin-panel/coupons/{id}/ — full detail with redemption audit trail
+    DELETE /admin-panel/coupons/{id}/ — deactivate (only if not yet availed)
+    """
+    permission_classes = [IsAuthenticated, IsAdmin]
+
+    def _get_coupon(self, coupon_id, user):
+        try:
+            coupon = Coupon.objects.select_related(
+                'target_store', 'created_by'
+            ).prefetch_related('applicable_plans', 'redemptions__store').get(
+                id=coupon_id,
+                target_store__isnull=False,
+            )
+        except (Coupon.DoesNotExist, Exception):
+            return None
+
+        cities = _city_scope(user)
+        if cities and coupon.target_store:
+            store_locality = f'{coupon.target_store.locality} {coupon.target_store.address}'
+            if not _in_scope(user, store_locality):
+                return None
+        return coupon
+
+    @extend_schema(
+        tags=['Admin Panel'],
+        summary='Vendor coupon detail with audit trail (admin)',
+        responses={200: OpenApiTypes.OBJECT},
+    )
+    def get(self, request, coupon_id):
+        coupon = self._get_coupon(coupon_id, request.user)
+        if not coupon:
+            return Response({'error': 'not_found', 'message': 'Coupon not found.'}, status=status.HTTP_404_NOT_FOUND)
+        return Response(_coupon_dict(coupon, include_redemptions=True))
+
+    @extend_schema(
+        tags=['Admin Panel'],
+        summary='Deactivate a vendor coupon (admin) — only if not yet used',
+        responses={200: OpenApiTypes.OBJECT},
+    )
+    def delete(self, request, coupon_id):
+        coupon = self._get_coupon(coupon_id, request.user)
+        if not coupon:
+            return Response({'error': 'not_found', 'message': 'Coupon not found.'}, status=status.HTTP_404_NOT_FOUND)
+        if coupon.used_count > 0:
+            return Response({'error': 'already_used', 'message': 'This coupon has already been redeemed and cannot be deleted.'}, status=status.HTTP_400_BAD_REQUEST)
+        coupon.is_active = False
+        coupon.save(update_fields=['is_active'])
+        return Response({'message': 'Coupon deactivated.'})
+
+
+class AdminVendorSearchView(APIView):
+    """GET /admin-panel/vendors/search/?q=name — search vendors by store name/phone for coupon targeting."""
+    permission_classes = [IsAuthenticated, IsAdmin]
+
+    @extend_schema(
+        tags=['Admin Panel'],
+        summary='Search vendors/stores for coupon targeting (admin)',
+        parameters=[
+            OpenApiParameter('q', str, description='Search by store name or owner phone'),
+        ],
+        responses={200: OpenApiTypes.OBJECT},
+    )
+    def get(self, request):
+        q      = (request.query_params.get('q') or '').strip()
+        cities = _city_scope(request.user)
+
+        qs = Store.objects.select_related('owner').filter(is_active=True)
+        if cities:
+            qs = qs.filter(_city_q(cities, 'locality', 'address'))
+        if q:
+            qs = qs.filter(
+                Q(name__icontains=q) |
+                Q(owner__phone_number__icontains=q) |
+                Q(owner__full_name__icontains=q)
+            )
+
+        return Response([
+            {
+                'store_id':    str(s.id),
+                'store_name':  s.name,
+                'city':        s.locality or '',
+                'owner_name':  s.owner.full_name,
+                'owner_phone': s.owner.phone_number,
+                'is_verified': s.is_verified,
+            }
+            for s in qs[:20]
+        ])
+
+
+# ── Plan Management (master admin only) ──────────────────────────────────────
+
+def _plan_dict(plan):
+    return {
+        'name':          plan.name,
+        'display_name':  plan.display_name,
+        'price':         str(plan.price),
+        'duration_days': plan.duration_days,
+        'video_limit':   plan.video_limit,
+        'product_limit': plan.product_limit,
+        'description':   plan.description,
+        'is_active':     plan.is_active,
+    }
+
+
+class AdminPlanListView(APIView):
+    """GET /admin-panel/plans/ — list all plans (master admin only)."""
+    permission_classes = [IsMasterAdmin]
+
+    @extend_schema(responses={200: OpenApiTypes.OBJECT})
+    def get(self, request):
+        plans = BillingPlan.objects.all().order_by('price')
+        return Response([_plan_dict(p) for p in plans])
+
+
+class AdminPlanDetailView(APIView):
+    """PATCH /admin-panel/plans/{slug}/ — update plan fields (master admin only)."""
+    permission_classes = [IsMasterAdmin]
+
+    EDITABLE = {'display_name', 'price', 'duration_days', 'video_limit', 'product_limit', 'description', 'is_active'}
+
+    @extend_schema(
+        request=inline_serializer('PlanUpdateRequest', fields={
+            'display_name':  s.CharField(required=False),
+            'price':         s.DecimalField(max_digits=8, decimal_places=2, required=False),
+            'duration_days': s.IntegerField(required=False),
+            'video_limit':   s.IntegerField(required=False, help_text='0 = unlimited'),
+            'product_limit': s.IntegerField(required=False, help_text='0 = unlimited'),
+            'description':   s.CharField(required=False),
+            'is_active':     s.BooleanField(required=False),
+        }),
+        responses={200: OpenApiTypes.OBJECT},
+    )
+    def patch(self, request, slug):
+        try:
+            plan = BillingPlan.objects.get(name=slug)
+        except BillingPlan.DoesNotExist:
+            return Response({'error': 'not_found', 'message': f'Plan "{slug}" not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        updated = []
+        for field in self.EDITABLE:
+            if field in request.data:
+                setattr(plan, field, request.data[field])
+                updated.append(field)
+
+        if not updated:
+            return Response({'error': 'no_fields', 'message': 'No valid fields provided.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        plan.save(update_fields=updated)
+
+        AdminActivityLog.objects.create(
+            admin=request.user,
+            action='update_plan',
+            target_type='plan',
+            target_id=plan.name,
+            detail=f'Updated plan "{plan.display_name}": {", ".join(updated)}',
+        )
+
+        return Response(_plan_dict(plan))
+
+
+# ── Referral Config Management ────────────────────────────────────────────────
+
+from apps.billing.models import ReferralConfig
+
+
+def _referral_config_dict(cfg: ReferralConfig) -> dict:
+    return {
+        'id':                  str(cfg.id),
+        'city':                cfg.city,
+        'vendor_reward':       str(cfg.vendor_reward),
+        'customer_reward':     str(cfg.customer_reward),
+        'vendor_reward_min':   str(cfg.vendor_reward_min),
+        'vendor_reward_max':   str(cfg.vendor_reward_max),
+        'customer_reward_min': str(cfg.customer_reward_min),
+        'customer_reward_max': str(cfg.customer_reward_max),
+    }
+
+
+class AdminReferralConfigListView(APIView):
+    """
+    GET  /admin-panel/referral-config/  — list configs (city-scoped for city admin)
+    POST /admin-panel/referral-config/  — create city config
+    """
+    permission_classes = [IsAuthenticated, IsAdmin]
+
+    def get(self, request):
+        cities = _city_scope(request.user)
+        if cities:
+            qs = ReferralConfig.objects.filter(Q(city='') | Q(city__in=cities))
+        else:
+            qs = ReferralConfig.objects.all()
+        return Response([_referral_config_dict(c) for c in qs.order_by('city')])
+
+    def post(self, request):
+        city = (request.data.get('city') or '').strip()
+        if not city and request.user.role != 'master_admin':
+            return Response(
+                {'error': 'forbidden', 'message': 'Only master admin can edit the global config.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        cities = _city_scope(request.user)
+        if cities and city not in cities:
+            return Response(
+                {'error': 'forbidden', 'message': 'You can only manage your assigned cities.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        if ReferralConfig.objects.filter(city__iexact=city).exists():
+            return Response(
+                {'error': 'conflict', 'message': f'Config for "{city or "global"}" already exists.'},
+                status=status.HTTP_409_CONFLICT,
+            )
+        try:
+            global_cfg = ReferralConfig.objects.get(city='')
+        except ReferralConfig.DoesNotExist:
+            global_cfg = None
+        cfg = ReferralConfig.objects.create(
+            city=city,
+            vendor_reward=Decimal(str(request.data.get('vendor_reward', 50))),
+            customer_reward=Decimal(str(request.data.get('customer_reward', 20))),
+            vendor_reward_min=global_cfg.vendor_reward_min if global_cfg else Decimal('10'),
+            vendor_reward_max=global_cfg.vendor_reward_max if global_cfg else Decimal('200'),
+            customer_reward_min=global_cfg.customer_reward_min if global_cfg else Decimal('10'),
+            customer_reward_max=global_cfg.customer_reward_max if global_cfg else Decimal('200'),
+        )
+        return Response(_referral_config_dict(cfg), status=status.HTTP_201_CREATED)
+
+
+class AdminReferralConfigDetailView(APIView):
+    """
+    GET   /admin-panel/referral-config/<config_id>/  — get config
+    PATCH /admin-panel/referral-config/<config_id>/  — update (range enforced for city admin)
+    """
+    permission_classes = [IsAuthenticated, IsAdmin]
+
+    def _get(self, config_id):
+        try:
+            return ReferralConfig.objects.get(id=config_id)
+        except ReferralConfig.DoesNotExist:
+            return None
+
+    def get(self, request, config_id):
+        cfg = self._get(config_id)
+        if not cfg:
+            return Response({'error': 'not_found'}, status=status.HTTP_404_NOT_FOUND)
+        return Response(_referral_config_dict(cfg))
+
+    def patch(self, request, config_id):
+        cfg = self._get(config_id)
+        if not cfg:
+            return Response({'error': 'not_found'}, status=status.HTTP_404_NOT_FOUND)
+
+        cities = _city_scope(request.user)
+        if cities and cfg.city not in cities:
+            return Response({'error': 'forbidden', 'message': 'Access denied.'}, status=status.HTTP_403_FORBIDDEN)
+
+        is_master = request.user.role == 'master_admin'
+        try:
+            vendor_reward   = Decimal(str(request.data['vendor_reward']))   if 'vendor_reward'   in request.data else None
+            customer_reward = Decimal(str(request.data['customer_reward'])) if 'customer_reward' in request.data else None
+        except (InvalidOperation, ValueError):
+            return Response({'error': 'validation_error', 'message': 'Invalid reward amount.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not is_master:
+            if vendor_reward is not None and not (cfg.vendor_reward_min <= vendor_reward <= cfg.vendor_reward_max):
+                return Response({
+                    'error':   'out_of_range',
+                    'message': f'Vendor reward must be ₹{cfg.vendor_reward_min}–₹{cfg.vendor_reward_max}.',
+                }, status=status.HTTP_400_BAD_REQUEST)
+            if customer_reward is not None and not (cfg.customer_reward_min <= customer_reward <= cfg.customer_reward_max):
+                return Response({
+                    'error':   'out_of_range',
+                    'message': f'Customer reward must be ₹{cfg.customer_reward_min}–₹{cfg.customer_reward_max}.',
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+        if vendor_reward   is not None: cfg.vendor_reward   = vendor_reward
+        if customer_reward is not None: cfg.customer_reward = customer_reward
+
+        if is_master:
+            for field in ('vendor_reward_min', 'vendor_reward_max', 'customer_reward_min', 'customer_reward_max'):
+                if field in request.data:
+                    try:
+                        setattr(cfg, field, Decimal(str(request.data[field])))
+                    except (InvalidOperation, ValueError):
+                        pass
+
+        cfg.save()
+        return Response(_referral_config_dict(cfg))

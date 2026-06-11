@@ -58,7 +58,7 @@ class ProductService:
         from .models import Product
 
         if store is not None:
-            shop_abbr  = _store_abbreviation(store)
+            shop_abbr  = _store_abbreviation(store)[:3]   # cap at 3 to keep code ≤20 chars
             loc_code   = _locality_code(store)
             cat_code   = _CATEGORY_CODES.get(category.lower().strip(), 'GEN')
             prefix     = f'NS-{shop_abbr}-{loc_code}-{cat_code}'
@@ -66,11 +66,11 @@ class ProductService:
             prefix = 'NS'
 
         for _ in range(10):
-            suffix = ''.join(random.choices(string.ascii_uppercase + string.digits, k=5))
+            suffix = ''.join(random.choices(string.ascii_uppercase + string.digits, k=4))
             code = f'{prefix}-{suffix}'
             if not Product.objects.filter(product_code=code).exists():
                 return code
-        suffix = ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
+        suffix = ''.join(random.choices(string.ascii_uppercase + string.digits, k=4))
         return f'{prefix}-{suffix}'
 
     @staticmethod

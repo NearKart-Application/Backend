@@ -13,6 +13,9 @@ from .views import (
     AdminActivityLogView,
     AdminCategoryListCreateView, AdminCategoryDetailView, PublicCategoryListView,
     AdminOfferTemplateListCreateView, AdminOfferTemplateDetailView, PublicOfferTemplateListView,
+    AdminCouponListCreateView, AdminCouponDetailView, AdminVendorSearchView,
+    AdminPlanListView, AdminPlanDetailView,
+    AdminReferralConfigListView, AdminReferralConfigDetailView,
 )
 
 urlpatterns = [
@@ -62,4 +65,17 @@ urlpatterns = [
     path('offer-templates/public/',               PublicOfferTemplateListView.as_view(),     name='offer-templates-public'),
     path('offer-templates/',                      AdminOfferTemplateListCreateView.as_view(), name='admin-offer-template-list'),
     path('offer-templates/<uuid:template_id>/',   AdminOfferTemplateDetailView.as_view(),    name='admin-offer-template-detail'),
+
+    # Vendor-specific coupons
+    path('coupons/',                              AdminCouponListCreateView.as_view(),        name='admin-coupon-list'),
+    path('coupons/<uuid:coupon_id>/',             AdminCouponDetailView.as_view(),            name='admin-coupon-detail'),
+    path('vendors/search/',                       AdminVendorSearchView.as_view(),            name='admin-vendor-search'),
+
+    # Plan management (master admin only)
+    path('plans/',                                AdminPlanListView.as_view(),                name='admin-plan-list'),
+    path('plans/<slug:slug>/',                    AdminPlanDetailView.as_view(),              name='admin-plan-detail'),
+
+    # Referral reward config (admin + master admin)
+    path('referral-config/',                      AdminReferralConfigListView.as_view(),      name='admin-referral-config-list'),
+    path('referral-config/<uuid:config_id>/',     AdminReferralConfigDetailView.as_view(),    name='admin-referral-config-detail'),
 ]

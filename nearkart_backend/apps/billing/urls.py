@@ -3,7 +3,7 @@ from .views import (
     PlanListView, WalletView, TopupView,
     SubscribeView, SubscriptionStatusView, TransactionListView,
     PaymentInitiateView, PaymentVerifyView, PaymentWebhookView,
-    CouponValidateView,
+    CouponValidateView, MyCouponsView, VendorReferralView,
 )
 
 urlpatterns = [
@@ -14,6 +14,8 @@ urlpatterns = [
     path('subscription/',         SubscriptionStatusView.as_view(), name='billing-subscription'),
     path('transactions/',         TransactionListView.as_view(),    name='billing-transactions'),
     path('coupon/validate/',      CouponValidateView.as_view(),     name='billing-coupon-validate'),
+    path('my-coupons/',           MyCouponsView.as_view(),          name='billing-my-coupons'),
+    path('referral/',             VendorReferralView.as_view(),     name='billing-referral'),
     # Razorpay payment flow
     path('payment/initiate/',     PaymentInitiateView.as_view(),    name='billing-payment-initiate'),
     path('payment/verify/',       PaymentVerifyView.as_view(),      name='billing-payment-verify'),

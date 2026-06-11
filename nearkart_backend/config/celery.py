@@ -50,6 +50,18 @@ app.conf.beat_schedule = {
         'task': 'apps.analytics.tasks.send_weekly_digest_emails',
         'schedule': crontab(hour=9, minute=0, day_of_week=1),
     },
+
+    # 💳 BILLING — subscription expiry (2am daily)
+    'expire-subscriptions': {
+        'task': 'billing.expire_subscriptions',
+        'schedule': crontab(hour=2, minute=0),
+    },
+
+    # 🔔 BILLING — notify vendors expiring in 7 or 3 days (8am daily)
+    'notify-expiring-subscriptions': {
+        'task': 'billing.notify_expiring_subscriptions',
+        'schedule': crontab(hour=8, minute=0),
+    },
 }
 
 app.conf.timezone = 'Asia/Kolkata'

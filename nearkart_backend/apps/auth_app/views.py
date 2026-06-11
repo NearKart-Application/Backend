@@ -219,13 +219,23 @@ class OTPVerifyView(APIView):
                 {'error': 'account_suspended', 'message': user.suspension_reason or 'Your account has been temporarily suspended. Please contact support.'},
                 status=status.HTTP_403_FORBIDDEN,
             )
+        # Link referral code for new users only
+        referral_code = (serializer.validated_data.get('referral_code') or '').strip().upper()
+        is_new_user   = user.registered_location is None
+        if referral_code and is_new_user:
+            try:
+                from apps.billing.services import ReferralService
+                ReferralService.link_referred_user(user, referral_code)
+            except Exception:
+                pass  # referral link must never break login
+
         tokens = JWTService.issue_tokens(user)
         log_event('auth', action='login_success', user_id=str(user.id), role=user.role,
-                  phone=str(user.phone_number), is_new=user.registered_location is None)
+                  phone=str(user.phone_number), is_new=is_new_user)
         return Response({
             'message': 'Login successful',
             'user': UserSerializer(user).data,
-            'is_new': user.registered_location is None,
+            'is_new': is_new_user,
             **tokens,
         }, status=status.HTTP_200_OK)
 

@@ -121,20 +121,11 @@ def store2(db, vendor_user2):
 # ── Plans ─────────────────────────────────────────────────────────────────────
 
 @pytest.fixture
-def plan_free(db):
-    return Plan.objects.create(
-        name='free', display_name='Free Plan',
-        price=Decimal('0.00'), duration_days=30,
-        video_limit=3, product_limit=10, is_active=True,
-    )
-
-
-@pytest.fixture
 def plan_basic(db):
     return Plan.objects.create(
         name='basic', display_name='Basic Plan',
-        price=Decimal('499.00'), duration_days=30,
-        video_limit=20, product_limit=50, is_active=True,
+        price=Decimal('299.00'), duration_days=30,
+        video_limit=20, product_limit=0, is_active=True,
     )
 
 
@@ -142,11 +133,11 @@ def plan_basic(db):
 def plan_premium(db):
     return Plan.objects.create(
         name='premium', display_name='Premium Plan',
-        price=Decimal('999.00'), duration_days=30,
+        price=Decimal('499.00'), duration_days=30,
         video_limit=0, product_limit=0, is_active=True,
     )
 
 
 @pytest.fixture
-def all_plans(plan_free, plan_basic, plan_premium):
-    return [plan_free, plan_basic, plan_premium]
+def all_plans(plan_basic, plan_premium):
+    return [plan_basic, plan_premium]

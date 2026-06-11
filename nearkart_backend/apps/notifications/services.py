@@ -227,6 +227,30 @@ class NotificationService:
             data={'store_id': store_id},
         )
 
+    @staticmethod
+    def notify_referral_reward(vendor, amount: str, reward_type: str):
+        type_label = 'vendor signup' if reward_type == 'vendor' else 'customer reservation'
+        NotificationService.send(
+            vendor, NotificationType.REFERRAL_REWARD,
+            title='Referral Reward Earned!',
+            body=f'You earned ₹{amount} for a {type_label} referral. Wallet credited.',
+            data={'amount': amount, 'reward_type': reward_type},
+        )
+
+    @staticmethod
+    def notify_vendor_coupon(vendor, plan_display: str, discount_percent: int, coupon_code: str):
+        """Sent to vendor when admin creates a targeted coupon for their store."""
+        if discount_percent == 100:
+            body = f'Subscribe to {plan_display} for FREE using code {coupon_code}. Tap to activate.'
+        else:
+            body = f'Get {discount_percent}% off on {plan_display}! Use code {coupon_code}. Tap to activate.'
+        NotificationService.send(
+            vendor, NotificationType.VENDOR_COUPON,
+            title='Special Offer Just For You!',
+            body=body,
+            data={'coupon_code': coupon_code, 'action': 'open_billing'},
+        )
+
 
 class SMSService:
 

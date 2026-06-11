@@ -19,7 +19,7 @@ PLANS = [
     {
         'name':          Plan.SLUG_PREMIUM,
         'display_name':  'Premium Plan',
-        'price':         '599.00',
+        'price':         '499.00',
         'duration_days': 30,
         'video_limit':   0,
         'product_limit': 0,

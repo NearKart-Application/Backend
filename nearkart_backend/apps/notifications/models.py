@@ -39,6 +39,12 @@ class NotificationType(models.TextChoices):
     INVOICE_RECEIVED        = 'invoice_received',        'Invoice Received'
     # Loyalty
     LOYALTY                 = 'loyalty',                 'Loyalty Points'
+    # Vendor-specific coupons
+    VENDOR_COUPON           = 'vendor_coupon',           'Vendor Coupon'
+    # Analytics
+    WEEKLY_DIGEST           = 'weekly_digest',           'Weekly Digest'
+    # Referral
+    REFERRAL_REWARD         = 'referral_reward',         'Referral Reward'
 
 
 class Notification(BaseModel):

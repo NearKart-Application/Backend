@@ -1,6 +1,7 @@
 """
 NearKart — Billing Service
 """
+import hashlib
 from decimal import Decimal
 from django.db import transaction as db_transaction
 from django.db.models import F
@@ -8,7 +9,10 @@ from django.utils import timezone
 from datetime import timedelta
 
 from apps.notifications.services import NotificationService
-from .models import Coupon, Plan, Subscription, Transaction
+from .models import (
+    Coupon, CouponRedemption, Plan, Subscription, Transaction,
+    ReferralConfig, ReferralCode, UserReferralLink, VendorReferral,
+)
 
 
 class BillingService:
@@ -38,8 +42,10 @@ class BillingService:
     # ── Coupon ────────────────────────────────────────────────────────────────
 
     @staticmethod
-    def validate_coupon(code: str, plan: Plan):
-        """Returns (coupon, error_message). coupon is None if invalid."""
+    def validate_coupon(code: str, plan: Plan, store=None):
+        """Returns (coupon, error_message). coupon is None if invalid.
+        Pass store to enforce vendor-specific targeting.
+        """
         try:
             coupon = Coupon.objects.get(code=code.strip().upper(), is_active=True)
         except Coupon.DoesNotExist:
@@ -54,6 +60,11 @@ class BillingService:
         if coupon.applicable_plans.exists() and not coupon.applicable_plans.filter(pk=plan.pk).exists():
             return None, f'This coupon is not valid for {plan.display_name}.'
 
+        # Vendor-specific: only the targeted store can use it
+        if coupon.target_store_id is not None:
+            if store is None or coupon.target_store_id != store.pk:
+                return None, 'This coupon is not valid for your store.'
+
         return coupon, ''
 
     @staticmethod
@@ -65,32 +76,52 @@ class BillingService:
 
     # ── Subscription ─────────────────────────────────────────────────────────
 
-    @staticmethod
-    def subscribe(store, plan: Plan, coupon=None) -> Subscription:
-        final_price = BillingService.apply_discount(plan.price, coupon)
+    WALLET_DISCOUNT_CAP = Decimal('0.15')   # vendors can use up to 15% of plan price from wallet
 
-        if final_price > 0 and store.wallet_balance < final_price:
-            raise ValueError(
-                f'Insufficient wallet balance. '
-                f'Need ₹{final_price}, have ₹{store.wallet_balance}.'
-            )
+    @staticmethod
+    def calc_wallet_max(plan_price: Decimal) -> Decimal:
+        return (plan_price * BillingService.WALLET_DISCOUNT_CAP).quantize(Decimal('0.01'))
+
+    @staticmethod
+    def subscribe(store, plan: Plan, coupon=None, wallet_discount: Decimal = Decimal('0'),
+                  razorpay_payment_id: str = '') -> Subscription:
+        after_coupon = BillingService.apply_discount(plan.price, coupon)
+
+        # Clamp wallet_discount to the 15% cap and available balance
+        max_wallet = BillingService.calc_wallet_max(plan.price)
+        wallet_discount = max(Decimal('0'), min(wallet_discount, max_wallet, store.wallet_balance))
+
+        final_price = max(after_coupon - wallet_discount, Decimal('0'))
 
         with db_transaction.atomic():
             now     = timezone.now()
             expires = now + timedelta(days=plan.duration_days)
 
-            if final_price > 0:
+            # Deduct wallet discount (separate transaction for transparency)
+            if wallet_discount > 0:
                 store.__class__.objects.filter(pk=store.pk).update(
-                    wallet_balance=store.wallet_balance - final_price
+                    wallet_balance=F('wallet_balance') - wallet_discount
                 )
                 store.refresh_from_db(fields=['wallet_balance'])
-                coupon_note = f' (coupon: {coupon.code})' if coupon else ''
+                Transaction.objects.create(
+                    store=store,
+                    type=Transaction.TYPE_SUBSCRIPTION,
+                    amount=-wallet_discount,
+                    description=f'Wallet discount for {plan.display_name} (15% cap)',
+                    reference_id=f'WALLET-{plan.name.upper()}-{int(now.timestamp())}',
+                    balance_after=store.wallet_balance,
+                )
+
+            # Record Razorpay payment if applicable
+            if razorpay_payment_id and final_price > 0:
+                coupon_note = f' + coupon {coupon.code}' if coupon else ''
+                wallet_note = f' + ₹{wallet_discount} wallet' if wallet_discount > 0 else ''
                 Transaction.objects.create(
                     store=store,
                     type=Transaction.TYPE_SUBSCRIPTION,
                     amount=-final_price,
-                    description=f'Subscribed to {plan.display_name}{coupon_note}',
-                    reference_id=f'SUB-{plan.name.upper()}-{int(now.timestamp())}',
+                    description=f'{plan.display_name} via Razorpay{coupon_note}{wallet_note}',
+                    reference_id=razorpay_payment_id,
                     balance_after=store.wallet_balance,
                 )
 
@@ -112,6 +143,22 @@ class BillingService:
                     'is_active':  True,
                 },
             )
+
+            # Audit trail for coupon redemptions
+            if coupon:
+                original = plan.price
+                given    = original - after_coupon
+                CouponRedemption.objects.create(
+                    coupon=coupon,
+                    store=store,
+                    subscription=sub,
+                    plan_name=plan.name,
+                    plan_display=plan.display_name,
+                    original_price=original,
+                    discount_given=given,
+                    price_paid=final_price,
+                )
+
             return sub
 
     # ── Query helpers ────────────────────────────────────────────────────────
@@ -176,6 +223,24 @@ class BillingService:
             )
         return True, ''
 
+    # ── Referral helpers ─────────────────────────────────────────────────
+
+    @staticmethod
+    def credit_referral_reward(store, amount: Decimal, reference_id: str = '') -> Transaction:
+        with db_transaction.atomic():
+            store.__class__.objects.filter(pk=store.pk).update(
+                wallet_balance=F('wallet_balance') + amount
+            )
+            store.refresh_from_db(fields=['wallet_balance'])
+            return Transaction.objects.create(
+                store=store,
+                type=Transaction.TYPE_REFERRAL,
+                amount=amount,
+                description=f'Referral reward of ₹{amount}',
+                reference_id=reference_id,
+                balance_after=store.wallet_balance,
+            )
+
     # ── Celery task helper ───────────────────────────────────────────────────
 
     @staticmethod
@@ -195,3 +260,117 @@ class BillingService:
             StoreModel.objects.filter(pk=sub.store.pk).update(is_verified=False)
             count += 1
         return count
+
+
+class ReferralService:
+
+    @staticmethod
+    def _generate_code(store_id: str) -> str:
+        h = hashlib.md5(str(store_id).encode()).hexdigest().upper()
+        return f'NSR{h[:7]}'   # e.g. NSRA1B2C3D
+
+    @staticmethod
+    def get_or_create_code(store) -> ReferralCode:
+        obj, _ = ReferralCode.objects.get_or_create(
+            store=store,
+            defaults={'code': ReferralService._generate_code(str(store.id))},
+        )
+        return obj
+
+    @staticmethod
+    def get_config(city: str = '') -> ReferralConfig:
+        """City config falls back to global (city='') if not found."""
+        if city:
+            try:
+                return ReferralConfig.objects.get(city__iexact=city)
+            except ReferralConfig.DoesNotExist:
+                pass
+        obj, _ = ReferralConfig.objects.get_or_create(city='')
+        return obj
+
+    @staticmethod
+    def link_referred_user(user, referral_code: str):
+        """Called at signup. Links user to referrer store. Silent on invalid code."""
+        if not referral_code:
+            return
+        if UserReferralLink.objects.filter(user=user).exists():
+            return
+        try:
+            ref = ReferralCode.objects.select_related('store').get(
+                code=referral_code.strip().upper()
+            )
+        except ReferralCode.DoesNotExist:
+            return
+        if hasattr(user, 'stores') and user.stores.filter(pk=ref.store.pk).exists():
+            return
+        reward_type = (
+            UserReferralLink.REWARD_VENDOR
+            if user.role == 'vendor'
+            else UserReferralLink.REWARD_CUSTOMER
+        )
+        UserReferralLink.objects.create(
+            user=user,
+            referrer_store=ref.store,
+            reward_type=reward_type,
+        )
+
+    @staticmethod
+    def handle_vendor_subscribed(vendor_user):
+        """Credit referrer when vendor activates their FIRST subscription."""
+        try:
+            link = UserReferralLink.objects.select_related('referrer_store__owner').get(
+                user=vendor_user,
+                reward_credited=False,
+            )
+        except UserReferralLink.DoesNotExist:
+            return
+        sub_count = Subscription.objects.filter(store__owner=vendor_user).count()
+        if sub_count > 1:
+            return
+        # Correct reward_type — new users have empty role at OTP time so it may be wrong
+        if link.reward_type != UserReferralLink.REWARD_VENDOR:
+            UserReferralLink.objects.filter(pk=link.pk).update(reward_type=UserReferralLink.REWARD_VENDOR)
+            link.reward_type = UserReferralLink.REWARD_VENDOR
+        city   = getattr(vendor_user, 'location_city', '') or ''
+        config = ReferralService.get_config(city)
+        ReferralService._credit(link, config.vendor_reward)
+
+    @staticmethod
+    def handle_customer_reservation_completed(customer):
+        """Credit referrer when customer completes their FIRST reservation."""
+        try:
+            link = UserReferralLink.objects.select_related('referrer_store__owner').get(
+                user=customer,
+                reward_credited=False,
+            )
+        except UserReferralLink.DoesNotExist:
+            return
+        from apps.reservations.models import Reservation, ReservationStatus
+        if Reservation.objects.filter(customer=customer, status=ReservationStatus.COMPLETED).count() != 1:
+            return
+        # Correct reward_type for the same reason as handle_vendor_subscribed
+        if link.reward_type != UserReferralLink.REWARD_CUSTOMER:
+            UserReferralLink.objects.filter(pk=link.pk).update(reward_type=UserReferralLink.REWARD_CUSTOMER)
+            link.reward_type = UserReferralLink.REWARD_CUSTOMER
+        city   = getattr(customer, 'location_city', '') or ''
+        config = ReferralService.get_config(city)
+        ReferralService._credit(link, config.customer_reward)
+
+    @staticmethod
+    def _credit(link: UserReferralLink, amount: Decimal):
+        store = link.referrer_store
+        with db_transaction.atomic():
+            txn = BillingService.credit_referral_reward(
+                store, amount, reference_id=f'REF-{link.id}'
+            )
+            VendorReferral.objects.create(
+                referrer_store=store,
+                referred_user=link.user,
+                reward_type=link.reward_type,
+                reward_amount=amount,
+                transaction=txn,
+            )
+            UserReferralLink.objects.filter(pk=link.pk).update(reward_credited=True)
+        NotificationService.notify_referral_reward(
+            store.owner, str(amount), link.reward_type
+        )

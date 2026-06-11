@@ -87,6 +87,11 @@ class ReservationService:
         reservation.status = ReservationStatus.COMPLETED
         reservation.save(update_fields=['status', 'updated_at'])
         logger.info('[reservations] completed %s', reservation.id)
+        try:
+            from apps.billing.services import ReferralService
+            ReferralService.handle_customer_reservation_completed(reservation.customer)
+        except Exception:
+            pass  # referral credit must never break reservation completion
         return reservation
 
     @staticmethod
