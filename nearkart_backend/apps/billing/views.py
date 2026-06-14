@@ -45,8 +45,13 @@ class PlanListView(APIView):
         auth=[],
     )
     def get(self, request):
-        plans = Plan.objects.filter(is_active=True).order_by('price')
-        return Response(PlanSerializer(plans, many=True).data)
+        qs = Plan.objects.filter(is_active=True)
+        # If a store_type query param is passed, filter to matching track + 'both'
+        store_type = request.query_params.get('store_type', '').strip().lower()
+        if store_type in ('product', 'service'):
+            from django.db.models import Q
+            qs = qs.filter(Q(store_track='both') | Q(store_track=store_type))
+        return Response(PlanSerializer(qs.order_by('price'), many=True).data)
 
 
 class WalletView(APIView):

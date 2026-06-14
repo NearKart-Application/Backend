@@ -23,11 +23,17 @@ class StoreCategory(models.TextChoices):
     OTHER       = 'other',       'Other'
 
 
+class StoreType(models.TextChoices):
+    PRODUCT = 'product', 'Product Store'
+    SERVICE = 'service', 'Service Store'
+
+
 class Store(BaseModel):
     owner       = models.ForeignKey(User, on_delete=models.CASCADE, related_name='stores')
     name        = models.CharField(max_length=200)
     description = models.TextField(blank=True)
     category    = models.CharField(max_length=20, choices=StoreCategory.choices, default=StoreCategory.OTHER)
+    store_type  = models.CharField(max_length=10, choices=StoreType.choices, default=StoreType.PRODUCT)
     phone       = models.CharField(max_length=15, blank=True)
     address     = models.TextField()
     locality    = models.CharField(max_length=200, blank=True)

@@ -1420,13 +1420,16 @@ def _plan_dict(plan):
         'duration_days': plan.duration_days,
         'video_limit':   plan.video_limit,
         'product_limit': plan.product_limit,
+        'store_track':   plan.store_track,
         'description':   plan.description,
         'is_active':     plan.is_active,
     }
 
 
 class AdminPlanListView(APIView):
-    """GET /admin-panel/plans/ — list all plans (master admin only)."""
+    """GET /admin-panel/plans/ — list all plans (master admin only).
+       POST /admin-panel/plans/ — create a new plan (master admin only).
+    """
     permission_classes = [IsMasterAdmin]
 
     @extend_schema(responses={200: OpenApiTypes.OBJECT})
@@ -1434,12 +1437,72 @@ class AdminPlanListView(APIView):
         plans = BillingPlan.objects.all().order_by('price')
         return Response([_plan_dict(p) for p in plans])
 
+    @extend_schema(
+        request=inline_serializer('PlanCreateRequest', fields={
+            'name':          s.CharField(help_text='Unique slug e.g. basic-service'),
+            'display_name':  s.CharField(help_text='Human-readable name'),
+            'price':         s.DecimalField(max_digits=8, decimal_places=2),
+            'duration_days': s.IntegerField(required=False, help_text='Default 30'),
+            'video_limit':   s.IntegerField(required=False, help_text='0 = unlimited'),
+            'product_limit': s.IntegerField(required=False, help_text='0 = unlimited'),
+            'store_track':   s.ChoiceField(choices=['both', 'product', 'service'],
+                                           help_text='Which vendor type sees this plan'),
+            'description':   s.CharField(required=False),
+            'is_active':     s.BooleanField(required=False),
+        }),
+        responses={201: OpenApiTypes.OBJECT},
+    )
+    def post(self, request):
+        name = (request.data.get('name') or '').strip().lower()
+        display_name = (request.data.get('display_name') or '').strip()
+        price = request.data.get('price')
+        store_track = (request.data.get('store_track') or 'both').strip().lower()
+
+        if not name or not display_name or price is None:
+            return Response(
+                {'error': 'validation_error', 'message': 'name, display_name, and price are required.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if BillingPlan.objects.filter(name=name).exists():
+            return Response(
+                {'error': 'duplicate', 'message': f'Plan "{name}" already exists.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if store_track not in ('both', 'product', 'service'):
+            return Response(
+                {'error': 'validation_error', 'message': 'store_track must be both, product, or service.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        plan = BillingPlan.objects.create(
+            name          = name,
+            display_name  = display_name,
+            price         = price,
+            duration_days = int(request.data.get('duration_days', 30)),
+            video_limit   = int(request.data.get('video_limit', 3)),
+            product_limit = int(request.data.get('product_limit', 10)),
+            store_track   = store_track,
+            description   = request.data.get('description', ''),
+            is_active     = request.data.get('is_active', True),
+        )
+
+        AdminActivityLog.objects.create(
+            admin=request.user,
+            action='create_plan',
+            target_type='plan',
+            target_id=plan.name,
+            detail=f'Created plan "{plan.display_name}" (track={store_track}, price=₹{plan.price})',
+        )
+
+        return Response(_plan_dict(plan), status=status.HTTP_201_CREATED)
+
 
 class AdminPlanDetailView(APIView):
     """PATCH /admin-panel/plans/{slug}/ — update plan fields (master admin only)."""
     permission_classes = [IsMasterAdmin]
 
-    EDITABLE = {'display_name', 'price', 'duration_days', 'video_limit', 'product_limit', 'description', 'is_active'}
+    EDITABLE = {'display_name', 'price', 'duration_days', 'video_limit', 'product_limit',
+                'store_track', 'description', 'is_active'}
 
     @extend_schema(
         request=inline_serializer('PlanUpdateRequest', fields={
@@ -1448,6 +1511,7 @@ class AdminPlanDetailView(APIView):
             'duration_days': s.IntegerField(required=False),
             'video_limit':   s.IntegerField(required=False, help_text='0 = unlimited'),
             'product_limit': s.IntegerField(required=False, help_text='0 = unlimited'),
+            'store_track':   s.ChoiceField(choices=['both', 'product', 'service'], required=False),
             'description':   s.CharField(required=False),
             'is_active':     s.BooleanField(required=False),
         }),
@@ -1458,6 +1522,12 @@ class AdminPlanDetailView(APIView):
             plan = BillingPlan.objects.get(name=slug)
         except BillingPlan.DoesNotExist:
             return Response({'error': 'not_found', 'message': f'Plan "{slug}" not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        if 'store_track' in request.data and request.data['store_track'] not in ('both', 'product', 'service'):
+            return Response(
+                {'error': 'validation_error', 'message': 'store_track must be both, product, or service.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         updated = []
         for field in self.EDITABLE:

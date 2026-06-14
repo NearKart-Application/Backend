@@ -15,12 +15,22 @@ class Plan(BaseModel):
     SLUG_BASIC   = 'basic'
     SLUG_PREMIUM = 'premium'
 
+    TRACK_BOTH    = 'both'
+    TRACK_PRODUCT = 'product'
+    TRACK_SERVICE = 'service'
+    TRACK_CHOICES = [
+        (TRACK_BOTH,    'All Vendors'),
+        (TRACK_PRODUCT, 'Product Vendors Only'),
+        (TRACK_SERVICE, 'Service Vendors Only'),
+    ]
+
     name          = models.CharField(max_length=20, unique=True)   # 'basic' / 'premium'
     display_name  = models.CharField(max_length=50)                # 'Free', 'Basic Plan', …
     price         = models.DecimalField(max_digits=8, decimal_places=2)  # monthly price (₹)
     duration_days = models.PositiveIntegerField(default=30)
     video_limit   = models.PositiveIntegerField(default=3)         # 0 = unlimited
     product_limit = models.PositiveIntegerField(default=10)        # 0 = unlimited
+    store_track   = models.CharField(max_length=10, choices=TRACK_CHOICES, default=TRACK_BOTH)
     description   = models.TextField(blank=True)
     is_active     = models.BooleanField(default=True)              # show in plan listing
 
