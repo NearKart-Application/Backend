@@ -79,6 +79,15 @@ class NotificationService:
         )
 
     @staticmethod
+    def notify_reservation_expiring_soon(customer, store_name: str, reservation_id: str, product_name: str):
+        NotificationService.send(
+            customer, NotificationType.RESERVATION_EXPIRING_SOON,
+            title='Hold expiring tomorrow',
+            body=f'Your hold on {product_name} at {store_name} expires in ~24 hours.',
+            data={'reservation_id': reservation_id},
+        )
+
+    @staticmethod
     def notify_new_follower(vendor, follower_name: str):
         NotificationService.send(
             vendor, NotificationType.NEW_FOLLOWER,

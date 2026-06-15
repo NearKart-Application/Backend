@@ -307,14 +307,23 @@ class StoreMobileDetailSerializer(serializers.ModelSerializer):
 
 
 class InvoiceSerializer(serializers.ModelSerializer):
+    gst_amount = serializers.SerializerMethodField()
+
+    def get_gst_amount(self, obj):
+        from decimal import Decimal
+        if obj.gst_rate and obj.gst_rate > 0:
+            return round(float(obj.total) * float(obj.gst_rate) / 100, 2)
+        return 0.0
+
     class Meta:
         model  = Invoice
         fields = [
             'id', 'customer_name', 'customer_phone', 'customer_ns_code',
             'items', 'notes', 'total', 'is_sent', 'created_at',
             'discount_type', 'discount_value',
+            'gstin', 'gst_rate', 'gst_amount',
         ]
-        read_only_fields = ['id', 'total', 'created_at', 'is_sent']
+        read_only_fields = ['id', 'total', 'created_at', 'is_sent', 'gst_amount']
 
 
 class CustomerInvoiceSerializer(serializers.ModelSerializer):
@@ -324,6 +333,12 @@ class CustomerInvoiceSerializer(serializers.ModelSerializer):
     store_logo  = serializers.URLField(source='store.logo_url', read_only=True)
     store_address = serializers.CharField(source='store.address', read_only=True)
     store_phone = serializers.CharField(source='store.phone', read_only=True)
+    gst_amount  = serializers.SerializerMethodField()
+
+    def get_gst_amount(self, obj):
+        if obj.gst_rate and obj.gst_rate > 0:
+            return round(float(obj.total) * float(obj.gst_rate) / 100, 2)
+        return 0.0
 
     class Meta:
         model  = Invoice
@@ -332,6 +347,7 @@ class CustomerInvoiceSerializer(serializers.ModelSerializer):
             'customer_name', 'customer_phone', 'customer_ns_code',
             'items', 'notes', 'total',
             'discount_type', 'discount_value',
+            'gstin', 'gst_rate', 'gst_amount',
             'is_sent', 'created_at',
         ]
         read_only_fields = fields

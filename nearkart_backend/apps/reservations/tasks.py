@@ -1,6 +1,7 @@
 """
 NearKart — Reservation Celery Tasks
 expire_reservations: runs hourly, marks stale pending holds as expired.
+notify_1day_expiry:  runs daily at 8 AM, sends push+in-app for holds expiring in next 24 h.
 """
 import logging
 from celery import shared_task
@@ -14,3 +15,37 @@ def expire_reservations():
     count = ReservationService.expire_pending()
     logger.info('[reservations] expired %d reservation(s)', count)
     return {'expired': count}
+
+
+@shared_task(name='reservations.notify_1day_expiry', time_limit=300, soft_time_limit=270)
+def notify_1day_expiry():
+    from django.utils import timezone
+    from datetime import timedelta
+    from .models import Reservation
+    from apps.notifications.services import NotificationService
+
+    now = timezone.now()
+    window_start = now + timedelta(hours=20)   # between 20 h from now …
+    window_end   = now + timedelta(hours=28)   # … and 28 h from now (centred on 24 h)
+
+    qs = Reservation.objects.filter(
+        status='pending',
+        expires_at__gte=window_start,
+        expires_at__lte=window_end,
+    ).select_related('customer', 'product', 'product__store')
+
+    notified = 0
+    for res in qs:
+        try:
+            NotificationService.notify_reservation_expiring_soon(
+                customer       = res.customer,
+                store_name     = res.product.store.name,
+                reservation_id = str(res.id),
+                product_name   = res.product.name,
+            )
+            notified += 1
+        except Exception as exc:
+            logger.warning('[notify_1day_expiry] failed for res %s: %s', res.id, exc)
+
+    logger.info('[reservations] sent %d expiry-soon notification(s)', notified)
+    return {'notified': notified}

@@ -147,6 +147,8 @@ class Invoice(BaseModel):
     is_sent           = models.BooleanField(default=False)
     discount_type     = models.CharField(max_length=10, choices=DISCOUNT_CHOICES, null=True, blank=True)
     discount_value    = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    gstin             = models.CharField(max_length=15, blank=True)  # 15-char GST registration number
+    gst_rate          = models.DecimalField(max_digits=5, decimal_places=2, default=0)  # e.g. 18.00 for 18%
 
     class Meta:
         db_table = 'store_invoices'

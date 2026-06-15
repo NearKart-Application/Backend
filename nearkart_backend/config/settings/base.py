@@ -214,6 +214,10 @@ CELERY_BEAT_SCHEDULE = {
         'task':     'videos.delete_expired_videos',
         'schedule': crontab(hour=0, minute=30),  # 12:30 AM daily
     },
+    'notify-1day-reservation-expiry-daily': {
+        'task':     'reservations.notify_1day_expiry',
+        'schedule': crontab(hour=8, minute=0),   # 8 AM daily
+    },
 }
 
 # ── AUTH ───────────────────────────────────────────────────────

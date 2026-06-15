@@ -12,10 +12,11 @@ class NotificationType(models.TextChoices):
     # Chat
     NEW_MESSAGE             = 'new_message',             'New Message'
     # Reservations
-    RESERVATION_CREATED     = 'reservation_created',     'Reservation Created'
-    RESERVATION_CONFIRMED   = 'reservation_confirmed',   'Reservation Confirmed'
-    RESERVATION_CANCELLED   = 'reservation_cancelled',   'Reservation Cancelled'
-    RESERVATION_EXPIRED     = 'reservation_expired',     'Reservation Expired'
+    RESERVATION_CREATED        = 'reservation_created',        'Reservation Created'
+    RESERVATION_CONFIRMED      = 'reservation_confirmed',      'Reservation Confirmed'
+    RESERVATION_CANCELLED      = 'reservation_cancelled',      'Reservation Cancelled'
+    RESERVATION_EXPIRED        = 'reservation_expired',        'Reservation Expired'
+    RESERVATION_EXPIRING_SOON  = 'reservation_expiring_soon',  'Reservation Expiring Soon'
     # Store
     NEW_FOLLOWER            = 'new_follower',            'New Follower'
     NEW_REVIEW              = 'new_review',              'New Review'

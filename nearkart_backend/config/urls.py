@@ -25,6 +25,9 @@ urlpatterns = [
     # ── HEALTH CHECK ──────────────────────────────────────────
     path(API_V1 + 'health/', include('core.urls.health')),
 
+    # ── APP VERSION (no auth) ─────────────────────────────────
+    path(API_V1 + 'app/', include('core.urls.app_version')),
+
     # ── AUTH ──────────────────────────────────────────────────
     path(API_V1 + 'auth/', include('apps.auth_app.urls')),
 
