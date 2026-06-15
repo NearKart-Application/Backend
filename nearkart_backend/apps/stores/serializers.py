@@ -32,7 +32,7 @@ class StoreSerializer(serializers.ModelSerializer):
             'phone', 'address', 'locality',
             'latitude', 'longitude', 'lat', 'lng',
             'logo_url', 'banner_url', 'qr_code_url',
-            'is_active', 'is_verified', 'is_open',
+            'is_active', 'is_verified', 'is_open', 'is_women_owned',
             'performance_score', 'follower_count',
             'hours', 'distance_km', 'created_at',
         ]

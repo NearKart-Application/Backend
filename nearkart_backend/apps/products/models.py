@@ -28,6 +28,7 @@ class Product(BaseModel):
     status         = models.CharField(max_length=20, choices=ProductStatus.choices, default=ProductStatus.DRAFT)
     is_visible     = models.BooleanField(default=True, db_index=True)
     base_price     = models.DecimalField(max_digits=10, decimal_places=2)
+    festival_tag   = models.CharField(max_length=50, blank=True)
     last_updated_at = models.DateTimeField(auto_now=True, db_index=True)
 
     class Meta:

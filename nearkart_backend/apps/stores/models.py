@@ -47,6 +47,7 @@ class Store(BaseModel):
     is_active         = models.BooleanField(default=True)
     is_verified       = models.BooleanField(default=False)
     is_open           = models.BooleanField(default=False)
+    is_women_owned    = models.BooleanField(default=False)
     performance_score = models.FloatField(default=0.0)
     wallet_balance    = models.DecimalField(max_digits=10, decimal_places=2, default=0)
 

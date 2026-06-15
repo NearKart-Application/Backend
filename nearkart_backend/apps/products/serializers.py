@@ -100,7 +100,7 @@ class ProductListSerializer(serializers.ModelSerializer):
             'base_price', 'min_price', 'primary_image',
             'distance_km', 'status',
             # mobile-compatible fields
-            'price', 'sale_price', 'image', 'store', 'is_on_sale',
+            'price', 'sale_price', 'image', 'store', 'is_on_sale', 'festival_tag',
         ]
 
     def _primary_image(self, obj):
@@ -173,7 +173,7 @@ class MobileProductDetailSerializer(serializers.ModelSerializer):
             'id', 'name', 'description', 'category', 'subcategory',
             'price', 'sale_price', 'images', 'store',
             'distance_km', 'sizes', 'colors',
-            'stock_count', 'is_on_sale', 'is_wishlisted',
+            'stock_count', 'is_on_sale', 'festival_tag', 'is_wishlisted',
         ]
 
     @extend_schema_field(serializers.FloatField(allow_null=True))
