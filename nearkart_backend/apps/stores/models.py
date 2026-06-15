@@ -24,8 +24,9 @@ class StoreCategory(models.TextChoices):
 
 
 class StoreType(models.TextChoices):
-    PRODUCT = 'product', 'Product Store'
-    SERVICE = 'service', 'Service Store'
+    PRODUCT  = 'product', 'Product Store'
+    SERVICE  = 'service', 'Service Store'
+    HOME     = 'home',    'Home Business'
 
 
 class Store(BaseModel):
@@ -48,6 +49,8 @@ class Store(BaseModel):
     is_verified       = models.BooleanField(default=False)
     is_open           = models.BooleanField(default=False)
     is_women_owned    = models.BooleanField(default=False)
+    privacy_mode      = models.BooleanField(default=False)
+    holiday_mode      = models.BooleanField(default=False)
     performance_score = models.FloatField(default=0.0)
     wallet_balance    = models.DecimalField(max_digits=10, decimal_places=2, default=0)
 

@@ -33,6 +33,7 @@ class StoreSerializer(serializers.ModelSerializer):
             'latitude', 'longitude', 'lat', 'lng',
             'logo_url', 'banner_url', 'qr_code_url',
             'is_active', 'is_verified', 'is_open', 'is_women_owned',
+            'privacy_mode', 'holiday_mode',
             'performance_score', 'follower_count',
             'hours', 'distance_km', 'created_at',
         ]
@@ -83,6 +84,7 @@ class StoreListSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'name', 'category', 'locality', 'location',
             'avatar', 'cover_image', 'is_open', 'is_verified',
+            'holiday_mode',
             'performance_score', 'lat', 'lng', 'distance_km',
             'rating', 'review_count', 'follower_count',
             'has_offer', 'top_offer_label', 'active_offer_labels', 'open_status_label', 'todays_hours',

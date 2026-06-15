@@ -56,6 +56,7 @@ def get_nearby_stores(lat: float, lng: float,
         qs = Store.objects.filter(
             is_active=True,
             is_verified=True,
+            privacy_mode=False,
             location__dwithin=(user_point, D(km=radius_km)),
         ).annotate(
             distance=Distance('location', user_point),
