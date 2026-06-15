@@ -63,13 +63,16 @@ class ReservationService:
         return reservation
 
     @staticmethod
-    def cancel(reservation: Reservation, note: str = '') -> Reservation:
+    def cancel(reservation: Reservation, note: str = '', cancel_reason: str = '') -> Reservation:
         reservation.status = ReservationStatus.CANCELLED
+        update_fields = ['status', 'updated_at']
         if note:
             reservation.vendor_note = note
-            reservation.save(update_fields=['status', 'vendor_note', 'updated_at'])
-        else:
-            reservation.save(update_fields=['status', 'updated_at'])
+            update_fields.append('vendor_note')
+        if cancel_reason:
+            reservation.cancel_reason = cancel_reason
+            update_fields.append('cancel_reason')
+        reservation.save(update_fields=update_fields)
         if reservation.variant_id:
             InventoryService.restore_for_reservation(
                 reservation.variant, reservation.quantity, str(reservation.id)

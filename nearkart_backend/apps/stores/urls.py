@@ -11,6 +11,7 @@ from .views import (
     VendorBroadcastPostListCreateView,
     CustomerBroadcastChannelListView, CustomerBroadcastPostListView,
     StoreReviewEligibilityView, CustomerPurchaseHistoryView, InvoiceExportView,
+    CustomerBlockStoreView,
 )
 from apps.blacklist.views import BlacklistToggleView, BlacklistListView
 from apps.admin_panel.views import PublicOfferTemplateListView
@@ -53,8 +54,10 @@ urlpatterns = [
     path('<uuid:store_id>/qr-code/', StoreQRCodeView.as_view(),   name='store-qr-code'),
     path('<uuid:store_id>/hours/',      StoreHoursView.as_view(),       name='store-hours'),
     path('<uuid:store_id>/locations/', StoreLocationsView.as_view(),   name='store-locations'),
-    # Blacklist
+    # Vendor blacklist (vendor blocks customer)
     path('<uuid:store_id>/blacklist/',                           BlacklistListView.as_view(),   name='store-blacklist-list'),
     path('<uuid:store_id>/blacklist/<uuid:customer_id>/',        BlacklistToggleView.as_view(), name='store-blacklist-toggle'),
+    # Customer block (customer blocks store)
+    path('<uuid:store_id>/block/',                               CustomerBlockStoreView.as_view(), name='customer-block-store'),
 ]
 

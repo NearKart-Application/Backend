@@ -25,7 +25,7 @@ from core.permissions import IsVendor, IsStoreOwner
 from core.utils.cache import CacheService
 from apps.blacklist.services import BlacklistService
 from django.utils import timezone as tz
-from .models import Store, StoreHours, StoreOffer, Invoice, WebsiteRequest, StaffMember, StaffRole, BroadcastChannel, BroadcastPost
+from .models import Store, StoreHours, StoreOffer, Invoice, WebsiteRequest, StaffMember, StaffRole, BroadcastChannel, BroadcastPost, CustomerBlockedStore
 from .serializers import (
     StoreSerializer, StoreListSerializer, StoreReviewSerializer,
     StoreReviewListSerializer, StoreOfferSerializer,
@@ -1818,3 +1818,28 @@ class CustomerBroadcastPostListView(APIView):
             return Response({'error': 'not_found'}, status=status.HTTP_404_NOT_FOUND)
         posts = channel.posts.all()
         return Response([_serialize_post(p) for p in posts])
+
+
+class CustomerBlockStoreView(APIView):
+    """POST /stores/{id}/block/ — customer toggles block on a store."""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, store_id):
+        try:
+            store = Store.objects.get(id=store_id, is_active=True)
+        except Store.DoesNotExist:
+            return Response({'error': 'not_found', 'message': 'Store not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        entry, created = CustomerBlockedStore.objects.get_or_create(customer=request.user, store=store)
+        if not created:
+            entry.delete()
+            return Response({'is_blocked': False, 'message': 'Store unblocked.'})
+        return Response({'is_blocked': True, 'message': 'Store blocked. It will no longer appear in your feed.'})
+
+    def get(self, request, store_id):
+        try:
+            store = Store.objects.get(id=store_id, is_active=True)
+        except Store.DoesNotExist:
+            return Response({'error': 'not_found'}, status=status.HTTP_404_NOT_FOUND)
+        is_blocked = CustomerBlockedStore.objects.filter(customer=request.user, store=store).exists()
+        return Response({'is_blocked': is_blocked})

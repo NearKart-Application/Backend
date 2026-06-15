@@ -299,7 +299,8 @@ class ReservationCancelView(APIView):
                 status=400,
             )
 
-        reservation = ReservationService.cancel(reservation)
+        cancel_reason = request.data.get('cancel_reason', '') if request.data else ''
+        reservation = ReservationService.cancel(reservation, cancel_reason=cancel_reason)
         log_event('reservations', action='reservation_cancelled_by_customer',
                   reservation_id=str(reservation_id), store_id=str(reservation.store_id),
                   product_id=str(reservation.product_id), customer_id=str(request.user.id))

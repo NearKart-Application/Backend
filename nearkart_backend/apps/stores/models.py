@@ -284,3 +284,17 @@ class BroadcastPost(BaseModel):
 
     def __str__(self):
         return f'{self.channel.name} — {self.content[:40]}'
+
+
+class CustomerBlockedStore(BaseModel):
+    """A customer blocking a store — hides the store from their feed and prevents notifications."""
+    customer = models.ForeignKey(User, on_delete=models.CASCADE, related_name='blocked_stores')
+    store    = models.ForeignKey(Store, on_delete=models.CASCADE, related_name='blocked_by_customers')
+
+    class Meta:
+        db_table      = 'customer_blocked_stores'
+        unique_together = [('customer', 'store')]
+        ordering      = ['-created_at']
+
+    def __str__(self):
+        return f'{self.customer.phone_number} blocked {self.store.name}'
