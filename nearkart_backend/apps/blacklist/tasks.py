@@ -28,17 +28,22 @@ def check_inactive_products():
         total_stock=Sum('variants__stock_quantity'),
     )
 
-    marked_oos = restored = 0
+    to_oos_ids    = []
+    to_active_ids = []
 
     for product in products:
         total = product.total_stock or 0
         if total == 0 and product.status != ProductStatus.OUT_OF_STOCK:
-            Product.objects.filter(pk=product.pk).update(status=ProductStatus.OUT_OF_STOCK)
-            marked_oos += 1
+            to_oos_ids.append(product.pk)
         elif total > 0 and product.status == ProductStatus.OUT_OF_STOCK:
-            # Stock has been restocked — bring it back to active
-            Product.objects.filter(pk=product.pk).update(status=ProductStatus.ACTIVE)
-            restored += 1
+            to_active_ids.append(product.pk)
 
+    if to_oos_ids:
+        Product.objects.filter(pk__in=to_oos_ids).update(status=ProductStatus.OUT_OF_STOCK)
+    if to_active_ids:
+        Product.objects.filter(pk__in=to_active_ids).update(status=ProductStatus.ACTIVE)
+
+    marked_oos = len(to_oos_ids)
+    restored   = len(to_active_ids)
     logger.info('[blacklist] product stock check: marked_oos=%d restored=%d', marked_oos, restored)
     return {'marked_out_of_stock': marked_oos, 'restored': restored}

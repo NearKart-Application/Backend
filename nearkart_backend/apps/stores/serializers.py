@@ -7,6 +7,35 @@ from drf_spectacular.utils import extend_schema_field
 from .models import Store, StoreHours, StoreFollow, StoreReview, StoreOffer, Invoice, StaffMember
 
 
+def annotate_stores_with_subcategories(stores):
+    """
+    Batch-fetch top subcategories for a list/queryset of stores in ONE query.
+    Sets store._top_subcategories so StoreListSerializer skips per-store DB hits.
+    """
+    from apps.products.models import Product
+    store_list = list(stores)
+    if not store_list:
+        return store_list
+    store_ids = [s.id for s in store_list]
+    rows = (
+        Product.objects
+        .filter(store_id__in=store_ids, status='active', is_visible=True)
+        .exclude(subcategory='')
+        .values('store_id', 'subcategory')
+        .distinct()
+    )
+    subcat_map: dict = {}
+    for row in rows:
+        sid = row['store_id']
+        if sid not in subcat_map:
+            subcat_map[sid] = []
+        if len(subcat_map[sid]) < 4:
+            subcat_map[sid].append(row['subcategory'])
+    for store in store_list:
+        store._top_subcategories = subcat_map.get(store.id, [])
+    return store_list
+
+
 class StoreHoursSerializer(serializers.ModelSerializer):
     day_name = serializers.CharField(source='get_day_display', read_only=True)
 
@@ -172,6 +201,8 @@ class StoreListSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.ListField(child=serializers.CharField()))
     def get_top_subcategories(self, obj):
+        if hasattr(obj, '_top_subcategories'):
+            return obj._top_subcategories
         return list(
             obj.products.filter(status='active', is_visible=True)
             .exclude(subcategory='')

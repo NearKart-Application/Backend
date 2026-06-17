@@ -11,6 +11,7 @@ import logging
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
+from core.pagination import StandardOffsetPagination
 from drf_spectacular.utils import extend_schema
 from drf_spectacular.types import OpenApiTypes
 
@@ -52,8 +53,10 @@ class LoyaltyHistoryView(APIView):
     )
     def get(self, request):
         account = LoyaltyService.get_account(request.user)
-        txns = LoyaltyTransaction.objects.filter(account=account).order_by('-created_at')[:50]
-        return Response(LoyaltyTransactionSerializer(txns, many=True).data)
+        txns = LoyaltyTransaction.objects.filter(account=account).order_by('-created_at')
+        paginator = StandardOffsetPagination()
+        page = paginator.paginate_queryset(txns, request)
+        return paginator.get_paginated_response(LoyaltyTransactionSerializer(page, many=True).data)
 
 
 class ApplyReferralView(APIView):

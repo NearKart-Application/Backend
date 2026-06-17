@@ -14,6 +14,7 @@ from drf_spectacular.utils import extend_schema, inline_serializer, OpenApiParam
 from rest_framework import serializers as s
 from drf_spectacular.types import OpenApiTypes
 
+from core.pagination import StandardOffsetPagination
 from core.permissions import IsAdmin, IsMasterAdmin
 from apps.stores.models import Store, WebsiteRequest
 from apps.auth_app.models import User, UserRole
@@ -190,8 +191,9 @@ class AdminStoreListView(APIView):
         if category:
             qs = qs.filter(category=category)
 
-        serializer = AdminStoreSerializer(qs, many=True)
-        return Response({'count': qs.count(), 'results': serializer.data})
+        paginator = StandardOffsetPagination()
+        page = paginator.paginate_queryset(qs, request)
+        return paginator.get_paginated_response(AdminStoreSerializer(page, many=True).data)
 
 
 class AdminStoreUpdateView(APIView):
@@ -264,8 +266,9 @@ class AdminUserListView(APIView):
         if is_active is not None:
             qs = qs.filter(is_active=is_active.lower() == 'true')
 
-        serializer = AdminUserSerializer(qs, many=True)
-        return Response({'count': qs.count(), 'results': serializer.data})
+        paginator = StandardOffsetPagination()
+        page = paginator.paginate_queryset(qs, request)
+        return paginator.get_paginated_response(AdminUserSerializer(page, many=True).data)
 
 
 class AdminUserToggleActiveView(APIView):
@@ -542,8 +545,9 @@ class AdminProductListView(APIView):
         if store_id:
             qs = qs.filter(store_id=store_id)
 
-        serializer = AdminProductSerializer(qs, many=True)
-        return Response({'count': qs.count(), 'results': serializer.data})
+        paginator = StandardOffsetPagination()
+        page = paginator.paginate_queryset(qs, request)
+        return paginator.get_paginated_response(AdminProductSerializer(page, many=True).data)
 
 
 class AdminProductDetailView(APIView):

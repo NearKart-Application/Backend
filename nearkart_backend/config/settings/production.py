@@ -61,7 +61,9 @@ EMAIL_HOST_USER = 'apikey'
 EMAIL_HOST_PASSWORD = env('SENDGRID_API_KEY', default='')
 
 # ── DATABASE: production tuning ───────────────────────────────
-DATABASES['default']['CONN_MAX_AGE'] = 60  # noqa: F405
+# CONN_MAX_AGE must stay 0 — PgBouncer transaction pooling reclaims
+# connections between requests; persistent connections cause errors.
+DATABASES['default']['CONN_MAX_AGE'] = 0   # noqa: F405
 DATABASES['default']['CONN_HEALTH_CHECKS'] = True  # noqa: F405
 
 # ── CELERY: ensure tasks run async in production ──────────────

@@ -31,7 +31,7 @@ from .serializers import (
     StoreReviewListSerializer, StoreOfferSerializer,
     StoreHoursSerializer, StoreMobileDetailSerializer, VendorReplySerializer,
     InvoiceSerializer, StaffMemberSerializer, StoreFollowerSerializer,
-    CustomerInvoiceSerializer,
+    CustomerInvoiceSerializer, annotate_stores_with_subcategories,
 )
 from .services import StoreService, QRService
 
@@ -88,7 +88,7 @@ class NearbyStoresView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        stores = StoreService.get_nearby(lat, lng, radius_km=radius, category=category)
+        stores = annotate_stores_with_subcategories(StoreService.get_nearby(lat, lng, radius_km=radius, category=category))
         data = StoreListSerializer(stores, many=True).data
         return Response({'count': len(data), 'next': None, 'previous': None, 'results': data})
 
@@ -150,7 +150,7 @@ class SimilarStoresView(APIView):
         lat = store.location.y
         lng = store.location.x
         nearby = StoreService.get_nearby(lat, lng, radius_km=5, category=store.category)
-        similar = [s for s in nearby if str(s.id) != str(store_id)][:5]
+        similar = annotate_stores_with_subcategories([s for s in nearby if str(s.id) != str(store_id)][:5])
         data = StoreListSerializer(similar, many=True).data
         return Response({'results': data, 'count': len(data)})
 
@@ -703,8 +703,10 @@ class StoreVisitedView(APIView):
         from apps.stores.models import StoreFollow
         store_ids = StoreFollow.objects.filter(user=request.user)\
             .order_by('-created_at').values_list('store_id', flat=True)[:limit]
-        stores = Store.objects.filter(id__in=store_ids, is_active=True)
-        return Response({'results': StoreListSerializer(stores, many=True).data, 'count': stores.count()})
+        stores = annotate_stores_with_subcategories(
+            list(Store.objects.filter(id__in=store_ids, is_active=True))
+        )
+        return Response({'results': StoreListSerializer(stores, many=True).data, 'count': len(stores)})
 
 
 class StoreOfferDeleteView(APIView):
@@ -1240,9 +1242,11 @@ class VendorStoresListView(APIView):
         responses={200: StoreListSerializer(many=True)},
     )
     def get(self, request):
-        stores = Store.objects.filter(owner=request.user, is_active=True).order_by('created_at')
+        stores = annotate_stores_with_subcategories(
+            list(Store.objects.filter(owner=request.user, is_active=True).order_by('created_at'))
+        )
         return Response({
-            'count':   stores.count(),
+            'count':   len(stores),
             'results': StoreListSerializer(stores, many=True).data,
         })
 
@@ -1265,14 +1269,16 @@ class StoreLocationsView(APIView):
             store = Store.objects.get(id=store_id, is_active=True)
         except Store.DoesNotExist:
             return Response({'count': 0, 'results': []})
-        siblings = (
-            Store.objects
-            .filter(owner=store.owner, is_active=True)
-            .exclude(id=store_id)
-            .order_by('created_at')
+        siblings = annotate_stores_with_subcategories(
+            list(
+                Store.objects
+                .filter(owner=store.owner, is_active=True)
+                .exclude(id=store_id)
+                .order_by('created_at')
+            )
         )
         return Response({
-            'count':   siblings.count(),
+            'count':   len(siblings),
             'results': StoreListSerializer(siblings, many=True).data,
         })
 

@@ -25,6 +25,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from core.logging import log_event
+from core.pagination import StandardOffsetPagination
 from core.permissions import IsVendor
 from .models import Coupon, Plan, Transaction, VendorReferral, UserReferralLink
 from .razorpay_service import RazorpayService
@@ -239,7 +240,9 @@ class TransactionListView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         txns = BillingService.get_transactions(request.user.store)
-        return Response(TransactionSerializer(txns, many=True).data)
+        paginator = StandardOffsetPagination()
+        page = paginator.paginate_queryset(txns, request)
+        return paginator.get_paginated_response(TransactionSerializer(page, many=True).data)
 
 
 # ── Razorpay Payment Views ─────────────────────────────────────────────────────
