@@ -28,6 +28,7 @@ class Product(BaseModel):
     status         = models.CharField(max_length=20, choices=ProductStatus.choices, default=ProductStatus.DRAFT)
     is_visible     = models.BooleanField(default=True, db_index=True)
     base_price     = models.DecimalField(max_digits=10, decimal_places=2)
+    previous_price = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     festival_tag   = models.CharField(max_length=50, blank=True)
     last_updated_at = models.DateTimeField(auto_now=True, db_index=True)
 
@@ -149,3 +150,19 @@ class ProductReview(BaseModel):
 
     def __str__(self):
         return f'{self.product.name} — {self.rating}★ by {self.reviewer}'
+
+
+# ── Signal: snapshot base_price into previous_price before every save ──────────
+from django.db.models.signals import pre_save
+from django.dispatch import receiver
+
+
+@receiver(pre_save, sender=Product)
+def snapshot_product_price(sender, instance, **kwargs):
+    if instance.pk:
+        try:
+            old = Product.objects.only('base_price').get(pk=instance.pk)
+            if old.base_price != instance.base_price:
+                instance.previous_price = old.base_price
+        except Product.DoesNotExist:
+            pass

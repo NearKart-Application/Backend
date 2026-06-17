@@ -1,6 +1,6 @@
 from django.urls import path
 from .views import (
-    NearbyStoresView, StoreDetailView, StoreCreateView, StoreMyView, StoreVisitedView,
+    NearbyStoresView, StoreDetailView, SimilarStoresView, StoreCreateView, StoreMyView, StoreVisitedView,
     StoreUpdateView, StoreFollowView, StoreFollowerListView, StoreReviewView, StoreQRCodeView,
     StoreHoursView, StoreReviewListView, StoreOfferView, StoreOfferDeleteView, StoreStatsView,
     VendorReviewReplyView, VendorReviewsListView, MyReviewsView, StoreInvoiceListCreateView,
@@ -11,7 +11,7 @@ from .views import (
     VendorBroadcastPostListCreateView,
     CustomerBroadcastChannelListView, CustomerBroadcastPostListView,
     StoreReviewEligibilityView, CustomerPurchaseHistoryView, InvoiceExportView,
-    CustomerBlockStoreView,
+    CustomerBlockStoreView, MonthlyEarningsPDFView,
 )
 from apps.blacklist.views import BlacklistToggleView, BlacklistListView
 from apps.admin_panel.views import PublicOfferTemplateListView
@@ -35,10 +35,12 @@ urlpatterns = [
     path('mine/reviews/',            MyReviewsView.as_view(),             name='my-reviews'),
     path('mine/invoices/',           StoreInvoiceListCreateView.as_view(), name='store-invoices'),
     path('mine/invoices/export/',    InvoiceExportView.as_view(),          name='store-invoices-export'),
+    path('mine/earnings/pdf/',       MonthlyEarningsPDFView.as_view(),     name='store-earnings-pdf'),
     path('purchases/',               CustomerPurchaseHistoryView.as_view(), name='customer-purchases'),
     path('visited/',                 StoreVisitedView.as_view(),  name='store-visited'),
     path('',                         StoreCreateView.as_view(),   name='store-create'),
     path('<uuid:store_id>/',         StoreDetailView.as_view(),   name='store-detail'),
+    path('<uuid:store_id>/similar/', SimilarStoresView.as_view(), name='store-similar'),
     path('<uuid:store_id>/update/',  StoreUpdateView.as_view(),   name='store-update'),
     path('<uuid:store_id>/follow/',  StoreFollowView.as_view(),   name='store-follow'),
     path('<uuid:store_id>/review/',              StoreReviewView.as_view(),             name='store-review'),

@@ -150,5 +150,5 @@ class VendorProductStatsView(APIView):
         except Exception:
             return Response({'error': 'no_store', 'message': 'Create a store first.'}, status=400)
 
-        products = store.products.prefetch_related('wishlisted_by').order_by('-created_at')
+        products = store.products.prefetch_related('wishlisted_by', 'reservations').order_by('-created_at')
         return Response(ProductStatSerializer(products, many=True).data)

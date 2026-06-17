@@ -338,6 +338,31 @@ class ProductImageUploadView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # ── NF-27: Photo quality check ──────────────────────────────────────────
+        try:
+            from PIL import Image as PilImage
+            import io
+            MIN_DIM = 300
+            MAX_SIZE_MB = 10
+            for file in files:
+                if file.size > MAX_SIZE_MB * 1024 * 1024:
+                    return Response(
+                        {'error': 'image_too_large', 'message': f'Each image must be under {MAX_SIZE_MB} MB.'},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                file.seek(0)
+                img = PilImage.open(io.BytesIO(file.read()))
+                w, h = img.size
+                if w < MIN_DIM or h < MIN_DIM:
+                    return Response(
+                        {'error': 'image_too_small',
+                         'message': f'Image "{file.name}" is {w}×{h} px. Minimum is {MIN_DIM}×{MIN_DIM} px.'},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                file.seek(0)
+        except ImportError:
+            pass  # Pillow not installed; skip check
+
         try:
             from django.core.files.storage import default_storage
             from django.core.files.base import ContentFile
@@ -588,6 +613,60 @@ class VariantStockUpdateView(APIView):
             'name':           variant.name,
             'stock_quantity': variant.stock_quantity,
             'product_status': variant.product.status,
+        })
+
+
+class ProductVariantBulkUpdateView(APIView):
+    """PATCH /products/<id>/variants/bulk/ — update price + stock for multiple variants at once."""
+    permission_classes = [IsAuthenticated, IsVendor]
+
+    @extend_schema(tags=[_TAG], summary='Bulk update variant price and stock')
+    def patch(self, request, product_id):
+        try:
+            product = Product.objects.get(id=product_id, store=request.user.store)
+        except Product.DoesNotExist:
+            return Response({'error': 'not_found', 'message': 'Product not found.'}, status=404)
+
+        updates = request.data.get('variants')
+        if not isinstance(updates, list) or not updates:
+            return Response({'error': 'validation_error', 'message': 'variants must be a non-empty list.'}, status=400)
+
+        variant_ids = [u.get('id') for u in updates if u.get('id')]
+        variants_map = {str(v.id): v for v in product.variants.filter(id__in=variant_ids)}
+
+        updated = []
+        errors  = []
+        for item in updates:
+            vid = item.get('id')
+            if not vid or vid not in variants_map:
+                errors.append({'id': vid, 'error': 'not_found'})
+                continue
+            variant = variants_map[vid]
+            changed = False
+            if 'price' in item:
+                from decimal import Decimal, InvalidOperation
+                try:
+                    variant.price = Decimal(str(item['price']))
+                    changed = True
+                except (InvalidOperation, ValueError):
+                    errors.append({'id': vid, 'error': 'invalid_price'})
+                    continue
+            if 'stock_quantity' in item:
+                qty = item['stock_quantity']
+                if not isinstance(qty, int) or qty < 0:
+                    errors.append({'id': vid, 'error': 'invalid_stock_quantity'})
+                    continue
+                variant.stock_quantity = qty
+                changed = True
+            if changed:
+                updated.append(variant)
+
+        if updated:
+            ProductVariant.objects.bulk_update(updated, ['price', 'stock_quantity'])
+
+        return Response({
+            'updated': len(updated),
+            'errors':  errors,
         })
 
 

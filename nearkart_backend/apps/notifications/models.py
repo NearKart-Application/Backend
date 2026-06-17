@@ -44,6 +44,8 @@ class NotificationType(models.TextChoices):
     VENDOR_COUPON           = 'vendor_coupon',           'Vendor Coupon'
     # Analytics
     WEEKLY_DIGEST           = 'weekly_digest',           'Weekly Digest'
+    # Price alerts
+    PRICE_DROP_ALERT        = 'price_drop_alert',        'Price Drop Alert'
     # Referral
     REFERRAL_REWARD         = 'referral_reward',         'Referral Reward'
 

@@ -237,6 +237,15 @@ class NotificationService:
         )
 
     @staticmethod
+    def notify_price_drop(customer, product_name: str, product_id: str, old_price: str, new_price: str):
+        NotificationService.send(
+            customer, NotificationType.PRICE_DROP_ALERT,
+            title=f'Price Drop on {product_name}!',
+            body=f'{product_name} dropped from ₹{old_price} to ₹{new_price}. Tap to grab it now.',
+            data={'product_id': product_id, 'old_price': old_price, 'new_price': new_price},
+        )
+
+    @staticmethod
     def notify_referral_reward(vendor, amount: str, reward_type: str):
         type_label = 'vendor signup' if reward_type == 'vendor' else 'customer reservation'
         NotificationService.send(

@@ -127,6 +127,34 @@ class StoreDetailView(APIView):
         return Response(data)
 
 
+class SimilarStoresView(APIView):
+    """GET /stores/<store_id>/similar/ — up to 5 stores in the same category within 5 km."""
+    permission_classes = [AllowAny]
+
+    @extend_schema(
+        tags=[_TAG],
+        summary='Similar stores nearby',
+        description='Returns up to 5 stores with the same category within 5 km, excluding the requested store.',
+        responses={200: StoreListSerializer(many=True)},
+        auth=[],
+    )
+    def get(self, request, store_id):
+        try:
+            store = Store.objects.get(id=store_id)
+        except Store.DoesNotExist:
+            return Response({'error': 'not_found', 'message': 'Store not found.'}, status=404)
+
+        if not store.location:
+            return Response({'results': [], 'count': 0})
+
+        lat = store.location.y
+        lng = store.location.x
+        nearby = StoreService.get_nearby(lat, lng, radius_km=5, category=store.category)
+        similar = [s for s in nearby if str(s.id) != str(store_id)][:5]
+        data = StoreListSerializer(similar, many=True).data
+        return Response({'results': data, 'count': len(data)})
+
+
 class StoreCreateView(APIView):
     permission_classes = [IsAuthenticated, IsVendor]
 
@@ -1843,3 +1871,131 @@ class CustomerBlockStoreView(APIView):
             return Response({'error': 'not_found'}, status=status.HTTP_404_NOT_FOUND)
         is_blocked = CustomerBlockedStore.objects.filter(customer=request.user, store=store).exists()
         return Response({'is_blocked': is_blocked})
+
+
+class MonthlyEarningsPDFView(APIView):
+    """GET /stores/mine/earnings/pdf/?month=YYYY-MM — download monthly earnings report."""
+    permission_classes = [IsAuthenticated, IsVendor]
+
+    @extend_schema(
+        tags=[_TAG],
+        summary='Monthly earnings PDF',
+        description='Returns a PDF report of all invoices for the given month (YYYY-MM).',
+        parameters=[OpenApiParameter('month', str, description='Month in YYYY-MM format', required=True)],
+    )
+    def get(self, request):
+        try:
+            store = request.user.store
+        except Exception:
+            return Response({'error': 'no_store'}, status=400)
+
+        month_str = request.query_params.get('month', '')
+        try:
+            from datetime import datetime
+            month_dt = datetime.strptime(month_str, '%Y-%m')
+        except ValueError:
+            return Response({'error': 'validation_error', 'message': 'month must be YYYY-MM format.'}, status=400)
+
+        from django.utils import timezone
+        import calendar
+        from decimal import Decimal
+        year, month = month_dt.year, month_dt.month
+        last_day = calendar.monthrange(year, month)[1]
+        period_start = timezone.datetime(year, month, 1, tzinfo=timezone.utc)
+        period_end   = timezone.datetime(year, month, last_day, 23, 59, 59, tzinfo=timezone.utc)
+
+        invoices = Invoice.objects.filter(
+            store=store,
+            created_at__gte=period_start,
+            created_at__lte=period_end,
+        ).order_by('created_at')
+
+        total_revenue = sum(inv.total_amount for inv in invoices) if invoices else Decimal('0')
+
+        # ── Generate PDF ────────────────────────────────────────────────────────
+        import io
+        from django.http import HttpResponse
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib import colors
+        from reportlab.lib.units import mm
+        from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
+
+        buf = io.BytesIO()
+        doc = SimpleDocTemplate(buf, pagesize=A4,
+                                leftMargin=15*mm, rightMargin=15*mm,
+                                topMargin=20*mm, bottomMargin=20*mm)
+        styles = getSampleStyleSheet()
+        bold   = ParagraphStyle('bold', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=12)
+        normal = ParagraphStyle('normal', parent=styles['Normal'], fontName='Helvetica', fontSize=9)
+        center = ParagraphStyle('center', parent=bold, alignment=TA_CENTER, fontSize=16)
+        sub    = ParagraphStyle('sub', parent=styles['Normal'], fontName='Helvetica', fontSize=10, alignment=TA_CENTER)
+
+        navy   = colors.HexColor('#1E3A5F')
+        light  = colors.HexColor('#F0F4F8')
+
+        story  = []
+        story.append(Paragraph('NearSpot', center))
+        story.append(Paragraph(f'Monthly Earnings Report', sub))
+        story.append(Paragraph(f'{store.name} · {month_dt.strftime("%B %Y")}', sub))
+        story.append(Spacer(1, 8*mm))
+
+        # Summary box
+        summary_data = [
+            ['Total Invoices', 'Total Revenue'],
+            [str(invoices.count()), f'₹{total_revenue:,.2f}'],
+        ]
+        summary_tbl = Table(summary_data, colWidths=[85*mm, 85*mm])
+        summary_tbl.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), navy),
+            ('TEXTCOLOR',  (0, 0), (-1, 0), colors.white),
+            ('FONTNAME',   (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE',   (0, 0), (-1, 0), 10),
+            ('BACKGROUND', (0, 1), (-1, 1), light),
+            ('FONTNAME',   (0, 1), (-1, 1), 'Helvetica-Bold'),
+            ('FONTSIZE',   (0, 1), (-1, 1), 14),
+            ('ALIGN',      (0, 0), (-1, -1), 'CENTER'),
+            ('VALIGN',     (0, 0), (-1, -1), 'MIDDLE'),
+            ('ROWBACKGROUNDS', (0, 0), (-1, -1), [None]),
+            ('BOX',        (0, 0), (-1, -1), 0.5, colors.grey),
+            ('INNERGRID',  (0, 0), (-1, -1), 0.25, colors.grey),
+            ('TOPPADDING', (0, 0), (-1, -1), 8),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+        ]))
+        story.append(summary_tbl)
+        story.append(Spacer(1, 8*mm))
+
+        # Invoice rows
+        header = ['#', 'Invoice No.', 'Customer', 'Date', 'Amount']
+        rows   = [header]
+        for idx, inv in enumerate(invoices, start=1):
+            rows.append([
+                str(idx),
+                inv.invoice_number,
+                inv.customer_name[:25],
+                inv.created_at.strftime('%d %b %Y'),
+                f'₹{inv.total_amount:,.2f}',
+            ])
+
+        tbl = Table(rows, colWidths=[10*mm, 40*mm, 60*mm, 35*mm, 30*mm])
+        tbl.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), navy),
+            ('TEXTCOLOR',  (0, 0), (-1, 0), colors.white),
+            ('FONTNAME',   (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE',   (0, 0), (-1, -1), 8),
+            ('ALIGN',      (4, 0), (4, -1), 'RIGHT'),
+            ('ALIGN',      (0, 0), (0, -1), 'CENTER'),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, light]),
+            ('BOX',        (0, 0), (-1, -1), 0.5, colors.grey),
+            ('INNERGRID',  (0, 0), (-1, -1), 0.25, colors.grey),
+            ('TOPPADDING', (0, 0), (-1, -1), 4),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+        ]))
+        story.append(tbl)
+        doc.build(story)
+
+        filename = f'{store.name.replace(" ", "_")}_{month_str}_earnings'
+        resp = HttpResponse(buf.getvalue(), content_type='application/pdf')
+        resp['Content-Disposition'] = f'attachment; filename="{filename}.pdf"'
+        return resp
