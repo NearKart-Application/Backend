@@ -42,6 +42,7 @@
 | S25 — Store Offer Labels · Sale Price PATCH · Broadcast Seed · Cache Invalidation | [sprint_25_map_integration/](sprint_25_map_integration/README.md) | Done ✅ | [TESTING_CHECKLIST.md](sprint_25_map_integration/TESTING_CHECKLIST.md) · [POSTMAN_GUIDE.md](sprint_25_map_integration/POSTMAN_GUIDE.md) |
 | S26 — Structured Product ID System (`NS-{ShopAbbr}-{LocalityCode}-{CategoryCode}-{Unique}`) | [sprint_26_product_id_system/](sprint_26_product_id_system/README.md) | Done ✅ | [TESTING_CHECKLIST.md](sprint_26_product_id_system/TESTING_CHECKLIST.md) · [POSTMAN_GUIDE.md](sprint_26_product_id_system/POSTMAN_GUIDE.md) |
 | S27 — Store Click Tracking: Store Views · Inquiries Pending · Products Need Action live in vendor dashboard | [sprint_27_store_click_tracking/](sprint_27_store_click_tracking/README.md) | Done ✅ | [TESTING_CHECKLIST.md](sprint_27_store_click_tracking/TESTING_CHECKLIST.md) · [POSTMAN_GUIDE.md](sprint_27_store_click_tracking/POSTMAN_GUIDE.md) |
+| S28 — Product Demo Video (`video_type` field + `products/{id}/demo-video/` endpoint) · Voice OTP (`delivery_method: voice` via Twilio call) | [sprint_28_localization_video_voice/](sprint_28_localization_video_voice/README.md) | Done ✅ | [TESTING_CHECKLIST.md](sprint_28_localization_video_voice/TESTING_CHECKLIST.md) · [POSTMAN_GUIDE.md](sprint_28_localization_video_voice/POSTMAN_GUIDE.md) |
 
 ---
 
