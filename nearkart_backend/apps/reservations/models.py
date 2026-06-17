@@ -48,6 +48,7 @@ class Reservation(BaseModel):
         indexes = [
             models.Index(fields=['store', 'status'],    name='res_store_status_idx'),
             models.Index(fields=['customer', 'status'], name='res_customer_status_idx'),
+            models.Index(fields=['created_at'],         name='res_created_at_idx'),
         ]
 
     def __str__(self):

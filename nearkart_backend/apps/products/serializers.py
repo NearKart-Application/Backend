@@ -63,6 +63,8 @@ class ProductSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.BooleanField())
     def get_is_wishlisted(self, obj):
+        if hasattr(obj, '_is_wishlisted'):
+            return obj._is_wishlisted
         request = self.context.get('request')
         if request and request.user.is_authenticated:
             return obj.wishlisted_by.filter(user=request.user).exists()
@@ -178,7 +180,7 @@ class MobileProductDetailSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.FloatField(allow_null=True))
     def get_sale_price(self, obj):
-        variant = obj.variants.order_by('price').first()
+        variant = min(obj.variants.all(), key=lambda v: v.price, default=None)
         if variant and float(variant.price) < float(obj.base_price):
             return float(variant.price)
         return None
@@ -219,7 +221,7 @@ class MobileProductDetailSerializer(serializers.ModelSerializer):
     def get_colors(self, obj):
         colors = []
         seen = set()
-        for v in obj.variants.order_by('name'):
+        for v in sorted(obj.variants.all(), key=lambda v: v.name):
             parts = v.name.split('/')
             if len(parts) > 1:
                 color = parts[1].strip()
@@ -230,16 +232,17 @@ class MobileProductDetailSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.IntegerField())
     def get_stock_count(self, obj):
-        from django.db.models import Sum
-        return obj.variants.aggregate(total=Sum('stock_quantity'))['total'] or 0
+        return sum(v.stock_quantity or 0 for v in obj.variants.all())
 
     @extend_schema_field(serializers.BooleanField())
     def get_is_on_sale(self, obj):
-        variant = obj.variants.order_by('price').first()
+        variant = min(obj.variants.all(), key=lambda v: v.price, default=None)
         return bool(variant and float(variant.price) < float(obj.base_price))
 
     @extend_schema_field(serializers.BooleanField())
     def get_is_wishlisted(self, obj):
+        if hasattr(obj, '_is_wishlisted'):
+            return obj._is_wishlisted
         request = self.context.get('request')
         if request and request.user.is_authenticated:
             return obj.wishlisted_by.filter(user=request.user).exists()

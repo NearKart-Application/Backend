@@ -12,6 +12,7 @@ from rest_framework.permissions import IsAuthenticated
 from drf_spectacular.utils import extend_schema, OpenApiParameter
 from drf_spectacular.types import OpenApiTypes
 
+from core.pagination import StandardOffsetPagination
 from core.permissions import IsVendor
 from apps.videos.models import Video
 from apps.products.models import Product
@@ -131,7 +132,9 @@ class VendorVideoStatsView(APIView):
             return Response({'error': 'no_store', 'message': 'Create a store first.'}, status=400)
 
         videos = store.videos.order_by('-view_count', '-created_at')
-        return Response(VideoStatSerializer(videos, many=True).data)
+        paginator = StandardOffsetPagination()
+        page = paginator.paginate_queryset(videos, request)
+        return paginator.get_paginated_response(VideoStatSerializer(page, many=True).data)
 
 
 class VendorProductStatsView(APIView):

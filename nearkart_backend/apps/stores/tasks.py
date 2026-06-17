@@ -32,7 +32,10 @@ def update_all_store_statuses():
         Prefetch('hours', queryset=StoreHours.objects.filter(day=today), to_attr='today_hours')
     ).distinct()
 
-    opened = closed = skipped = 0
+    to_open  = []
+    to_close = []
+    skipped  = 0
+
     for store in stores_with_hours:
         today_hours = store.today_hours
         if not today_hours:
@@ -40,24 +43,31 @@ def update_all_store_statuses():
             continue
 
         hours = today_hours[0]
-        if hours.is_closed:
-            should_be_open = False
-        else:
-            should_be_open = hours.open_time <= now_t < hours.close_time
+        should_be_open = (
+            False if hours.is_closed
+            else hours.open_time <= now_t < hours.close_time
+        )
 
         if store.is_open != should_be_open:
-            Store.objects.filter(pk=store.pk).update(is_open=should_be_open)
             if should_be_open:
-                opened += 1
-                # Notify followers the store just opened
-                try:
-                    from apps.notifications.services import NotificationService
-                    followers = [f.user for f in store.followers.select_related('user').all()]
-                    NotificationService.notify_store_opened(followers, store.name, str(store.id))
-                except Exception as exc:
-                    logger.warning('update_store_statuses: notification failed for store %s: %s', store.id, exc)
+                to_open.append(store)
             else:
-                closed += 1
+                to_close.append(store)
 
+    if to_open:
+        Store.objects.filter(pk__in=[s.pk for s in to_open]).update(is_open=True)
+        for store in to_open:
+            try:
+                from apps.notifications.services import NotificationService
+                followers = [f.user for f in store.followers.select_related('user').all()]
+                NotificationService.notify_store_opened(followers, store.name, str(store.id))
+            except Exception as exc:
+                logger.warning('update_store_statuses: notification failed for store %s: %s', store.id, exc)
+
+    if to_close:
+        Store.objects.filter(pk__in=[s.pk for s in to_close]).update(is_open=False)
+
+    opened = len(to_open)
+    closed = len(to_close)
     logger.info('[stores] open/close update: opened=%d closed=%d skipped=%d', opened, closed, skipped)
     return {'opened': opened, 'closed': closed, 'skipped': skipped}

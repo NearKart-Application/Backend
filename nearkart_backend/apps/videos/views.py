@@ -27,6 +27,7 @@ from rest_framework.views import APIView
 import rest_framework.serializers as s
 
 from core.logging import log_event
+from core.pagination import StandardOffsetPagination
 from core.permissions import IsVendor
 from core.utils.cache import CacheService
 from core.utils.upload_tracker import UploadTracker
@@ -237,7 +238,11 @@ class MyVideosView(APIView):
         status_filter = request.query_params.get('status')
         if status_filter:
             qs = qs.filter(status=status_filter)
-        return Response(VideoSerializer(qs, many=True, context={'request': request}).data)
+        paginator = StandardOffsetPagination()
+        page = paginator.paginate_queryset(qs, request)
+        return paginator.get_paginated_response(
+            VideoSerializer(page, many=True, context={'request': request}).data
+        )
 
 
 class VideoUpdateView(APIView):

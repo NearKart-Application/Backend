@@ -54,6 +54,9 @@ class ProductVariant(BaseModel):
     class Meta:
         db_table = 'product_variants'
         ordering = ['name']
+        indexes = [
+            models.Index(fields=['product', 'stock_quantity'], name='variant_product_stock_idx'),
+        ]
 
     def __str__(self):
         return f'{self.product.name} — {self.name}'

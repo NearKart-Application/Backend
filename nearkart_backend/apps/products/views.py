@@ -18,6 +18,7 @@ from drf_spectacular.utils import extend_schema, OpenApiExample, OpenApiParamete
 import rest_framework.serializers as s
 
 from core.logging import log_event
+from core.pagination import StandardOffsetPagination
 from core.permissions import IsVendor, IsStoreOwner
 from apps.billing.services import BillingService
 from core.utils.cache import CacheService
@@ -134,20 +135,17 @@ class FollowingFeedView(APIView):
     )
     def get(self, request):
         from apps.stores.models import StoreFollow
-        per_store = int(request.query_params.get('per_store', 3))
-        followed_ids = StoreFollow.objects.filter(user=request.user).values_list('store_id', flat=True)
-        results = []
-        for store_id in followed_ids:
-            store_products = list(
-                Product.objects.filter(
-                    store_id=store_id,
-                    status='active',
-                    is_visible=True,
-                ).select_related('store').prefetch_related('variants', 'images').order_by('-created_at')[:per_store]
-            )
-            results.extend(store_products)
-        results.sort(key=lambda p: p.created_at, reverse=True)
-        serialized = ProductListSerializer(results, many=True, context={'request': request}).data
+        followed_ids = list(
+            StoreFollow.objects.filter(user=request.user).values_list('store_id', flat=True)
+        )
+        products = (
+            Product.objects
+            .filter(store_id__in=followed_ids, status='active', is_visible=True)
+            .select_related('store')
+            .prefetch_related('variants', 'images')
+            .order_by('-created_at')[:50]
+        )
+        serialized = ProductListSerializer(products, many=True, context={'request': request}).data
         return Response({'count': len(serialized), 'next': None, 'previous': None, 'results': serialized})
 
 
@@ -546,14 +544,27 @@ class VendorProductListView(APIView):
     def get(self, request):
         if not hasattr(request.user, 'store'):
             return Response({'results': [], 'count': 0})
+        from django.db.models import Exists, OuterRef, Value, BooleanField
+        from .models import Wishlist
         status_filter = request.query_params.get('status')
-        qs = Product.objects.filter(store=request.user.store)\
-            .select_related('store').prefetch_related('variants', 'images')\
+        qs = (
+            Product.objects
+            .filter(store=request.user.store)
+            .select_related('store')
+            .prefetch_related('variants', 'images')
+            .annotate(
+                _is_wishlisted=Exists(
+                    Wishlist.objects.filter(product=OuterRef('pk'), user=request.user)
+                )
+            )
             .order_by('-created_at')
+        )
         if status_filter:
             qs = qs.filter(status=status_filter)
-        serializer = ProductSerializer(qs, many=True, context={'request': request})
-        return Response({'results': serializer.data, 'count': len(serializer.data)})
+        paginator = StandardOffsetPagination()
+        page = paginator.paginate_queryset(qs, request)
+        serializer = ProductSerializer(page, many=True, context={'request': request})
+        return paginator.get_paginated_response(serializer.data)
 
 
 # ── Inventory Management ──────────────────────────────────────────────────────
