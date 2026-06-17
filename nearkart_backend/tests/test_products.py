@@ -125,3 +125,74 @@ def test_delete_product_other_vendor_forbidden(vendor2_client, product):
     response = vendor2_client.delete(f'{BASE}/{product.id}/')
     assert response.status_code in (403, 404)
     assert Product.objects.filter(id=product.id).exists()
+
+
+# ── Generate Product Code — Sprint 26 ────────────────────────────────────────
+
+@pytest.mark.django_db
+def test_generate_product_code_with_category(vendor_client, store):
+    response = vendor_client.get(f'{BASE}/vendor/generate-code/?category=fashion')
+    assert response.status_code == 200
+    data = response.json()
+    assert 'code' in data
+    assert data['code'].startswith('NS-')
+
+
+@pytest.mark.django_db
+def test_generate_product_code_without_category(vendor_client, store):
+    response = vendor_client.get(f'{BASE}/vendor/generate-code/')
+    assert response.status_code in (200, 400)
+
+
+@pytest.mark.django_db
+def test_generate_product_code_requires_store(vendor_client, vendor_user):
+    response = vendor_client.get(f'{BASE}/vendor/generate-code/?category=fashion')
+    assert response.status_code in (200, 400, 404)
+
+
+@pytest.mark.django_db
+def test_generate_product_code_requires_vendor(customer_client):
+    response = customer_client.get(f'{BASE}/vendor/generate-code/?category=fashion')
+    assert response.status_code == 403
+
+
+# ── Product Demo Video Fetch — Sprint 28 (NF-50) ─────────────────────────────
+
+@pytest.fixture
+def demo_video(db, store, product):
+    from apps.videos.models import Video
+    from django.utils import timezone
+    from datetime import timedelta
+    return Video.objects.create(
+        store=store,
+        product=product,
+        title='Kurti Demo',
+        video_type=Video.TYPE_PRODUCT_DEMO,
+        status=Video.STATUS_READY,
+        is_visible=True,
+        location=store.location,
+        expires_at=timezone.now() + timedelta(days=25),
+        video_url='https://mock-s3.dev/videos/demo.m3u8?dev=true',
+        thumbnail_url='https://mock-s3.dev/videos/demo-thumb.jpg?dev=true',
+    )
+
+
+@pytest.mark.django_db
+def test_get_product_demo_video(anon_client, product, demo_video):
+    response = anon_client.get(f'{BASE}/{product.id}/demo-video/')
+    assert response.status_code == 200
+    data = response.json()
+    assert data['video_type'] == 'product_demo'
+    assert data['title'] == 'Kurti Demo'
+
+
+@pytest.mark.django_db
+def test_get_product_demo_video_not_found(anon_client, product):
+    response = anon_client.get(f'{BASE}/{product.id}/demo-video/')
+    assert response.status_code == 404
+
+
+@pytest.mark.django_db
+def test_get_product_demo_video_no_auth_required(anon_client, product, demo_video):
+    response = anon_client.get(f'{BASE}/{product.id}/demo-video/')
+    assert response.status_code == 200

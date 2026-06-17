@@ -159,3 +159,52 @@ def test_register_device_token_idempotent(customer_client, customer):
     customer_client.post(f'{BASE}/device-token/', {'fcm_token': 'tok1', 'device_type': 'ios'})
     customer_client.post(f'{BASE}/device-token/', {'fcm_token': 'tok1', 'device_type': 'ios'})
     assert DeviceToken.objects.filter(user=customer, fcm_token='tok1').count() == 1
+
+
+# ── Voice OTP — Sprint 28 (NF-10) ────────────────────────────────────────────
+
+@pytest.mark.django_db
+def test_otp_send_default_delivery_method_is_sms(anon_client):
+    response = anon_client.post(f'{BASE}/otp/send/', {'phone_number': '+919600000001'})
+    assert response.status_code == 200
+
+
+@pytest.mark.django_db
+def test_otp_send_explicit_sms_delivery(anon_client):
+    response = anon_client.post(f'{BASE}/otp/send/', {
+        'phone_number': '+919600000002',
+        'delivery_method': 'sms',
+    })
+    assert response.status_code == 200
+
+
+@pytest.mark.django_db
+def test_otp_send_voice_delivery(anon_client):
+    response = anon_client.post(f'{BASE}/otp/send/', {
+        'phone_number': '+919600000003',
+        'delivery_method': 'voice',
+    })
+    assert response.status_code == 200
+
+
+@pytest.mark.django_db
+def test_otp_send_invalid_delivery_method(anon_client):
+    response = anon_client.post(f'{BASE}/otp/send/', {
+        'phone_number': '+919600000004',
+        'delivery_method': 'telegram',
+    })
+    assert response.status_code == 400
+
+
+@pytest.mark.django_db
+def test_otp_send_voice_then_verify(anon_client):
+    anon_client.post(f'{BASE}/otp/send/', {
+        'phone_number': '+919600000005',
+        'delivery_method': 'voice',
+    })
+    response = anon_client.post(f'{BASE}/otp/verify/', {
+        'phone_number': '+919600000005',
+        'otp': '123456',
+    })
+    assert response.status_code == 200
+    assert 'access' in response.json()

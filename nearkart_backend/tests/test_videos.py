@@ -241,3 +241,60 @@ def test_download_video_no_raw_key(vendor_client, store):
     )
     response = vendor_client.get(f'{BASE}/{video.id}/download/')
     assert response.status_code == 409
+
+
+# ── Product Demo Video Upload — Sprint 28 (NF-50) ────────────────────────────
+
+@pytest.fixture
+def product_for_demo(db, store):
+    from apps.products.models import Product
+    return Product.objects.create(
+        store=store, name='Demo Product', price='499.00',
+        category='fashion', is_available=True,
+    )
+
+
+@pytest.mark.django_db
+def test_request_upload_store_promo_explicit(vendor_client, store):
+    response = vendor_client.post(f'{BASE}/request-upload/', {
+        'title': 'Promo Video',
+        'video_type': 'store_promo',
+    })
+    assert response.status_code == 201
+    data = response.json()
+    assert 'video_id' in data
+    v = Video.objects.get(id=data['video_id'])
+    assert v.video_type == Video.TYPE_STORE_PROMO
+
+
+@pytest.mark.django_db
+def test_request_upload_product_demo_with_product(vendor_client, store, product_for_demo):
+    response = vendor_client.post(f'{BASE}/request-upload/', {
+        'title': 'Kurti Demo',
+        'video_type': 'product_demo',
+        'product_id': str(product_for_demo.id),
+    })
+    assert response.status_code == 201
+    data = response.json()
+    v = Video.objects.get(id=data['video_id'])
+    assert v.video_type == Video.TYPE_PRODUCT_DEMO
+    assert v.product_id == product_for_demo.id
+
+
+@pytest.mark.django_db
+def test_request_upload_product_demo_missing_product(vendor_client, store):
+    response = vendor_client.post(f'{BASE}/request-upload/', {
+        'title': 'Demo No Product',
+        'video_type': 'product_demo',
+    })
+    assert response.status_code == 400
+
+
+@pytest.mark.django_db
+def test_request_upload_product_demo_wrong_store_product(vendor2_client, store2, product_for_demo):
+    response = vendor2_client.post(f'{BASE}/request-upload/', {
+        'title': 'Steal Demo',
+        'video_type': 'product_demo',
+        'product_id': str(product_for_demo.id),
+    })
+    assert response.status_code in (400, 403)
