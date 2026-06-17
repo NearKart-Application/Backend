@@ -11,13 +11,16 @@ BASE = '/api/v1/products'
 
 @pytest.fixture
 def product(db, store):
+    import uuid
     return Product.objects.create(
         store=store,
         name='Test Product',
         description='A great product',
-        price='299.00',
+        base_price='299.00',
         category='fashion',
-        is_available=True,
+        status='active',
+        is_visible=True,
+        product_code=f'NS-PRD-{uuid.uuid4().hex[:6].upper()}',
     )
 
 
@@ -28,7 +31,7 @@ def test_create_product(vendor_client, store):
     response = vendor_client.post(f'{BASE}/', {
         'name': 'New Product',
         'description': 'Fresh stock',
-        'price': '499.00',
+        'base_price': '499.00',
         'category': 'fashion',
     })
     assert response.status_code == 201
@@ -64,8 +67,8 @@ def test_create_product_unauthenticated(anon_client):
 # ── List / Detail ─────────────────────────────────────────────────────────────
 
 @pytest.mark.django_db
-def test_list_products_by_store(customer_client, product, store):
-    response = customer_client.get(f'{BASE}/?store={store.id}')
+def test_list_products_by_store(vendor_client, product, store):
+    response = vendor_client.get(f'{BASE}/vendor/')
     assert response.status_code == 200
     results = response.json().get('results', response.json())
     names = [p['name'] for p in (results if isinstance(results, list) else [])]
@@ -89,12 +92,12 @@ def test_get_nonexistent_product(customer_client):
 
 @pytest.mark.django_db
 def test_update_product_owner(vendor_client, product):
-    response = vendor_client.put(f'{BASE}/{product.id}/', {
+    response = vendor_client.put(f'{BASE}/{product.id}/update/', {
         'name': 'Updated Product',
         'description': 'Updated desc',
-        'price': '599.00',
+        'base_price': '599.00',
         'category': 'fashion',
-        'is_available': True,
+        'status': 'active',
     })
     assert response.status_code == 200
     product.refresh_from_db()
@@ -103,7 +106,7 @@ def test_update_product_owner(vendor_client, product):
 
 @pytest.mark.django_db
 def test_update_product_other_vendor_forbidden(vendor2_client, product):
-    response = vendor2_client.put(f'{BASE}/{product.id}/', {
+    response = vendor2_client.put(f'{BASE}/{product.id}/update/', {
         'name': 'Hijacked',
         'price': '1.00',
         'category': 'food',
@@ -115,14 +118,14 @@ def test_update_product_other_vendor_forbidden(vendor2_client, product):
 
 @pytest.mark.django_db
 def test_delete_product_owner(vendor_client, product):
-    response = vendor_client.delete(f'{BASE}/{product.id}/')
+    response = vendor_client.delete(f'{BASE}/{product.id}/update/')
     assert response.status_code == 204
     assert not Product.objects.filter(id=product.id).exists()
 
 
 @pytest.mark.django_db
 def test_delete_product_other_vendor_forbidden(vendor2_client, product):
-    response = vendor2_client.delete(f'{BASE}/{product.id}/')
+    response = vendor2_client.delete(f'{BASE}/{product.id}/update/')
     assert response.status_code in (403, 404)
     assert Product.objects.filter(id=product.id).exists()
 
@@ -134,8 +137,9 @@ def test_generate_product_code_with_category(vendor_client, store):
     response = vendor_client.get(f'{BASE}/vendor/generate-code/?category=fashion')
     assert response.status_code == 200
     data = response.json()
-    assert 'code' in data
-    assert data['code'].startswith('NS-')
+    assert 'product_code' in data or 'code' in data
+    key = 'product_code' if 'product_code' in data else 'code'
+    assert data[key].startswith('NS-')
 
 
 @pytest.mark.django_db

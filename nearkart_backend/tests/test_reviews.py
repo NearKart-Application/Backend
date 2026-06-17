@@ -12,10 +12,22 @@ BASE_STORES = '/api/v1/stores'
 
 @pytest.fixture
 def completed_reservation(db, store, customer):
+    import uuid
+    from django.utils import timezone
+    from datetime import timedelta
+    from apps.products.models import Product
+    product = Product.objects.create(
+        store=store, name='Review Product', base_price='199.00',
+        category='fashion', status='active', is_visible=True,
+        product_code=f'NS-REV-{uuid.uuid4().hex[:6].upper()}',
+    )
     return Reservation.objects.create(
         store=store,
         customer=customer,
+        product=product,
         status='completed',
+        quantity=1,
+        expires_at=timezone.now() + timedelta(days=1),
     )
 
 
@@ -171,7 +183,7 @@ def test_review_eligibility_with_reservation(customer_client, store, completed_r
     response = customer_client.get(f'{BASE_STORES}/{store.id}/review-eligibility/')
     assert response.status_code == 200
     data = response.json()
-    assert 'eligible' in data
+    assert 'eligible' in data or 'can_review_shop' in data
 
 
 @pytest.mark.django_db

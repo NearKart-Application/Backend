@@ -281,7 +281,7 @@ class AdminUserToggleActiveView(APIView):
     )
     def post(self, request, user_id):
         try:
-            user = User.objects.select_related('store').get(id=user_id)
+            user = User.objects.prefetch_related('stores').get(id=user_id)
         except User.DoesNotExist:
             return Response({'error': 'not_found', 'message': 'User not found.'}, status=404)
 
@@ -693,7 +693,7 @@ class AdminUserSuspendView(APIView):
     )
     def post(self, request, user_id):
         try:
-            user = User.objects.select_related('store').get(id=user_id)
+            user = User.objects.prefetch_related('stores').get(id=user_id)
         except User.DoesNotExist:
             return Response({'error': 'not_found', 'message': 'User not found.'}, status=404)
 

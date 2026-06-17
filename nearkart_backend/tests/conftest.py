@@ -8,9 +8,11 @@ from django.contrib.gis.geos import Point
 from rest_framework.test import APIClient
 from rest_framework_simplejwt.tokens import RefreshToken
 
+from django.utils import timezone
+from datetime import timedelta
 from apps.auth_app.models import User, UserRole
 from apps.stores.models import Store
-from apps.billing.models import Plan
+from apps.billing.models import Plan, Subscription
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -54,6 +56,11 @@ def admin_user(db):
     return User.objects.create_user(phone_number='+919000000099', role=UserRole.ADMIN, is_staff=True)
 
 
+@pytest.fixture
+def master_admin_user(db):
+    return User.objects.create_user(phone_number='+919000000098', role='master_admin', is_staff=True)
+
+
 # ── API Clients ───────────────────────────────────────────────────────────────
 
 @pytest.fixture
@@ -86,11 +93,40 @@ def admin_client(admin_user):
     return auth_client(admin_user)
 
 
+@pytest.fixture
+def master_admin_client(master_admin_user):
+    return auth_client(master_admin_user)
+
+
 # ── Store ─────────────────────────────────────────────────────────────────────
+
+def _attach_subscription(store):
+    plan, _ = Plan.objects.get_or_create(
+        name='test_plan',
+        defaults={
+            'display_name': 'Test Plan',
+            'price': Decimal('0.00'),
+            'duration_days': 365,
+            'video_limit': 0,
+            'product_limit': 0,
+            'is_active': True,
+        },
+    )
+    Subscription.objects.get_or_create(
+        store=store,
+        defaults={
+            'plan': plan,
+            'started_at': timezone.now(),
+            'expires_at': timezone.now() + timedelta(days=365),
+            'is_active': True,
+        },
+    )
+    return store
+
 
 @pytest.fixture
 def store(db, vendor_user):
-    return Store.objects.create(
+    s = Store.objects.create(
         owner=vendor_user,
         name='Test Store',
         description='A test store',
@@ -101,11 +137,12 @@ def store(db, vendor_user):
         is_active=True,
         is_verified=True,
     )
+    return _attach_subscription(s)
 
 
 @pytest.fixture
 def store2(db, vendor_user2):
-    return Store.objects.create(
+    s = Store.objects.create(
         owner=vendor_user2,
         name='Second Store',
         description='Another test store',
@@ -116,6 +153,7 @@ def store2(db, vendor_user2):
         is_active=True,
         is_verified=True,
     )
+    return _attach_subscription(s)
 
 
 # ── Plans ─────────────────────────────────────────────────────────────────────

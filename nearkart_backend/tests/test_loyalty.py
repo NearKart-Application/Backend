@@ -12,7 +12,7 @@ BASE = '/api/v1/loyalty'
 @pytest.fixture
 def loyalty_account(db, customer):
     account, _ = LoyaltyAccount.objects.get_or_create(user=customer)
-    account.points = 200
+    account.balance = 200
     account.save()
     return account
 
@@ -20,7 +20,7 @@ def loyalty_account(db, customer):
 @pytest.fixture
 def referral_code(db, customer2):
     return Referral.objects.create(
-        user=customer2,
+        referrer=customer2,
         referral_code='TESTREF01',
     )
 
@@ -59,7 +59,8 @@ def test_get_loyalty_history(customer_client, loyalty_account):
     )
     response = customer_client.get(f'{BASE}/history/')
     assert response.status_code == 200
-    results = response.json().get('results', response.json())
+    data = response.json()
+    results = data if isinstance(data, list) else data.get('results', [])
     assert isinstance(results, list)
 
 
@@ -78,9 +79,10 @@ def test_loyalty_history_requires_auth(anon_client):
 # ── Apply Referral Code ───────────────────────────────────────────────────────
 
 @pytest.mark.django_db
-def test_apply_referral_code(customer_client, referral_code):
+def test_apply_referral_code(customer_client, customer2):
+    LoyaltyAccount.objects.get_or_create(user=customer2)
     response = customer_client.post(f'{BASE}/apply-referral/', {
-        'referral_code': 'TESTREF01',
+        'referral_code': customer2.profile_id,
     })
     assert response.status_code in (200, 201)
 
@@ -94,18 +96,18 @@ def test_apply_invalid_referral_code(customer_client):
 
 
 @pytest.mark.django_db
-def test_apply_own_referral_code_forbidden(customer_client, customer):
-    Referral.objects.create(user=customer, referral_code='OWNCODE1')
+def test_apply_own_referral_code_forbidden(customer_client, customer, loyalty_account):
     response = customer_client.post(f'{BASE}/apply-referral/', {
-        'referral_code': 'OWNCODE1',
+        'referral_code': customer.profile_id,
     })
     assert response.status_code == 400
 
 
 @pytest.mark.django_db
-def test_apply_referral_twice_forbidden(customer_client, customer2, referral_code):
-    customer_client.post(f'{BASE}/apply-referral/', {'referral_code': 'TESTREF01'})
-    response = customer_client.post(f'{BASE}/apply-referral/', {'referral_code': 'TESTREF01'})
+def test_apply_referral_twice_forbidden(customer_client, customer2):
+    LoyaltyAccount.objects.get_or_create(user=customer2)
+    customer_client.post(f'{BASE}/apply-referral/', {'referral_code': customer2.profile_id})
+    response = customer_client.post(f'{BASE}/apply-referral/', {'referral_code': customer2.profile_id})
     assert response.status_code == 400
 
 

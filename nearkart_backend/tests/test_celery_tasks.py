@@ -13,6 +13,7 @@ from datetime import timedelta
 @pytest.mark.django_db
 def test_expire_subscriptions_task(store, plan_basic):
     from apps.billing.models import Subscription
+    Subscription.objects.filter(store=store).delete()
     sub = Subscription.objects.create(
         store=store, plan=plan_basic,
         started_at=timezone.now() - timedelta(days=31),
@@ -28,6 +29,7 @@ def test_expire_subscriptions_task(store, plan_basic):
 @pytest.mark.django_db
 def test_active_subscription_not_expired(store, plan_basic):
     from apps.billing.models import Subscription
+    Subscription.objects.filter(store=store).delete()
     sub = Subscription.objects.create(
         store=store, plan=plan_basic,
         started_at=timezone.now(),
@@ -45,14 +47,17 @@ def test_active_subscription_not_expired(store, plan_basic):
 @pytest.mark.django_db
 def test_expire_old_reservations(customer, store):
     from apps.products.models import Product
-    from apps.reservations.models import Reservation
+    from apps.reservations.models import Reservation, ReservationStatus
+    import uuid
     product = Product.objects.create(
-        store=store, name='Hold Me', price='100.00',
-        category='fashion', is_available=True,
+        store=store, name='Hold Me', base_price='100.00',
+        category='fashion', status='active', is_visible=True,
+        product_code=f'NS-CEL-{uuid.uuid4().hex[:6].upper()}',
     )
     r = Reservation.objects.create(
         customer=customer, product=product, store=store,
-        status=Reservation.STATUS_PENDING, quantity=1,
+        status=ReservationStatus.PENDING, quantity=1,
+        expires_at=timezone.now() - timedelta(hours=1),
     )
     r.created_at = timezone.now() - timedelta(hours=3)
     r.save(update_fields=['created_at'])
@@ -60,7 +65,7 @@ def test_expire_old_reservations(customer, store):
     from apps.reservations.tasks import expire_reservations
     expire_reservations()
     r.refresh_from_db()
-    assert r.status == Reservation.STATUS_EXPIRED
+    assert r.status == ReservationStatus.EXPIRED
 
 
 # ── Videos: Notify Expiring ───────────────────────────────────────────────────
@@ -150,10 +155,11 @@ def test_notify_expiring_subscriptions_task(store, plan_basic, vendor_user):
     from apps.billing.models import Subscription
     from apps.notifications.models import Notification, NotificationType
 
+    Subscription.objects.filter(store=store).delete()
     Subscription.objects.create(
         store=store, plan=plan_basic,
         started_at=timezone.now() - timedelta(days=28),
-        expires_at=timezone.now() + timedelta(days=2),
+        expires_at=timezone.now() + timedelta(days=3),
         is_active=True,
     )
 

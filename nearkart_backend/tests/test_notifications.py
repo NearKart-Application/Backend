@@ -79,7 +79,7 @@ def test_unread_count_zero_when_all_read(customer_client, read_notif):
 
 @pytest.mark.django_db
 def test_mark_notification_read(customer_client, notif):
-    response = customer_client.post(f'{BASE}/{notif.id}/mark-read/')
+    response = customer_client.post(f'{BASE}/{notif.id}/read/')
     assert response.status_code == 200
     notif.refresh_from_db()
     assert notif.is_read is True
@@ -87,7 +87,7 @@ def test_mark_notification_read(customer_client, notif):
 
 @pytest.mark.django_db
 def test_mark_other_users_notification_read(vendor_client, notif):
-    response = vendor_client.post(f'{BASE}/{notif.id}/mark-read/')
+    response = vendor_client.post(f'{BASE}/{notif.id}/read/')
     assert response.status_code == 404
 
 
@@ -100,7 +100,7 @@ def test_mark_all_read(customer_client, customer, notif):
         notification_type=NotificationType.NEW_FOLLOWER,
         title='New follower', body='Someone followed you.', is_read=False,
     )
-    response = customer_client.post(f'{BASE}/mark-all-read/')
+    response = customer_client.post(f'{BASE}/read-all/')
     assert response.status_code == 200
     assert Notification.objects.filter(recipient=customer, is_read=False).count() == 0
 

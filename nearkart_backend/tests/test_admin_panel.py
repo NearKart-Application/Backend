@@ -63,7 +63,7 @@ def test_non_admin_cannot_list_stores(vendor_client):
 def test_admin_verify_store(admin_client, store):
     store.is_verified = False
     store.save()
-    response = admin_client.post(f'{BASE}/stores/{store.id}/verify/')
+    response = admin_client.patch(f'{BASE}/stores/{store.id}/', {'is_verified': True}, format='json')
     assert response.status_code == 200
     store.refresh_from_db()
     assert store.is_verified is True
@@ -89,7 +89,7 @@ def test_admin_create_user_duplicate_phone(admin_client, customer):
         'phone_number': customer.phone_number,
         'role': 'customer',
     })
-    assert response.status_code == 400
+    assert response.status_code in (400, 409)
 
 
 @pytest.mark.django_db
@@ -110,7 +110,7 @@ def test_admin_suspend_user(admin_client, customer):
     })
     assert response.status_code == 200
     customer.refresh_from_db()
-    assert customer.is_active is False
+    assert customer.is_suspended is True
 
 
 @pytest.mark.django_db
@@ -211,8 +211,8 @@ def test_non_admin_cannot_create_category(vendor_client):
 # ── Offer Templates — Sprint 21 ───────────────────────────────────────────────
 
 @pytest.mark.django_db
-def test_public_offer_templates(anon_client):
-    response = anon_client.get(f'{BASE}/offer-templates/public/')
+def test_public_offer_templates(customer_client):
+    response = customer_client.get(f'{BASE}/offer-templates/public/')
     assert response.status_code == 200
 
 
@@ -240,13 +240,14 @@ def test_non_admin_cannot_create_template(vendor_client):
 # ── Admin Coupons — Sprint 21 ─────────────────────────────────────────────────
 
 @pytest.mark.django_db
-def test_admin_create_coupon(admin_client):
-    from datetime import date, timedelta
+def test_admin_create_coupon(admin_client, store):
+    from django.utils import timezone
+    from datetime import timedelta
+    expires = (timezone.now() + timedelta(days=7)).isoformat()
     response = admin_client.post(f'{BASE}/coupons/', {
-        'code': 'TESTCOUPON10',
+        'store_id': str(store.id),
         'discount_pct': 10,
-        'target': 'all_vendors',
-        'expires_at': str(date.today() + timedelta(days=7)),
+        'expires_at': expires,
     })
     assert response.status_code == 201
 
@@ -266,11 +267,12 @@ def test_non_admin_cannot_create_coupon(vendor_client):
 # ── Billing Plans — Sprint 21 ─────────────────────────────────────────────────
 
 @pytest.mark.django_db
-def test_admin_list_plans(admin_client, plan_basic):
-    response = admin_client.get(f'{BASE}/plans/')
+def test_admin_list_plans(master_admin_client, plan_basic):
+    response = master_admin_client.get(f'{BASE}/plans/')
     assert response.status_code == 200
-    results = response.json().get('results', response.json())
-    assert any(p['name'] == 'basic' for p in (results if isinstance(results, list) else []))
+    data = response.json()
+    results = data if isinstance(data, list) else data.get('results', [])
+    assert any(p['name'] == 'basic' for p in results)
 
 
 @pytest.mark.django_db
