@@ -96,14 +96,6 @@ class NotificationService:
         )
 
     @staticmethod
-    def notify_new_review(vendor, reviewer_name: str, rating: int, store_name: str):
-        NotificationService.send(
-            vendor, NotificationType.NEW_REVIEW,
-            title='New Review',
-            body=f'{reviewer_name} rated {store_name} {rating}/5.',
-        )
-
-    @staticmethod
     def notify_store_opened(followers, store_name: str, store_id: str):
         NotificationService.send_bulk(
             followers, NotificationType.STORE_OPENED,

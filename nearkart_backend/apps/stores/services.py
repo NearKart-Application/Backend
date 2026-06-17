@@ -77,9 +77,9 @@ class StoreService:
         store.save(update_fields=['performance_score'])
         NotificationService.notify_new_review(
             store.owner,
-            user.full_name or user.phone_number,
-            rating,
             store.name,
+            rating,
+            str(store.id),
         )
         return review
 

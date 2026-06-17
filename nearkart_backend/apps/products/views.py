@@ -853,9 +853,9 @@ class ProductReviewView(APIView):
             from apps.notifications.services import NotificationService
             NotificationService.notify_new_review(
                 product.store.owner,
-                request.user.full_name or request.user.phone_number,
-                review.rating,
                 product.store.name,
+                review.rating,
+                str(product.store.id),
             )
         except Exception:
             pass

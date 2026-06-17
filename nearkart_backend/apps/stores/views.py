@@ -25,7 +25,7 @@ from core.permissions import IsVendor, IsStoreOwner
 from core.utils.cache import CacheService
 from apps.blacklist.services import BlacklistService
 from django.utils import timezone as tz
-from .models import Store, StoreHours, StoreOffer, Invoice, WebsiteRequest, StaffMember, StaffRole, BroadcastChannel, BroadcastPost, CustomerBlockedStore
+from .models import Store, StoreHours, StoreOffer, StoreReview, Invoice, WebsiteRequest, StaffMember, StaffRole, BroadcastChannel, BroadcastPost, CustomerBlockedStore
 from .serializers import (
     StoreSerializer, StoreListSerializer, StoreReviewSerializer,
     StoreReviewListSerializer, StoreOfferSerializer,
@@ -554,7 +554,7 @@ class VendorReviewReplyView(APIView):
         try:
             store  = Store.objects.get(id=store_id)
             review = store.reviews.get(id=review_id)
-        except (Store.DoesNotExist, store.reviews.model.DoesNotExist):
+        except (Store.DoesNotExist, StoreReview.DoesNotExist):
             return Response({'error': 'not_found', 'message': 'Review not found.'}, status=status.HTTP_404_NOT_FOUND)
         self.check_object_permissions(request, store)
         serializer = VendorReplySerializer(data=request.data)
@@ -1916,7 +1916,7 @@ class MonthlyEarningsPDFView(APIView):
             created_at__lte=period_end,
         ).order_by('created_at')
 
-        total_revenue = sum(inv.total_amount for inv in invoices) if invoices else Decimal('0')
+        total_revenue = sum(inv.total for inv in invoices) if invoices else Decimal('0')
 
         # ── Generate PDF ────────────────────────────────────────────────────────
         import io
@@ -1978,10 +1978,10 @@ class MonthlyEarningsPDFView(APIView):
         for idx, inv in enumerate(invoices, start=1):
             rows.append([
                 str(idx),
-                inv.invoice_number,
+                f'#{str(inv.id)[:8].upper()}',
                 inv.customer_name[:25],
                 inv.created_at.strftime('%d %b %Y'),
-                f'₹{inv.total_amount:,.2f}',
+                f'₹{inv.total:,.2f}',
             ])
 
         tbl = Table(rows, colWidths=[10*mm, 40*mm, 60*mm, 35*mm, 30*mm])
