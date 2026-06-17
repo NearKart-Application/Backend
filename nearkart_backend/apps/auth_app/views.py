@@ -114,7 +114,8 @@ class OTPSendView(APIView):
                 status=status.HTTP_429_TOO_MANY_REQUESTS,
             )
 
-        is_signup = serializer.validated_data.get('is_signup', False)
+        is_signup       = serializer.validated_data.get('is_signup', False)
+        delivery_method = serializer.validated_data.get('delivery_method', 'sms')
         if not is_signup:
             # Login flow — reject unknown phone numbers instead of silently creating an account
             from .models import User as _User
@@ -124,8 +125,9 @@ class OTPSendView(APIView):
                     status=status.HTTP_404_NOT_FOUND,
                 )
 
-        OTPService.generate_and_send(phone_number)
-        log_event('auth', action='otp_sent', phone=phone_number, is_signup=is_signup)
+        OTPService.generate_and_send(phone_number, delivery_method)
+        log_event('auth', action='otp_sent', phone=phone_number, is_signup=is_signup,
+                  delivery_method=delivery_method)
         return Response({'message': 'OTP sent successfully'}, status=status.HTTP_200_OK)
 
 

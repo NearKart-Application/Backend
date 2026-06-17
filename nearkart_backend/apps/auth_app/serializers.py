@@ -7,8 +7,9 @@ from .models import User
 
 
 class OTPSendSerializer(serializers.Serializer):
-    phone_number = serializers.CharField(max_length=15)
-    is_signup    = serializers.BooleanField(default=False, required=False)
+    phone_number     = serializers.CharField(max_length=15)
+    is_signup        = serializers.BooleanField(default=False, required=False)
+    delivery_method  = serializers.ChoiceField(choices=['sms', 'voice'], default='sms', required=False)
 
     def validate_phone_number(self, value):
         cleaned = re.sub(r'\s+', '', value)

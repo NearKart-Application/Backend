@@ -46,11 +46,11 @@ class OTPService:
         return str(random.randint(100000, 999999))
 
     @classmethod
-    def generate_and_send(cls, phone_number: str) -> str:
+    def generate_and_send(cls, phone_number: str, delivery_method: str = 'sms') -> str:
         """
         Creates or fetches user, invalidates old OTPs,
-        generates new OTP, queues SMS task.
-        Returns the OTP (for task to send via SMS).
+        generates new OTP, queues SMS or voice task.
+        Returns the OTP (for task to send).
         """
         try:
             user = User.objects.get(phone_number=phone_number)
@@ -61,10 +61,14 @@ class OTPService:
         otp = cls.generate_otp(phone_number)
         OTPToken.create_for_user(user, otp)
 
-        # Skip SMS entirely in DEBUG — 123456 works for any phone
+        # Skip delivery entirely in DEBUG — 123456 works for any phone
         if not getattr(settings, 'DEBUG', False) and not getattr(settings, 'DEV_FIXED_OTP', None):
-            from apps.auth_app.tasks import send_otp_sms
-            send_otp_sms.delay(phone_number, otp)
+            if delivery_method == 'voice':
+                from apps.auth_app.tasks import send_otp_voice
+                send_otp_voice.delay(phone_number, otp)
+            else:
+                from apps.auth_app.tasks import send_otp_sms
+                send_otp_sms.delay(phone_number, otp)
 
         return otp
 

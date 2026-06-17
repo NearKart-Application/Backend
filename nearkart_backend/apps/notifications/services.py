@@ -291,3 +291,29 @@ class SMSService:
         except Exception as e:
             logger.error(f'Failed to send OTP SMS to {phone_number}: {e}')
             return False
+
+    @staticmethod
+    def send_voice_otp(phone_number: str, otp: str) -> bool:
+        """Delivers OTP via a Twilio voice call with TwiML read-aloud message."""
+        try:
+            from twilio.rest import Client
+            from twilio.twiml.voice_response import VoiceResponse
+            spaced_otp = '  '.join(otp)
+            twiml = VoiceResponse()
+            twiml.say(
+                f'Hello. Your NearSpot verification code is {spaced_otp}. '
+                f'I repeat, {spaced_otp}. Goodbye.',
+                voice='alice',
+                language='en-IN',
+            )
+            client = Client(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN)
+            client.calls.create(
+                twiml=str(twiml),
+                from_=settings.TWILIO_FROM_NUMBER,
+                to=phone_number,
+            )
+            logger.info(f'Voice OTP call placed to {phone_number}')
+            return True
+        except Exception as e:
+            logger.error(f'Failed to place voice OTP call to {phone_number}: {e}')
+            return False
