@@ -849,3 +849,26 @@ class ProductReviewView(APIView):
         except Exception:
             pass
         return Response(ProductReviewSerializer(review).data, status=status.HTTP_201_CREATED)
+
+
+class ProductDemoVideoView(APIView):
+    """GET /products/<product_id>/demo-video/ — returns the latest ready product_demo video for a product."""
+    permission_classes = [AllowAny]
+
+    def get(self, request, product_id):
+        from apps.videos.models import Video
+        from apps.videos.serializers import VideoSerializer
+        video = (
+            Video.objects
+            .filter(
+                product_id=product_id,
+                video_type=Video.TYPE_PRODUCT_DEMO,
+                status=Video.STATUS_READY,
+                is_visible=True,
+            )
+            .order_by('-created_at')
+            .first()
+        )
+        if not video:
+            return Response({'detail': 'No demo video found for this product.'}, status=status.HTTP_404_NOT_FOUND)
+        return Response(VideoSerializer(video, context={'request': request}).data)

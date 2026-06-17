@@ -7,7 +7,7 @@ from .views import (
     VariantListView, VariantStockUpdateView, ProductVariantBulkUpdateView, StockLogView,
     StockAlertsView, StockWatchView, ProductImageUploadView,
     ProductImageDeleteView,
-    GenerateProductCodeView, ProductReviewView,
+    GenerateProductCodeView, ProductReviewView, ProductDemoVideoView,
 )
 from apps.admin_panel.views import PublicCategoryListView
 
@@ -33,5 +33,6 @@ urlpatterns = [
     path('<uuid:product_id>/variants/bulk/',     ProductVariantBulkUpdateView.as_view(), name='variant-bulk-update'),
     path('<uuid:product_id>/variants/<uuid:variant_id>/',
          VariantStockUpdateView.as_view(), name='variant-stock-update'),
-    path('<uuid:product_id>/reviews/',  ProductReviewView.as_view(),  name='product-reviews'),
+    path('<uuid:product_id>/reviews/',    ProductReviewView.as_view(),    name='product-reviews'),
+    path('<uuid:product_id>/demo-video/', ProductDemoVideoView.as_view(), name='product-demo-video'),
 ]

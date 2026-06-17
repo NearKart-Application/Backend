@@ -27,10 +27,20 @@ class Video(models.Model):
         (STATUS_EXPIRED,    'Expired'),
     ]
 
+    TYPE_STORE_PROMO  = 'store_promo'
+    TYPE_PRODUCT_DEMO = 'product_demo'
+
+    TYPE_CHOICES = [
+        (TYPE_STORE_PROMO,  'Store Promo'),
+        (TYPE_PRODUCT_DEMO, 'Product Demo'),
+    ]
+
     id               = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     store            = models.ForeignKey('stores.Store', on_delete=models.CASCADE, related_name='videos')
     title            = models.CharField(max_length=200)
     description      = models.TextField(blank=True)
+    video_type       = models.CharField(max_length=20, choices=TYPE_CHOICES, default=TYPE_STORE_PROMO, db_index=True)
+    product          = models.ForeignKey('products.Product', on_delete=models.SET_NULL, null=True, blank=True, related_name='demo_videos')
 
     # S3 object keys
     raw_s3_key       = models.CharField(max_length=500, blank=True)

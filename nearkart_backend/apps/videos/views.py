@@ -106,10 +106,23 @@ class VideoUploadRequestView(APIView):
             )
         serializer = VideoUploadRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        product = None
+        product_id = serializer.validated_data.get('product_id')
+        if product_id:
+            from apps.products.models import Product
+            try:
+                product = Product.objects.get(id=product_id, store=request.user.store)
+            except Product.DoesNotExist:
+                return Response(
+                    {'error': 'not_found', 'message': 'Product not found in your store.'},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
         video, upload_url = VideoService.request_upload(
             store=request.user.store,
             title=serializer.validated_data['title'],
             description=serializer.validated_data.get('description', ''),
+            video_type=serializer.validated_data.get('video_type', 'store_promo'),
+            product=product,
         )
         log_event('videos', action='video_upload_requested', video_id=str(video.id),
                   store_id=str(request.user.store.id), user_id=str(request.user.id),

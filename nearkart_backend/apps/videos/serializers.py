@@ -58,6 +58,8 @@ class VideoSerializer(serializers.ModelSerializer):
     is_saved    = serializers.SerializerMethodField()
     tags        = serializers.SerializerMethodField()
 
+    product_id = serializers.UUIDField(source='product.id', read_only=True, allow_null=True)
+
     class Meta:
         model  = Video
         fields = [
@@ -65,6 +67,7 @@ class VideoSerializer(serializers.ModelSerializer):
             'store_id', 'store_name',   # flat (legacy / admin)
             'store',                     # nested (mobile)
             'title', 'description',
+            'video_type', 'product_id',
             'video_url', 'thumbnail_url',   # original names
             'hls_url', 'thumbnail',         # mobile aliases
             'status',
@@ -120,3 +123,5 @@ class VideoSerializer(serializers.ModelSerializer):
 class VideoUploadRequestSerializer(serializers.Serializer):
     title       = serializers.CharField(max_length=200)
     description = serializers.CharField(required=False, allow_blank=True, default='')
+    video_type  = serializers.ChoiceField(choices=['store_promo', 'product_demo'], default='store_promo')
+    product_id  = serializers.UUIDField(required=False, allow_null=True, default=None)

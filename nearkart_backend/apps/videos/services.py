@@ -87,7 +87,8 @@ class AWSService:
 
 class VideoService:
     @staticmethod
-    def request_upload(store, title: str, description: str = '') -> tuple:
+    def request_upload(store, title: str, description: str = '',
+                       video_type: str = 'store_promo', product=None) -> tuple:
         """Create Video record + presigned S3 PUT URL. Returns (video, upload_url)."""
         video_id = uuid.uuid4()
         s3_key   = f'videos/raw/{store.id}/{video_id}/original.mp4'
@@ -98,6 +99,8 @@ class VideoService:
             store=store,
             title=title,
             description=description,
+            video_type=video_type,
+            product=product,
             raw_s3_key=s3_key,
             status=Video.STATUS_PENDING,
         )
