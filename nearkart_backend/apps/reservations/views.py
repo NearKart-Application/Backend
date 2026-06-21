@@ -113,6 +113,7 @@ class ReservationCreateView(APIView):
                 note=data.get('note', ''),
                 points_redeemed=points_to_redeem,
                 discount_amount=discount_amount,
+                hold_hours=data.get('hours', 2),
             )
         except ValueError as exc:
             if str(exc) == 'insufficient_stock':

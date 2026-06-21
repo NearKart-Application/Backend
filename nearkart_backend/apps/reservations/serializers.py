@@ -14,6 +14,7 @@ class ReservationCreateSerializer(serializers.Serializer):
     quantity         = serializers.IntegerField(min_value=1, max_value=100, default=1)
     note             = serializers.CharField(max_length=500, allow_blank=True, default='')
     points_to_redeem = serializers.IntegerField(min_value=0, default=0, required=False)
+    hours            = serializers.IntegerField(min_value=1, max_value=3, default=2, required=False)
 
 
 class ReservationStatusUpdateSerializer(serializers.Serializer):

@@ -19,8 +19,9 @@ class ReservationService:
 
     @staticmethod
     def create(customer, store, product, quantity: int, note: str = '',
-               points_redeemed: int = 0, discount_amount=0, variant=None) -> Reservation:
-        hold_hours = getattr(settings, 'RESERVATION_HOLD_HOURS', 2)
+               points_redeemed: int = 0, discount_amount=0, variant=None,
+               hold_hours: int = None) -> Reservation:
+        hold_hours = hold_hours or getattr(settings, 'RESERVATION_HOLD_HOURS', 2)
         expires_at = timezone.now() + timedelta(hours=hold_hours)
 
         # Deduct stock from the selected variant before creating the reservation
