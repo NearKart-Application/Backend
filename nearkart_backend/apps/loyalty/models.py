@@ -43,10 +43,12 @@ class LoyaltyTransaction(BaseModel):
     SOURCE_REFERRAL   = 'referral'
     SOURCE_REDEMPTION = 'redemption'
     SOURCE_BONUS      = 'bonus'
+    SOURCE_PENALTY    = 'penalty'
     SOURCE_CHOICES = [
         (SOURCE_REFERRAL,   'Referral Bonus'),
         (SOURCE_REDEMPTION, 'Points Redemption'),
         (SOURCE_BONUS,      'Bonus'),
+        (SOURCE_PENALTY,    'Cancellation Penalty'),
     ]
 
     account          = models.ForeignKey(LoyaltyAccount, on_delete=models.CASCADE, related_name='transactions')

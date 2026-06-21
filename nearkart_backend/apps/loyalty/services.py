@@ -97,6 +97,26 @@ class LoyaltyService:
         logger.info('[loyalty] redeemed %d pts (₹%d) for %s', points, discount_rupees, user.phone_number)
         return discount_rupees
 
+    @classmethod
+    def deduct_cancellation_penalty(cls, user, points: int = 5, description: str = 'Reservation cancellation penalty') -> int:
+        """
+        Deducts penalty points when customer cancels a reservation.
+        Deducts min(points, balance) so balance never goes negative.
+        Returns actual points deducted (0 if balance already 0).
+        """
+        account = cls.get_account(user)
+        if account.balance <= 0:
+            return 0
+        to_deduct = min(points, account.balance)
+        cls._deduct_points(
+            account=account,
+            points=to_deduct,
+            source=LoyaltyTransaction.SOURCE_PENALTY,
+            description=description,
+        )
+        logger.info('[loyalty] penalty %d pts for %s (balance: %d)', to_deduct, user.phone_number, account.balance)
+        return to_deduct
+
     # ── Internal ────────────────────────────────────────────────────────────
 
     @classmethod

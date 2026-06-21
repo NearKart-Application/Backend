@@ -4,6 +4,7 @@ Customers create/cancel reservations. Vendors confirm/reject/complete them.
 """
 import logging
 
+from django.utils import timezone
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
@@ -11,6 +12,9 @@ from drf_spectacular.utils import extend_schema, OpenApiExample
 
 from core.logging import log_event
 from core.permissions import IsVendor
+
+MONTHLY_CANCEL_LIMIT = 10
+CANCEL_PENALTY_POINTS = 5
 from apps.stores.models import Store
 from apps.products.models import Product
 from apps.blacklist.services import BlacklistService
@@ -299,8 +303,37 @@ class ReservationCancelView(APIView):
                 status=400,
             )
 
+        # Monthly cancellation limit check
+        now = timezone.now()
+        monthly_cancels = Reservation.objects.filter(
+            customer=request.user,
+            status=ReservationStatus.CANCELLED,
+            updated_at__year=now.year,
+            updated_at__month=now.month,
+        ).count()
+        if monthly_cancels >= MONTHLY_CANCEL_LIMIT:
+            return Response(
+                {
+                    'error': 'cancel_limit_reached',
+                    'message': f'You have reached your monthly cancellation limit ({MONTHLY_CANCEL_LIMIT}). This resets on the 1st of next month.',
+                },
+                status=400,
+            )
+
         cancel_reason = request.data.get('cancel_reason', '') if request.data else ''
         reservation = ReservationService.cancel(reservation, cancel_reason=cancel_reason)
+
+        # Deduct loyalty points penalty (silent — never blocks the cancel)
+        try:
+            from apps.loyalty.services import LoyaltyService
+            LoyaltyService.deduct_cancellation_penalty(
+                user=request.user,
+                points=CANCEL_PENALTY_POINTS,
+                description=f'Cancellation penalty — {reservation.product.name}',
+            )
+        except Exception:
+            pass
+
         log_event('reservations', action='reservation_cancelled_by_customer',
                   reservation_id=str(reservation_id), store_id=str(reservation.store_id),
                   product_id=str(reservation.product_id), customer_id=str(request.user.id))
