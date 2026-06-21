@@ -48,7 +48,7 @@ class NotificationService:
             vendor, NotificationType.RESERVATION_CREATED,
             title='New Reservation',
             body=f'{customer_name} reserved {product_name}.',
-            data={'reservation_id': reservation_id},
+            data={'reservation_id': reservation_id, 'notification_type': 'reservation', 'type': 'reservation'},
         )
 
     @staticmethod
@@ -57,7 +57,7 @@ class NotificationService:
             customer, NotificationType.RESERVATION_CONFIRMED,
             title='Reservation Confirmed',
             body=f'Your reservation at {store_name} has been confirmed.',
-            data={'reservation_id': reservation_id},
+            data={'reservation_id': reservation_id, 'notification_type': 'reservation', 'type': 'reservation'},
         )
 
     @staticmethod
@@ -66,7 +66,7 @@ class NotificationService:
             customer, NotificationType.RESERVATION_CANCELLED,
             title='Reservation Cancelled',
             body=f'Your reservation at {store_name} has been cancelled.',
-            data={'reservation_id': reservation_id},
+            data={'reservation_id': reservation_id, 'notification_type': 'reservation', 'type': 'reservation'},
         )
 
     @staticmethod
@@ -75,7 +75,7 @@ class NotificationService:
             customer, NotificationType.RESERVATION_EXPIRED,
             title='Reservation Expired',
             body=f'Your hold at {store_name} has expired.',
-            data={'reservation_id': reservation_id},
+            data={'reservation_id': reservation_id, 'notification_type': 'reservation', 'type': 'reservation'},
         )
 
     @staticmethod
@@ -84,7 +84,7 @@ class NotificationService:
             customer, NotificationType.RESERVATION_EXPIRING_SOON,
             title='Hold expiring tomorrow',
             body=f'Your hold on {product_name} at {store_name} expires in ~24 hours.',
-            data={'reservation_id': reservation_id},
+            data={'reservation_id': reservation_id, 'notification_type': 'reservation', 'type': 'reservation'},
         )
 
     @staticmethod
