@@ -39,6 +39,8 @@ class Reservation(BaseModel):
     )
     expires_at      = models.DateTimeField(db_index=True)
     cancel_reason   = models.CharField(max_length=200, blank=True)
+    cancelled_by    = models.CharField(max_length=20, blank=True, default='',
+                                       choices=[('customer', 'Customer'), ('vendor', 'Vendor')])
     points_redeemed = models.PositiveIntegerField(default=0)
     discount_amount = models.DecimalField(max_digits=8, decimal_places=2, default=0)
 
@@ -60,7 +62,7 @@ class Reservation(BaseModel):
 
     @property
     def hours_left(self):
-        if self.status != ReservationStatus.PENDING:
+        if self.status not in (ReservationStatus.PENDING, ReservationStatus.CONFIRMED):
             return 0
         delta = self.expires_at - timezone.now()
-        return max(0, round(delta.total_seconds() / 3600, 1))
+        return max(0, round(delta.total_seconds() / 3600, 4))

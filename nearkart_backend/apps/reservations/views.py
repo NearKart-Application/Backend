@@ -237,6 +237,12 @@ class ReservationStatusView(APIView):
         new_status  = ser.validated_data['status']
         vendor_note = ser.validated_data.get('vendor_note', '')
 
+        if new_status == ReservationStatus.CANCELLED and not vendor_note.strip():
+            return Response(
+                {'error': 'note_required', 'message': 'A reason is required when cancelling a reservation.'},
+                status=400,
+            )
+
         # Only pending reservations can be confirmed
         if new_status == ReservationStatus.CONFIRMED:
             if reservation.status != ReservationStatus.PENDING:
@@ -265,7 +271,7 @@ class ReservationStatusView(APIView):
         if new_status == ReservationStatus.CONFIRMED:
             reservation = ReservationService.confirm(reservation, vendor_note)
         elif new_status == ReservationStatus.CANCELLED:
-            reservation = ReservationService.cancel(reservation, vendor_note)
+            reservation = ReservationService.cancel(reservation, note=vendor_note, cancelled_by='vendor')
         elif new_status == ReservationStatus.COMPLETED:
             reservation = ReservationService.complete(reservation)
 
@@ -322,7 +328,7 @@ class ReservationCancelView(APIView):
             )
 
         cancel_reason = request.data.get('cancel_reason', '') if request.data else ''
-        reservation = ReservationService.cancel(reservation, cancel_reason=cancel_reason)
+        reservation = ReservationService.cancel(reservation, cancel_reason=cancel_reason, cancelled_by='customer')
 
         # Deduct loyalty points penalty (silent — never blocks the cancel)
         try:

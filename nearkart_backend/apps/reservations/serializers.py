@@ -60,7 +60,7 @@ class ReservationSerializer(serializers.ModelSerializer):
             'id', 'store', 'customer', 'product',
             'variant_id', 'variant_name',
             'quantity', 'note', 'vendor_note',
-            'status', 'expires_at', 'hours_left',
+            'status', 'cancelled_by', 'expires_at', 'hours_left',
             'points_redeemed', 'discount_amount',
             'created_at', 'updated_at',
         ]
