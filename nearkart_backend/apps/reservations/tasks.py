@@ -9,12 +9,16 @@ from celery import shared_task
 logger = logging.getLogger(__name__)
 
 
-@shared_task(name='reservations.expire_reservations', time_limit=300, soft_time_limit=270)
-def expire_reservations():
-    from .services import ReservationService
-    count = ReservationService.expire_pending()
-    logger.info('[reservations] expired %d reservation(s)', count)
-    return {'expired': count}
+@shared_task(bind=True, name='reservations.expire_reservations', max_retries=2, default_retry_delay=60, time_limit=300, soft_time_limit=270)
+def expire_reservations(self):
+    try:
+        from .services import ReservationService
+        count = ReservationService.expire_pending()
+        logger.info('[reservations] expired %d reservation(s)', count)
+        return {'expired': count}
+    except Exception as exc:
+        logger.error('[reservations] expire_reservations failed, retrying: %s', exc)
+        raise self.retry(exc=exc)
 
 
 @shared_task(name='reservations.notify_1day_expiry', time_limit=300, soft_time_limit=270)

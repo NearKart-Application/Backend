@@ -9,8 +9,8 @@ from celery import shared_task
 logger = logging.getLogger(__name__)
 
 
-@shared_task(name='analytics.aggregate_daily_stats')
-def aggregate_daily_stats():
+@shared_task(bind=True, name='analytics.aggregate_daily_stats', max_retries=2, default_retry_delay=120)
+def aggregate_daily_stats(self):
     """
     Runs at 3am daily via Celery Beat.
     Computes a performance_score (0–100) for every active store and saves it.
@@ -21,35 +21,39 @@ def aggregate_daily_stats():
       20% — active product count (capped at 20)
       10% — review count    (log-scaled, capped at 10)
     """
-    import math
-    from django.db.models import Avg, Count
-    from apps.stores.models import Store
+    try:
+        import math
+        from django.db.models import Avg, Count
+        from apps.stores.models import Store
 
-    stores = Store.objects.filter(is_active=True).annotate(
-        avg_rating=Avg('reviews__rating'),
-        review_count=Count('reviews', distinct=True),
-        follower_count=Count('followers', distinct=True),
-        product_count=Count('products', distinct=True),
-    )
+        stores = Store.objects.filter(is_active=True).annotate(
+            avg_rating=Avg('reviews__rating'),
+            review_count=Count('reviews', distinct=True),
+            follower_count=Count('followers', distinct=True),
+            product_count=Count('products', distinct=True),
+        )
 
-    updated = 0
-    for store in stores:
-        avg_rating     = float(store.avg_rating or 0)
-        review_count   = store.review_count   or 0
-        follower_count = store.follower_count or 0
-        product_count  = store.product_count  or 0
+        updated = 0
+        for store in stores:
+            avg_rating     = float(store.avg_rating or 0)
+            review_count   = store.review_count   or 0
+            follower_count = store.follower_count or 0
+            product_count  = store.product_count  or 0
 
-        rating_score   = (avg_rating / 5.0) * 40
-        follower_score = min(math.log1p(follower_count) / math.log1p(500) * 30, 30)
-        product_score  = min(product_count / 50 * 20, 20)
-        review_score   = min(math.log1p(review_count) / math.log1p(100) * 10, 10)
+            rating_score   = (avg_rating / 5.0) * 40
+            follower_score = min(math.log1p(follower_count) / math.log1p(500) * 30, 30)
+            product_score  = min(product_count / 50 * 20, 20)
+            review_score   = min(math.log1p(review_count) / math.log1p(100) * 10, 10)
 
-        score = round(rating_score + follower_score + product_score + review_score, 2)
-        Store.objects.filter(pk=store.pk).update(performance_score=score)
-        updated += 1
+            score = round(rating_score + follower_score + product_score + review_score, 2)
+            Store.objects.filter(pk=store.pk).update(performance_score=score)
+            updated += 1
 
-    logger.info('[analytics] daily stats aggregated: %d stores updated', updated)
-    return {'stores_updated': updated}
+        logger.info('[analytics] daily stats aggregated: %d stores updated', updated)
+        return {'stores_updated': updated}
+    except Exception as exc:
+        logger.error('[analytics] aggregate_daily_stats failed, retrying: %s', exc)
+        raise self.retry(exc=exc)
 
 
 @shared_task(name='analytics.send_weekly_digest_emails')

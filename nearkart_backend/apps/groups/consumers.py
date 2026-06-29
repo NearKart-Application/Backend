@@ -3,12 +3,17 @@ NearKart — Group Chat WebSocket Consumer
 ws://host/ws/groups/<uuid>/?token=<jwt>
 
 Client sends:  {"type": "group_message", "content": "Hello group!"}
+               {"type": "refresh_token", "token": "<new_access_token>"}
 Server pushes: {serialized GroupMessage}
 """
 import logging
+from datetime import datetime, timezone as dt_timezone
+from urllib.parse import parse_qs
 
 from channels.db import database_sync_to_async
 from channels.generic.websocket import AsyncJsonWebsocketConsumer
+from rest_framework_simplejwt.exceptions import TokenError
+from rest_framework_simplejwt.tokens import AccessToken
 
 from .models import Group, GroupMessage
 from .services import GroupService
@@ -46,6 +51,20 @@ class GroupConsumer(AsyncJsonWebsocketConsumer):
 
     async def receive_json(self, content):
         msg_type = content.get('type')
+
+        if msg_type == 'refresh_token':
+            new_token = (content.get('token') or '').strip()
+            refreshed_user = await self._resolve_token(new_token)
+            if not refreshed_user or refreshed_user.id != self.user.id:
+                await self.close(code=4001)
+                return
+            self.user = refreshed_user
+            await self.send_json({'type': 'token_refreshed', 'status': 'ok'})
+            return
+
+        if await self._token_expired():
+            await self.close(code=4001)
+            return
 
         if msg_type == 'typing':
             await self.channel_layer.group_send(
@@ -87,6 +106,28 @@ class GroupConsumer(AsyncJsonWebsocketConsumer):
         })
 
     # ── helpers ──────────────────────────────────────────────────────────────
+
+    @database_sync_to_async
+    def _resolve_token(self, token_key: str):
+        if not token_key:
+            return None
+        try:
+            token = AccessToken(token_key)
+            from apps.auth_app.models import User
+            return User.objects.get(id=token['user_id'])
+        except (TokenError, Exception):
+            return None
+
+    async def _token_expired(self) -> bool:
+        token_key = parse_qs(self.scope.get('query_string', b'').decode()).get('token', [None])[0]
+        if not token_key:
+            return True
+        try:
+            token = AccessToken(token_key)
+            exp = token.payload.get('exp', 0)
+            return datetime.fromtimestamp(exp, tz=dt_timezone.utc) < datetime.now(tz=dt_timezone.utc)
+        except TokenError:
+            return True
 
     @database_sync_to_async
     def _get_group(self):

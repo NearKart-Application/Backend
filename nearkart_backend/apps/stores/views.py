@@ -416,28 +416,34 @@ class StoreReviewEligibilityView(APIView):
         # Product review eligibility — scan all invoices for this customer at this store
         eligible_products = []
         if ns_code:
-            invoices = Invoice.objects.filter(store=store, customer_ns_code=ns_code)
-            seen_product_ids = set()
+            invoices = list(Invoice.objects.filter(store=store, customer_ns_code=ns_code))
             reviewed_ids = set(
                 ProductReview.objects.filter(reviewer=request.user)
                 .values_list('product_id', flat=True)
             )
+            # Collect unique product IDs first (with their first-seen invoice ID)
+            pid_to_inv_id = {}
             for inv in invoices:
                 for item in (inv.items or []):
                     pid_str = str(item.get('product_id', '')).strip()
-                    if not pid_str or pid_str in seen_product_ids:
-                        continue
-                    seen_product_ids.add(pid_str)
-                    try:
-                        product = Product.objects.get(id=pid_str)
-                    except (Product.DoesNotExist, Exception):
-                        continue
-                    eligible_products.append({
-                        'product_id':   str(product.id),
-                        'product_name': product.name,
-                        'invoice_id':   str(inv.id),
-                        'has_reviewed': product.id in reviewed_ids,
-                    })
+                    if pid_str and pid_str not in pid_to_inv_id:
+                        pid_to_inv_id[pid_str] = str(inv.id)
+
+            # Single query to fetch all products instead of one per item
+            products_map = {
+                str(p.id): p
+                for p in Product.objects.filter(id__in=pid_to_inv_id.keys())
+            }
+            for pid_str, inv_id in pid_to_inv_id.items():
+                product = products_map.get(pid_str)
+                if not product:
+                    continue
+                eligible_products.append({
+                    'product_id':   str(product.id),
+                    'product_name': product.name,
+                    'invoice_id':   inv_id,
+                    'has_reviewed': product.id in reviewed_ids,
+                })
 
         return Response({
             'can_review_shop':  can_review_shop,
@@ -579,7 +585,11 @@ class VendorReviewsListView(APIView):
             return Response({'error': 'not_found', 'message': 'Store not found.'}, status=status.HTTP_404_NOT_FOUND)
         self.check_object_permissions(request, store)
         reviews = store.reviews.select_related('user').order_by('-created_at')
-        return Response({'results': StoreReviewListSerializer(reviews, many=True).data, 'count': reviews.count()})
+        count     = reviews.count()
+        page      = max(1, int(request.query_params.get('page', 1)))
+        page_size = min(50, max(1, int(request.query_params.get('page_size', 20))))
+        offset    = (page - 1) * page_size
+        return Response({'results': StoreReviewListSerializer(reviews[offset:offset + page_size], many=True).data, 'count': count})
 
 
 class MyReviewsView(APIView):
@@ -589,14 +599,18 @@ class MyReviewsView(APIView):
     @extend_schema(tags=[_TAG], summary='Get my reviews (customer)', responses={200: StoreReviewListSerializer(many=True)})
     def get(self, request):
         from .models import StoreReview
-        reviews = StoreReview.objects.filter(user=request.user).select_related('store').order_by('-created_at')
+        reviews   = StoreReview.objects.filter(user=request.user).select_related('store').order_by('-created_at')
+        count     = reviews.count()
+        page      = max(1, int(request.query_params.get('page', 1)))
+        page_size = min(50, max(1, int(request.query_params.get('page_size', 20))))
+        offset    = (page - 1) * page_size
         data = []
-        for r in reviews:
+        for r in reviews[offset:offset + page_size]:
             d = StoreReviewListSerializer(r).data
             d['store_id']   = str(r.store.id)
             d['store_name'] = r.store.name
             data.append(d)
-        return Response({'results': data, 'count': len(data)})
+        return Response({'results': data, 'count': count})
 
 
 class StoreReviewListView(APIView):
@@ -786,8 +800,12 @@ class StoreInvoiceListCreateView(APIView):
     def get(self, request):
         if not hasattr(request.user, 'store'):
             return Response({'results': [], 'count': 0})
-        invoices = Invoice.objects.filter(store=request.user.store)
-        return Response({'results': InvoiceSerializer(invoices, many=True).data, 'count': invoices.count()})
+        invoices  = Invoice.objects.filter(store=request.user.store).order_by('-created_at')
+        count     = invoices.count()
+        page      = max(1, int(request.query_params.get('page', 1)))
+        page_size = min(100, max(1, int(request.query_params.get('page_size', 20))))
+        offset    = (page - 1) * page_size
+        return Response({'results': InvoiceSerializer(invoices[offset:offset + page_size], many=True).data, 'count': count})
 
     @extend_schema(tags=[_TAG], summary='Create invoice', request=InvoiceSerializer, responses={201: InvoiceSerializer})
     def post(self, request):
@@ -892,15 +910,19 @@ class CustomerPurchaseHistoryView(APIView):
         profile_id = getattr(request.user, 'profile_id', None)
         if not profile_id:
             return Response({'results': [], 'count': 0})
-        invoices = (
+        invoices  = (
             Invoice.objects
             .filter(customer_ns_code__iexact=profile_id)
             .select_related('store')
             .order_by('-created_at')
         )
+        count     = invoices.count()
+        page      = max(1, int(request.query_params.get('page', 1)))
+        page_size = min(50, max(1, int(request.query_params.get('page_size', 20))))
+        offset    = (page - 1) * page_size
         return Response({
-            'results': CustomerInvoiceSerializer(invoices, many=True).data,
-            'count':   invoices.count(),
+            'results': CustomerInvoiceSerializer(invoices[offset:offset + page_size], many=True).data,
+            'count':   count,
         })
 
 
@@ -1581,7 +1603,7 @@ class VendorDiscountCodeListCreateView(APIView):
         except AttributeError:
             return Response([], status=status.HTTP_200_OK)
         from .models import DiscountCode
-        codes = DiscountCode.objects.filter(store=store)
+        codes = DiscountCode.objects.filter(store=store).order_by('-created_at')[:200]
         return Response([_serialize_code(c) for c in codes])
 
     def post(self, request):
@@ -1750,7 +1772,7 @@ class VendorBroadcastChannelListCreateView(APIView):
             store = request.user.store
         except AttributeError:
             return Response([], status=status.HTTP_200_OK)
-        channels = BroadcastChannel.objects.filter(store=store)
+        channels = BroadcastChannel.objects.filter(store=store).order_by('-created_at')[:100]
         return Response([_serialize_channel(c) for c in channels])
 
     def post(self, request):
@@ -1818,8 +1840,12 @@ class VendorBroadcastPostListCreateView(APIView):
         channel = self._get_channel(request, channel_id)
         if not channel:
             return Response({'error': 'not_found'}, status=status.HTTP_404_NOT_FOUND)
-        posts = channel.posts.all()
-        return Response([_serialize_post(p) for p in posts])
+        posts     = channel.posts.order_by('-created_at')
+        count     = posts.count()
+        page      = max(1, int(request.query_params.get('page', 1)))
+        page_size = min(50, max(1, int(request.query_params.get('page_size', 20))))
+        offset    = (page - 1) * page_size
+        return Response({'results': [_serialize_post(p) for p in posts[offset:offset + page_size]], 'count': count})
 
     def post(self, request, channel_id):
         channel = self._get_channel(request, channel_id)
@@ -1838,7 +1864,7 @@ class CustomerBroadcastChannelListView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, store_id):
-        channels = BroadcastChannel.objects.filter(store__id=store_id, store__is_active=True)
+        channels = BroadcastChannel.objects.filter(store__id=store_id, store__is_active=True).order_by('-created_at')[:100]
         return Response([_serialize_channel(c) for c in channels])
 
 
@@ -1850,8 +1876,12 @@ class CustomerBroadcastPostListView(APIView):
         channel = BroadcastChannel.objects.filter(id=channel_id, store__id=store_id, store__is_active=True).first()
         if not channel:
             return Response({'error': 'not_found'}, status=status.HTTP_404_NOT_FOUND)
-        posts = channel.posts.all()
-        return Response([_serialize_post(p) for p in posts])
+        posts     = channel.posts.order_by('-created_at')
+        count     = posts.count()
+        page      = max(1, int(request.query_params.get('page', 1)))
+        page_size = min(50, max(1, int(request.query_params.get('page_size', 20))))
+        offset    = (page - 1) * page_size
+        return Response({'results': [_serialize_post(p) for p in posts[offset:offset + page_size]], 'count': count})
 
 
 class CustomerBlockStoreView(APIView):
