@@ -72,6 +72,7 @@ LOCAL_APPS = [
     'apps.groups',
     'apps.admin_panel',
     'apps.loyalty',
+    'apps.inventory',
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -183,7 +184,12 @@ CELERY_WORKER_PREFETCH_MULTIPLIER = 1
 # reservation expiry tasks, and vice-versa.
 CELERY_TASK_DEFAULT_QUEUE = 'default'
 CELERY_TASK_ROUTES = {
-    'apps.videos.tasks.transcode_video': {'queue': 'transcoding'},
+    'apps.videos.tasks.transcode_video':           {'queue': 'transcoding'},
+    'inventory.check_low_stock_all':               {'queue': 'inventory'},
+    'inventory.weekly_stock_summary':              {'queue': 'inventory'},
+    'inventory.check_po_due_dates':                {'queue': 'inventory'},
+    'inventory.reset_watchlist_notifications':     {'queue': 'inventory'},
+    'inventory.detect_dead_stock':                 {'queue': 'inventory'},
 }
 
 # ── CELERY BEAT SCHEDULE ───────────────────────────────────────
@@ -221,6 +227,26 @@ CELERY_BEAT_SCHEDULE = {
     'notify-price-drops-6h': {
         'task':     'products.notify_price_drops',
         'schedule': crontab(minute=0, hour='*/6'),  # every 6 hours
+    },
+    'inventory-check-low-stock': {
+        'task': 'inventory.check_low_stock_all',
+        'schedule': crontab(minute=0, hour='*/6'),
+    },
+    'inventory-weekly-summary': {
+        'task': 'inventory.weekly_stock_summary',
+        'schedule': crontab(minute=0, hour=9, day_of_week=1),
+    },
+    'inventory-check-po-dates': {
+        'task': 'inventory.check_po_due_dates',
+        'schedule': crontab(minute=0, hour=8),
+    },
+    'inventory-reset-watchlist': {
+        'task': 'inventory.reset_watchlist_notifications',
+        'schedule': crontab(minute=0, hour=0),
+    },
+    'inventory-detect-dead-stock': {
+        'task': 'inventory.detect_dead_stock',
+        'schedule': crontab(minute=0, hour=0, day_of_week=0),
     },
 }
 
@@ -360,7 +386,7 @@ FIREBASE_CREDENTIALS_JSON = env('FIREBASE_CREDENTIALS_JSON', default='')
 
 # ── SENDGRID ───────────────────────────────────────────────────
 SENDGRID_API_KEY = env('SENDGRID_API_KEY', default='')
-DEFAULT_FROM_EMAIL = env('DEFAULT_FROM_EMAIL', default='hello@nearkart.in')
+DEFAULT_FROM_EMAIL = env('DEFAULT_FROM_EMAIL', default='hello@nearspot.in')
 DEFAULT_FROM_NAME = env('DEFAULT_FROM_NAME', default='NearSpot')
 
 # ── GOOGLE MAPS ────────────────────────────────────────────────
@@ -390,10 +416,7 @@ BLACKLIST_WARNING_DAY = env.int('BLACKLIST_WARNING_DAY', default=20)
 BLACKLIST_FINAL_WARNING_DAY = env.int('BLACKLIST_FINAL_WARNING_DAY', default=27)
 RESERVATION_HOLD_HOURS = env.int('RESERVATION_HOLD_HOURS', default=2)
 VIDEO_MAX_DURATION_SECONDS = env.int('VIDEO_MAX_DURATION_SECONDS', default=60)
-STORY_MAX_DURATION_SECONDS = env.int('STORY_MAX_DURATION_SECONDS', default=30)
 VIDEO_MAX_SIZE_MB = env.int('VIDEO_MAX_SIZE_MB', default=100)
-STORY_MAX_SIZE_MB = env.int('STORY_MAX_SIZE_MB', default=50)
-STORY_EXPIRY_HOURS = env.int('STORY_EXPIRY_HOURS', default=24)
 VIDEO_EXPIRY_DAYS = env.int('VIDEO_EXPIRY_DAYS', default=30)
 
 # ── STATIC / MEDIA ─────────────────────────────────────────────
@@ -404,7 +427,7 @@ MEDIA_ROOT = BASE_DIR / 'media'
 
 # Public-facing base URL — used to build absolute media URLs in dev (when S3 is not configured).
 # Set to your machine's local IP in .env: SITE_URL=http://192.168.29.165
-# In production this should be your domain: SITE_URL=https://api.nearkart.in
+# In production this should be your domain: SITE_URL=https://api.nearspot.in
 SITE_URL = env('SITE_URL', default='http://localhost')
 
 # ── INTERNATIONALISATION ───────────────────────────────────────

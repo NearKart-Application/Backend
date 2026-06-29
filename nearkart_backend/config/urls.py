@@ -63,5 +63,8 @@ urlpatterns = [
 
     # ── LOYALTY & REFERRALS ───────────────────────────────────────
     path(API_V1 + 'loyalty/', include('apps.loyalty.urls')),
+
+    # ── INVENTORY ─────────────────────────────────────────────────────
+    path(API_V1 + 'inventory/', include('apps.inventory.urls')),
 ] + urlpatterns_media
 

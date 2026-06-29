@@ -46,6 +46,14 @@ class NotificationType(models.TextChoices):
     WEEKLY_DIGEST           = 'weekly_digest',           'Weekly Digest'
     # Price alerts
     PRICE_DROP_ALERT        = 'price_drop_alert',        'Price Drop Alert'
+    # Inventory
+    LOW_STOCK            = 'low_stock',            'Low Stock Alert'
+    OUT_OF_STOCK_ALERT   = 'out_of_stock_alert',   'Product Out of Stock'
+    BACK_IN_STOCK        = 'back_in_stock',        'Back in Stock'
+    REORDER_POINT        = 'reorder_point',        'Reorder Point Reached'
+    PO_REMINDER          = 'po_reminder',          'Purchase Order Due'
+    AUDIT_COMPLETE       = 'audit_complete',       'Stock Audit Complete'
+    WEEKLY_STOCK_SUMMARY = 'weekly_stock_summary', 'Weekly Stock Summary'
     # Referral
     REFERRAL_REWARD         = 'referral_reward',         'Referral Reward'
 

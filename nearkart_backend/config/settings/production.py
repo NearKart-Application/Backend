@@ -11,8 +11,8 @@ env = environ.Env()
 DEBUG = False
 
 # ── HOSTS ─────────────────────────────────────────────────────
-# Set ALLOWED_HOSTS=api.nearkart.in in production .env
-ALLOWED_HOSTS = env.list('ALLOWED_HOSTS', default=['api.nearkart.in'])
+# Set ALLOWED_HOSTS=api.nearspot.in in production .env
+ALLOWED_HOSTS = env.list('ALLOWED_HOSTS', default=['api.nearspot.in'])
 
 # ── SECURITY ──────────────────────────────────────────────────
 # SSL is terminated at the AWS ALB — Django trusts the forwarded header
@@ -115,3 +115,12 @@ LOGGING = {
         },
     },
 }
+
+# ── CORS: nearspot.in production domains ─────────────────────
+CORS_ALLOWED_ORIGINS = [
+    'https://app.nearspot.in',
+    'https://vendor.nearspot.in',
+]
+CORS_ALLOWED_ORIGIN_REGEXES = [
+    r'^https://.*\.nearspot\.in$',
+]

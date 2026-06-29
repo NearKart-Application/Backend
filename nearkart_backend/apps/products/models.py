@@ -16,6 +16,7 @@ class ProductStatus(models.TextChoices):
     ACTIVE       = 'active',       'Active'
     INACTIVE     = 'inactive',     'Inactive'
     OUT_OF_STOCK = 'out_of_stock', 'Out of Stock'
+    BLACKLISTED  = 'blacklisted',  'Blacklisted'
 
 
 class Product(BaseModel):
@@ -50,6 +51,12 @@ class ProductVariant(BaseModel):
     sku            = models.CharField(max_length=100, unique=True)
     price          = models.DecimalField(max_digits=10, decimal_places=2)
     stock_quantity = models.PositiveIntegerField(default=0, db_index=True)
+    low_stock_threshold   = models.PositiveIntegerField(default=5, help_text='Alert vendor when stock drops to or below this number')
+    reorder_point         = models.PositiveIntegerField(null=True, blank=True, help_text='Separate reorder alert threshold')
+    accepts_custom_orders = models.BooleanField(default=False, help_text='Artisan/made-to-order toggle — disables stock tracking for this variant')
+    mrp                   = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True, help_text='Maximum Retail Price — shown to customers as crossed-out price')
+    cost_price            = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True, help_text='What vendor paid — used in stock value reports, never shown to customers')
+    show_stock_count      = models.BooleanField(default=True, help_text='Vendor toggle — hide stock count from vendor website if False')
 
     class Meta:
         db_table = 'product_variants'

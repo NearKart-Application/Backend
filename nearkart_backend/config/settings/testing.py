@@ -1,15 +1,25 @@
 """
-NearKart — Testing Settings
-Uses SQLite (no Docker needed). Disables all external services.
+Nearspot — Testing Settings
+Uses local PostgreSQL/PostGIS (no Docker needed). Disables all external services.
 Run with: pytest  (pytest.ini points here automatically)
 """
 from .base import *  # noqa
 
-# ── DATABASE: SQLite, no Docker needed ────────────────────────
+# ── DATABASE: local PostgreSQL + PostGIS ──────────────────────
+# SpatiaLite requires Python compiled with --enable-loadable-sqlite-extensions,
+# which Python.org macOS builds omit. Use the local Postgres instead.
 DATABASES = {
     'default': {
-        'ENGINE': 'django.contrib.gis.db.backends.spatialite',
-        'NAME': ':memory:',
+        'ENGINE': 'django.contrib.gis.db.backends.postgis',
+        'NAME': 'nearspot_test',
+        'USER': 'hazeevali',
+        'PASSWORD': '',
+        'HOST': 'localhost',
+        'PORT': '5432',
+        'TEST': {
+            'NAME': 'nearspot_test',
+            'TEMPLATE': 'template_nearspot',
+        },
     }
 }
 

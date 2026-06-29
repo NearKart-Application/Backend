@@ -42,7 +42,7 @@ def test_create_product(vendor_client, store):
 def test_create_product_requires_store(vendor_client, vendor_user):
     response = vendor_client.post(f'{BASE}/', {
         'name': 'No Store Product',
-        'price': '100.00',
+        'base_price': '100.00',
         'category': 'fashion',
     })
     assert response.status_code in (400, 404)
@@ -52,7 +52,7 @@ def test_create_product_requires_store(vendor_client, vendor_user):
 def test_create_product_customer_forbidden(customer_client):
     response = customer_client.post(f'{BASE}/', {
         'name': 'Nope',
-        'price': '10.00',
+        'base_price': '10.00',
         'category': 'food',
     })
     assert response.status_code == 403
@@ -60,7 +60,7 @@ def test_create_product_customer_forbidden(customer_client):
 
 @pytest.mark.django_db
 def test_create_product_unauthenticated(anon_client):
-    response = anon_client.post(f'{BASE}/', {'name': 'x', 'price': '10', 'category': 'food'})
+    response = anon_client.post(f'{BASE}/', {'name': 'x', 'base_price': '10', 'category': 'food'})
     assert response.status_code == 401
 
 
@@ -108,7 +108,7 @@ def test_update_product_owner(vendor_client, product):
 def test_update_product_other_vendor_forbidden(vendor2_client, product):
     response = vendor2_client.put(f'{BASE}/{product.id}/update/', {
         'name': 'Hijacked',
-        'price': '1.00',
+        'base_price': '1.00',
         'category': 'food',
     })
     assert response.status_code in (403, 404)

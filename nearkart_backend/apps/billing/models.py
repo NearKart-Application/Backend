@@ -33,6 +33,9 @@ class Plan(BaseModel):
     store_track   = models.CharField(max_length=10, choices=TRACK_CHOICES, default=TRACK_BOTH)
     description   = models.TextField(blank=True)
     is_active     = models.BooleanField(default=True)              # show in plan listing
+    supplier_limit              = models.PositiveIntegerField(default=3,   help_text='0 = unlimited. Max suppliers the vendor can add.')
+    po_limit_monthly            = models.PositiveIntegerField(default=5,   help_text='0 = unlimited. Max purchase orders per calendar month.')
+    movement_log_retention_days = models.PositiveIntegerField(default=90,  help_text='0 = permanent. How far back vendor can view movement history.')
 
     class Meta:
         db_table = 'billing_plans'

@@ -97,7 +97,7 @@ class QRService:
             from core.utils.s3 import get_s3_client, get_cdn_url
             from django.conf import settings
 
-            store_url = f'https://nearkart.in/stores/{store.id}'
+            store_url = f'https://nearspot.in/stores/{store.id}'
             qr = qrcode.QRCode(version=1, box_size=10, border=4)
             qr.add_data(store_url)
             qr.make(fit=True)

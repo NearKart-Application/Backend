@@ -112,3 +112,37 @@ class OfferTemplate(BaseModel):
 
     def __str__(self):
         return self.name
+
+
+class AdminLevel(models.TextChoices):
+    MASTER   = 'master',   'Master Admin'
+    LOCATION = 'location', 'Location Admin'
+
+
+class AdminProfile(BaseModel):
+    """
+    One AdminProfile per admin User.
+    Master Admin: platform-wide access.
+    Location Admin: restricted to their assigned district.
+    """
+    user              = models.OneToOneField(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='admin_profile'
+    )
+    admin_level       = models.CharField(max_length=10, choices=AdminLevel.choices, default=AdminLevel.LOCATION)
+    assigned_district = models.CharField(max_length=200, blank=True, help_text='For LOCATION admins — district they manage. Empty for MASTER admins.')
+    assigned_city     = models.CharField(max_length=200, blank=True)
+    is_active         = models.BooleanField(default=True)
+
+    class Meta:
+        db_table = 'admin_profiles'
+
+    def __str__(self):
+        return f'{self.user.phone_number} — {self.admin_level} ({self.assigned_district or "all"})'
+
+    @property
+    def is_master(self):
+        return self.admin_level == AdminLevel.MASTER
+
+    @property
+    def is_location(self):
+        return self.admin_level == AdminLevel.LOCATION

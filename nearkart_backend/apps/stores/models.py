@@ -29,6 +29,11 @@ class StoreType(models.TextChoices):
     HOME     = 'home',    'Home Business'
 
 
+class VendorType(models.TextChoices):
+    PRODUCT = 'product', 'Product Vendor'
+    SERVICE = 'service', 'Service Vendor'
+
+
 class Store(BaseModel):
     owner       = models.ForeignKey(User, on_delete=models.CASCADE, related_name='stores')
     name        = models.CharField(max_length=200)
@@ -53,6 +58,14 @@ class Store(BaseModel):
     holiday_mode      = models.BooleanField(default=False)
     performance_score = models.FloatField(default=0.0)
     wallet_balance    = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    vendor_type   = models.CharField(
+        max_length=10, choices=VendorType.choices, default=VendorType.PRODUCT,
+        help_text='PRODUCT = sells physical goods with inventory. SERVICE = provides skills/time with service catalogue.'
+    )
+    is_home_based = models.BooleanField(
+        default=False,
+        help_text='If True: address hidden publicly, shown only after accepted visit reservation.'
+    )
 
     class Meta:
         db_table = 'stores'
@@ -300,3 +313,34 @@ class CustomerBlockedStore(BaseModel):
 
     def __str__(self):
         return f'{self.customer.phone_number} blocked {self.store.name}'
+
+
+class ServiceCatalogue(BaseModel):
+    """
+    Services offered by Service Vendors.
+    Only relevant when store.vendor_type == 'service'.
+    """
+    store            = models.ForeignKey(Store, on_delete=models.CASCADE, related_name='services')
+    name             = models.CharField(max_length=200)
+    slug             = models.SlugField(max_length=220, blank=True)
+    description      = models.TextField(blank=True)
+    price_from       = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    price_to         = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    duration_minutes = models.PositiveIntegerField(null=True, blank=True, help_text='Estimated service duration in minutes')
+    is_active        = models.BooleanField(default=True)
+    image_url        = models.URLField(blank=True)
+    sort_order       = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        db_table = 'service_catalogue'
+        ordering = ['sort_order', 'name']
+        unique_together = [('store', 'slug')]
+
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            from django.utils.text import slugify
+            self.slug = slugify(self.name)
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f'{self.store.name} — {self.name}'
