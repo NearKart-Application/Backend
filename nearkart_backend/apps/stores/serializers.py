@@ -69,8 +69,15 @@ class StoreSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = [
             'id', 'owner_phone', 'is_verified', 'performance_score',
-            'qr_code_url', 'locality', 'created_at', 'store_type',
+            'qr_code_url', 'locality', 'created_at',
         ]
+
+    def get_fields(self):
+        fields = super().get_fields()
+        # store_type may be set on create but cannot be changed once set
+        if self.instance is not None:
+            fields['store_type'].read_only = True
+        return fields
 
     @extend_schema_field(serializers.FloatField(allow_null=True))
     def get_lat(self, obj):

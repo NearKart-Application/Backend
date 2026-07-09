@@ -144,10 +144,15 @@ class ProductListSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.DictField())
     def get_store(self, obj):
+        store = obj.store
+        rating = float(getattr(store, 'avg_rating', None) or 0)
+        review_count = int(getattr(store, 'review_count_ann', None) or 0)
         return {
-            'id': str(obj.store.id),
-            'name': obj.store.name,
-            'avatar': obj.store.logo_url or None,
+            'id': str(store.id),
+            'name': store.name,
+            'avatar': store.logo_url or None,
+            'rating': rating,
+            'review_count': review_count,
         }
 
     @extend_schema_field(serializers.BooleanField())

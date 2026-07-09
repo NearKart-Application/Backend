@@ -91,6 +91,24 @@ class NotificationMarkAllReadView(APIView):
         return Response({'marked_read': count})
 
 
+class NotificationDeleteView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        tags=[_TAG],
+        summary='Delete a notification',
+        request=None,
+        responses={204: None},
+    )
+    def delete(self, request, notification_id):
+        try:
+            notif = Notification.objects.get(id=notification_id, recipient=request.user)
+        except Notification.DoesNotExist:
+            return Response({'error': 'not_found', 'message': 'Notification not found.'}, status=404)
+        notif.delete()
+        return Response(status=204)
+
+
 class DeviceTokenRegisterView(APIView):
     permission_classes = [IsAuthenticated]
 

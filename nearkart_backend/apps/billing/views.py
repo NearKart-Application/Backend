@@ -665,9 +665,10 @@ class VendorReferralView(APIView):
                 'id':            str(r.id),
                 'reward_type':   r.reward_type,
                 'reward_amount': str(r.reward_amount),
+                'referred_user': (r.referred_user.get_full_name() or str(r.referred_user.phone_number)) if r.referred_user else None,
                 'created_at':    r.created_at.isoformat(),
             }
-            for r in earnings.order_by('-created_at')[:10]
+            for r in earnings.select_related('referred_user').order_by('-created_at')[:10]
         ]
 
         return Response({
