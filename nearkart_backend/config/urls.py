@@ -66,5 +66,8 @@ urlpatterns = [
 
     # ── INVENTORY ─────────────────────────────────────────────────────
     path(API_V1 + 'inventory/', include('apps.inventory.urls')),
+
+    # ── LOCATIONS (public — no auth) ──────────────────────────────────
+    path(API_V1 + 'locations/', include('apps.locations.urls')),
 ] + urlpatterns_media
 

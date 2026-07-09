@@ -61,6 +61,8 @@ class User(AbstractBaseUser, PermissionsMixin, BaseModel):
     suspension_reason = models.CharField(max_length=500, blank=True, default='')
     admin_assigned_city = models.CharField(max_length=500, blank=True, default='')
     location_city       = models.CharField(max_length=150, blank=True, default='')
+    location_district   = models.CharField(max_length=150, blank=True, default='')
+    location_state      = models.CharField(max_length=150, blank=True, default='')
     registered_location = gis_models.PointField(
         srid=4326, null=True, blank=True, spatial_index=True
     )

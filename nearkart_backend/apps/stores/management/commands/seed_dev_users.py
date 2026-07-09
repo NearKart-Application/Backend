@@ -40,18 +40,20 @@ DEV_HLS_POOL = [
 # ── User definitions — KEEP IN SYNC with DevTestUsers.kt ─────────────────────
 DEV_USERS = [
     # (phone, full_name, role)
-    ('+919000000001', 'Arjun Kumar',  'customer'),
-    ('+919000000002', 'Priya Sharma', 'customer'),
-    ('+919000000003', 'Rahul Verma',  'customer'),
-    ('+919000000006', 'Meena Patel',  'customer'),
-    ('+919000000009', 'Sanjay Rao',   'customer'),
-    ('+919000000010', 'Lakshmi Nair', 'customer'),
-    ('+919000000004', 'Sneha Reddy',  'vendor'),
-    ('+919000000005', 'Vikram Iyer',  'vendor'),
-    ('+919000000007', 'Kiran Naidu',  'vendor'),
-    ('+919000000008', 'Divya Mehta',  'vendor'),
-    ('+919999999999', 'Dev Vendor',   'vendor'),
-    ('+918888888888', 'Dev Customer', 'customer'),
+    ('+919000000001', 'Arjun Kumar',    'customer'),
+    ('+919000000002', 'Priya Sharma',   'customer'),
+    ('+919000000003', 'Rahul Verma',    'customer'),
+    ('+919000000006', 'Meena Patel',    'customer'),
+    ('+919000000009', 'Sanjay Rao',     'customer'),
+    ('+919000000010', 'Lakshmi Nair',   'customer'),
+    ('+919000000004', 'Sneha Reddy',    'vendor'),
+    ('+919000000005', 'Vikram Iyer',    'vendor'),
+    ('+919000000007', 'Kiran Naidu',    'vendor'),
+    ('+919000000008', 'Divya Mehta',    'vendor'),
+    ('+919999999999', 'Dev Vendor',     'vendor'),
+    ('+918888888888', 'Dev Customer',   'customer'),
+    ('+917000000001', 'Dev Admin',      'admin'),
+    ('+917000000002', 'Dev Master',     'master_admin'),
 ]
 
 # ── Vendor stores — one per dev vendor ───────────────────────────────────────
@@ -291,7 +293,11 @@ class Command(BaseCommand):
             user.full_name = full_name
             user.role = role
             user.registered_location = kukatpally
-            user.save(update_fields=['full_name', 'role', 'registered_location'])
+            if role in ('admin', 'master_admin'):
+                user.is_staff = True
+                if not user.admin_assigned_city:
+                    user.admin_assigned_city = 'Hyderabad'
+            user.save(update_fields=['full_name', 'role', 'registered_location', 'is_staff', 'admin_assigned_city'])
             users[phone] = user
             flag = '✅ created' if created else '   exists'
             self.stdout.write(f'  {flag}  {full_name} ({phone})')
@@ -397,7 +403,7 @@ class Command(BaseCommand):
                 for v_idx, (title, desc, thumb, duration, views, likes) in enumerate(store_data.get('videos', [])):
                     hls_url = DEV_HLS_POOL[global_video_idx % len(DEV_HLS_POOL)]
                     global_video_idx += 1
-                    Video.objects.get_or_create(
+                    video_obj, created = Video.objects.get_or_create(
                         store=store,
                         title=title,
                         defaults=dict(
@@ -409,8 +415,13 @@ class Command(BaseCommand):
                             view_count=views,
                             like_count=likes,
                             is_visible=True,
+                            expires_at=timezone.now() + timedelta(days=3650),
                         ),
                     )
+                    if not created and video_obj.expires_at and video_obj.expires_at <= timezone.now():
+                        Video.objects.filter(pk=video_obj.pk).update(
+                            expires_at=timezone.now() + timedelta(days=3650)
+                        )
 
                 self.stdout.write(self.style.SUCCESS(
                     f'  ✅ created  {store.name} ({store.locality}) — '

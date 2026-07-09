@@ -43,7 +43,7 @@ class VendorDashboardView(APIView):
         sub  = BillingService.get_subscription(store)
 
         subscription_data = None
-        if sub:
+        if sub and plan:
             subscription_data = {
                 'plan':       plan.display_name,
                 'expires_at': sub.expires_at,
@@ -93,10 +93,10 @@ class VendorDashboardView(APIView):
             },
             'subscription': subscription_data,
             'current_plan': {
-                'name':          plan.name,
-                'display_name':  plan.display_name,
-                'video_limit':   plan.video_limit,
-                'product_limit': plan.product_limit,
+                'name':          plan.name          if plan else 'free',
+                'display_name':  plan.display_name  if plan else 'Free',
+                'video_limit':   plan.video_limit   if plan else 0,
+                'product_limit': plan.product_limit if plan else 0,
             },
             'products': {
                 'total':    product_counts['total'],

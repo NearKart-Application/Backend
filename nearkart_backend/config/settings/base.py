@@ -37,6 +37,7 @@ ALLOWED_HOSTS = env.list('ALLOWED_HOSTS', default=['localhost', '127.0.0.1'])
 
 # ── APPS ───────────────────────────────────────────────────────
 DJANGO_APPS = [
+    'jazzmin',                   # must be before django.contrib.admin
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -73,6 +74,7 @@ LOCAL_APPS = [
     'apps.admin_panel',
     'apps.loyalty',
     'apps.inventory',
+    'apps.locations',
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -584,6 +586,133 @@ LOGGING = {
             'level':     'WARNING',
             'propagate': False,
         },
+    },
+}
+
+# ── JAZZMIN — Professional Admin Theme ─────────────────────────
+JAZZMIN_SETTINGS = {
+    'site_title':        'Nearspot Admin',
+    'site_header':       'Nearspot',
+    'site_brand':        'Nearspot',
+    'site_logo':         'admin_panel/img/nearspot_logo.png',
+    'site_logo_classes': 'img-fluid',
+    'site_icon':         'admin_panel/img/nearspot_logo.png',
+    'welcome_sign':      'Welcome to Nearspot Admin Panel',
+    'copyright':         'Nearspot Technologies',
+    'search_model':      ['auth_app.User', 'stores.Store', 'products.Product'],
+
+    'topmenu_links': [
+        {'name': 'Home',         'url': 'admin:index',              'permissions': ['auth.view_user']},
+        {'name': 'API Docs',     'url': '/api/docs/',               'new_window': True},
+        {'name': 'Health Check', 'url': '/api/v1/health/',          'new_window': True},
+    ],
+
+    'usermenu_links': [
+        {'name': 'API Docs', 'url': '/api/docs/', 'new_window': True, 'icon': 'fas fa-book'},
+    ],
+
+    'show_sidebar':              True,
+    'navigation_expanded':       True,
+    'hide_apps':                 [],
+    'hide_models':               [],
+
+    'order_with_respect_to': [
+        'auth_app', 'stores', 'products', 'inventory',
+        'billing', 'notifications', 'admin_panel',
+        'chat', 'groups', 'loyalty', 'reservations',
+        'videos', 'blacklist', 'analytics',
+    ],
+
+    'icons': {
+        'auth_app.User':                      'fas fa-users',
+        'stores.Store':                       'fas fa-store',
+        'stores.ServiceCatalogue':            'fas fa-concierge-bell',
+        'products.Product':                   'fas fa-box',
+        'products.ProductVariant':            'fas fa-boxes',
+        'inventory.StockMovementLog':         'fas fa-exchange-alt',
+        'inventory.Supplier':                 'fas fa-truck',
+        'inventory.PurchaseOrder':            'fas fa-file-invoice',
+        'inventory.StockAudit':               'fas fa-clipboard-check',
+        'inventory.StockWatchlist':           'fas fa-bell',
+        'inventory.SerialNumber':             'fas fa-barcode',
+        'billing.Plan':                       'fas fa-credit-card',
+        'billing.Subscription':               'fas fa-star',
+        'notifications.Notification':         'fas fa-bell',
+        'admin_panel.AdminProfile':           'fas fa-user-shield',
+        'admin_panel.PromoBanner':            'fas fa-image',
+        'admin_panel.Category':               'fas fa-tags',
+        'admin_panel.AdminActivityLog':       'fas fa-history',
+        'chat.Conversation':                  'fas fa-comments',
+        'reservations.Reservation':           'fas fa-calendar-check',
+        'videos.Video':                       'fas fa-video',
+        'blacklist.BlacklistRecord':          'fas fa-ban',
+        'loyalty.LoyaltyAccount':             'fas fa-award',
+        'loyalty.LoyaltyTransaction':         'fas fa-coins',
+        'loyalty.Referral':                   'fas fa-user-plus',
+        'admin_panel.PromoBanner':            'fas fa-bullhorn',
+        'admin_panel.Category':               'fas fa-tags',
+        'admin_panel.OfferTemplate':          'fas fa-percent',
+        'admin_panel.AdminActivityLog':       'fas fa-history',
+        'billing.Transaction':                'fas fa-receipt',
+        'billing.Subscription':               'fas fa-crown',
+        'billing.Plan':                       'fas fa-layer-group',
+        'inventory.CompositeProduct':         'fas fa-cubes',
+        'groups.Group':                       'fas fa-users-cog',
+        'groups.GroupSharedProduct':          'fas fa-share-alt',
+        'chat.Conversation':                  'fas fa-comments',
+        'chat.Message':                       'fas fa-comment-dots',
+        'videos.Video':                       'fas fa-film',
+        'videos.VideoLike':                   'fas fa-heart',
+        'reservations.Reservation':           'fas fa-calendar-check',
+        'blacklist.Blacklist':                'fas fa-user-slash',
+        'notifications.Notification':         'fas fa-bell',
+        'auth_app.OTPToken':                  'fas fa-key',
+        'auth_app.DeviceToken':               'fas fa-mobile-alt',
+        'stores.StoreReview':                 'fas fa-star',
+        'stores.StoreFollow':                 'fas fa-heart',
+    },
+
+    'default_icon_parents': 'fas fa-folder',
+    'default_icon_children': 'fas fa-circle',
+
+    'related_modal_active': True,
+    'custom_css':           'admin_panel/css/nearspot_admin.css',
+    'custom_js':            None,
+    'use_google_fonts_cdn': True,
+    'show_ui_builder':      False,
+    'changeform_format':    'horizontal_tabs',
+    'list_per_page':        25,
+}
+
+JAZZMIN_UI_TWEAKS = {
+    'navbar_small_text':         False,
+    'footer_small_text':         False,
+    'body_small_text':           False,
+    'brand_small_text':          False,
+    'brand_colour':              'navbar-dark',
+    'accent':                    'accent-warning',
+    'navbar':                    'navbar-dark',
+    'no_navbar_border':          True,
+    'navbar_fixed':              True,
+    'layout_boxed':              False,
+    'footer_fixed':              False,
+    'sidebar_fixed':             True,
+    'sidebar':                   'sidebar-dark-primary',
+    'sidebar_nav_small_text':    False,
+    'sidebar_disable_expand':    False,
+    'sidebar_nav_child_indent':  True,
+    'sidebar_nav_compact_style': False,
+    'sidebar_nav_legacy_style':  False,
+    'sidebar_nav_flat_style':    False,
+    'theme':                     'default',
+    'dark_mode_theme':           None,
+    'button_classes': {
+        'primary':   'btn-primary',
+        'secondary': 'btn-outline-secondary',
+        'info':      'btn-outline-info',
+        'warning':   'btn-warning',
+        'danger':    'btn-danger',
+        'success':   'btn-success',
     },
 }
 

@@ -21,7 +21,7 @@ class AdminStoreSerializer(serializers.ModelSerializer):
         model  = Store
         fields = [
             'id', 'name', 'category', 'address', 'locality',
-            'is_active', 'is_verified', 'is_open',
+            'is_active', 'is_verified', 'is_open', 'store_type',
             'wallet_balance', 'performance_score',
             'owner_phone', 'owner_name', 'owner_profile_id',
             'product_count', 'video_count',
@@ -47,7 +47,7 @@ class AdminStoreSerializer(serializers.ModelSerializer):
 class AdminStoreUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model  = Store
-        fields = ['is_active', 'is_verified', 'is_open']
+        fields = ['is_active', 'is_verified', 'is_open', 'store_type']
 
 
 class AdminUserSerializer(serializers.ModelSerializer):

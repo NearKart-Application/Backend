@@ -1,9 +1,10 @@
 """
 NearKart — Chat REST Views
-POST /api/v1/conversations/start/              → get-or-create conversation
-GET  /api/v1/conversations/                    → list my conversations
-GET  /api/v1/conversations/<id>/messages/      → message history (paginated)
-PATCH /api/v1/conversations/<id>/read/         → mark conversation as read
+POST  /api/v1/conversations/start/              → get-or-create conversation
+GET   /api/v1/conversations/                    → list my conversations
+GET   /api/v1/conversations/<id>/messages/      → message history (paginated)
+POST  /api/v1/conversations/<id>/messages/      → send a message
+PATCH /api/v1/conversations/<id>/read/          → mark conversation as read
 """
 import logging
 
@@ -156,6 +157,27 @@ class MessageListView(APIView):
         before_id = request.query_params.get('before')
         messages = ConversationService.get_messages(conversation, before_id=before_id)
         return Response(MessageSerializer(messages, many=True).data)
+
+    @extend_schema(
+        tags=[_TAG],
+        summary='Send a message in a conversation',
+        request=inline_serializer('SendMessageRequest', fields={
+            'content': s.CharField(help_text='Message text'),
+        }),
+        responses={201: MessageSerializer},
+    )
+    def post(self, request, conversation_id):
+        conversation = self._get_or_403(conversation_id, request.user)
+        if isinstance(conversation, Response):
+            return conversation
+        content = (request.data.get('content') or '').strip()
+        if not content:
+            return Response(
+                {'error': 'validation_error', 'message': 'content is required.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        msg = ConversationService.save_message(conversation, request.user, content)
+        return Response(MessageSerializer(msg).data, status=status.HTTP_201_CREATED)
 
     def _get_or_403(self, conversation_id, user):
         try:

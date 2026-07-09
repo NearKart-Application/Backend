@@ -216,6 +216,9 @@ class AdminStoreUpdateView(APIView):
         if not _in_scope(request.user, f'{store.locality} {store.address}'):
             return Response({'error': 'forbidden', 'message': 'Store is outside your assigned city.'}, status=403)
 
+        if 'store_type' in request.data and request.user.role != 'master_admin':
+            return Response({'error': 'forbidden', 'message': 'Only master admins can change the business type.'}, status=403)
+
         serializer = AdminStoreUpdateSerializer(store, data=request.data, partial=True)
         if not serializer.is_valid():
             return Response(serializer.errors, status=400)

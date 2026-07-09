@@ -115,34 +115,86 @@ class OfferTemplate(BaseModel):
 
 
 class AdminLevel(models.TextChoices):
-    MASTER   = 'master',   'Master Admin'
-    LOCATION = 'location', 'Location Admin'
+    MASTER   = 'master',   'Master Admin'      # sees everything
+    STATE    = 'state',    'State Admin'       # e.g. Andhra Pradesh
+    DISTRICT = 'district', 'District Admin'    # e.g. Visakhapatnam
+    CITY     = 'city',     'City Admin'        # e.g. Gajuwaka
+    AREA     = 'area',     'Area / Village Admin'  # e.g. Kommadi
 
 
 class AdminProfile(BaseModel):
     """
     One AdminProfile per admin User.
-    Master Admin: platform-wide access.
-    Location Admin: restricted to their assigned district.
+    Access scope is determined by admin_level + assigned_* fields.
+    A State Admin with assigned_state='Andhra Pradesh' sees ONLY AP data.
+    A District Admin with assigned_state='AP' + assigned_district='Visakhapatnam'
+    sees only Vizag data. And so on down to village level.
     """
-    user              = models.OneToOneField(
+    user          = models.OneToOneField(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='admin_profile'
     )
-    admin_level       = models.CharField(max_length=10, choices=AdminLevel.choices, default=AdminLevel.LOCATION)
-    assigned_district = models.CharField(max_length=200, blank=True, help_text='For LOCATION admins — district they manage. Empty for MASTER admins.')
-    assigned_city     = models.CharField(max_length=200, blank=True)
-    is_active         = models.BooleanField(default=True)
+    admin_level   = models.CharField(
+        max_length=10, choices=AdminLevel.choices, default=AdminLevel.DISTRICT,
+        help_text='Determines the scope of data this admin can see and modify.'
+    )
+
+    # Geographic scope — fill only the levels relevant to this admin's level.
+    # e.g. State Admin: fill assigned_state only.
+    # District Admin: fill assigned_state + assigned_district.
+    # City Admin: fill assigned_state + assigned_district + assigned_city.
+    assigned_state    = models.CharField(max_length=150, blank=True, default='',
+        help_text='Required for State/District/City/Area admins.')
+    assigned_district = models.CharField(max_length=200, blank=True, default='',
+        help_text='Required for District/City/Area admins.')
+    assigned_city     = models.CharField(max_length=200, blank=True, default='',
+        help_text='Required for City/Area admins.')
+    assigned_area     = models.CharField(max_length=200, blank=True, default='',
+        help_text='Required for Area/Village admins.')
+
+    is_active = models.BooleanField(default=True)
 
     class Meta:
         db_table = 'admin_profiles'
 
     def __str__(self):
-        return f'{self.user.phone_number} — {self.admin_level} ({self.assigned_district or "all"})'
+        scope = self.assigned_area or self.assigned_city or self.assigned_district or self.assigned_state or 'all'
+        return f'{self.user.phone_number} — {self.get_admin_level_display()} ({scope})'
 
     @property
     def is_master(self):
         return self.admin_level == AdminLevel.MASTER
 
     @property
-    def is_location(self):
-        return self.admin_level == AdminLevel.LOCATION
+    def scope_filter_for_stores(self):
+        """Returns a dict of filter kwargs to scope Store queryset to this admin's area."""
+        level = self.admin_level
+        if level == AdminLevel.MASTER:
+            return {}
+        if level == AdminLevel.STATE:
+            return {'state': self.assigned_state}
+        if level == AdminLevel.DISTRICT:
+            return {'state': self.assigned_state, 'district': self.assigned_district}
+        if level == AdminLevel.CITY:
+            return {'state': self.assigned_state, 'district': self.assigned_district, 'city': self.assigned_city}
+        if level == AdminLevel.AREA:
+            return {'state': self.assigned_state, 'district': self.assigned_district,
+                    'city': self.assigned_city, 'area': self.assigned_area}
+        return {}
+
+    @property
+    def scope_filter_for_users(self):
+        """Returns a dict of filter kwargs to scope User queryset to this admin's area."""
+        level = self.admin_level
+        if level == AdminLevel.MASTER:
+            return {}
+        if level == AdminLevel.STATE:
+            return {'location_state': self.assigned_state}
+        if level == AdminLevel.DISTRICT:
+            return {'location_state': self.assigned_state, 'location_district': self.assigned_district}
+        if level == AdminLevel.CITY:
+            return {'location_state': self.assigned_state, 'location_district': self.assigned_district,
+                    'location_city': self.assigned_city}
+        if level == AdminLevel.AREA:
+            return {'location_state': self.assigned_state, 'location_district': self.assigned_district,
+                    'location_city': self.assigned_city}
+        return {}

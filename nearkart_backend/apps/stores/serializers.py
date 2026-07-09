@@ -59,6 +59,7 @@ class StoreSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'owner_phone', 'name', 'description', 'category', 'store_type',
             'phone', 'address', 'locality',
+            'area', 'city', 'district', 'state', 'country',
             'latitude', 'longitude', 'lat', 'lng',
             'logo_url', 'banner_url', 'qr_code_url',
             'is_active', 'is_verified', 'is_open', 'is_women_owned',
@@ -68,7 +69,7 @@ class StoreSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = [
             'id', 'owner_phone', 'is_verified', 'performance_score',
-            'qr_code_url', 'locality', 'created_at',
+            'qr_code_url', 'locality', 'created_at', 'store_type',
         ]
 
     @extend_schema_field(serializers.FloatField(allow_null=True))
@@ -111,7 +112,7 @@ class StoreListSerializer(serializers.ModelSerializer):
     class Meta:
         model  = Store
         fields = [
-            'id', 'name', 'category', 'locality', 'location',
+            'id', 'name', 'category', 'store_type', 'locality', 'location',
             'avatar', 'cover_image', 'is_open', 'is_verified',
             'holiday_mode',
             'performance_score', 'lat', 'lng', 'distance_km',
@@ -276,6 +277,7 @@ class StoreMobileDetailSerializer(serializers.ModelSerializer):
             'location', 'distance_km',
             'is_open', 'open_status_label', 'todays_hours', 'closes_at', 'next_open',
             'rating', 'review_count', 'follower_count', 'is_followed',
+            'store_type',
         ]
 
     @extend_schema_field(serializers.FloatField(allow_null=True))

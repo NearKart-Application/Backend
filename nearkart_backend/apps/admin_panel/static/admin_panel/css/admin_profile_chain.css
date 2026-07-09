@@ -1,0 +1,42 @@
+/* Chained location selects — AdminProfile form */
+
+#id_assigned_state,
+#id_assigned_district,
+#id_assigned_city,
+#id_assigned_area {
+  min-width: 280px;
+  padding: 6px 10px;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  font-size: 0.92rem;
+  background-color: #fff;
+  color: #1C2E4A;
+  cursor: pointer;
+}
+
+#id_assigned_state:disabled,
+#id_assigned_district:disabled,
+#id_assigned_city:disabled,
+#id_assigned_area:disabled {
+  background-color: #f0f0f0;
+  color: #999;
+  cursor: not-allowed;
+}
+
+#id_assigned_state:focus,
+#id_assigned_district:focus,
+#id_assigned_city:focus,
+#id_assigned_area:focus {
+  border-color: #1C2E4A;
+  box-shadow: 0 0 0 2px rgba(28,46,74,0.15);
+  outline: none;
+}
+
+/* Visual hierarchy hint */
+.field-assigned_district .help,
+.field-assigned_city .help,
+.field-assigned_area .help {
+  color: #888;
+  font-style: italic;
+  font-size: 0.82rem;
+}
