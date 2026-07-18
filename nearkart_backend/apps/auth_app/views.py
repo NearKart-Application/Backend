@@ -553,6 +553,9 @@ class ClientLogsView(APIView):
             action = event.get('action', '')
             if action not in self._ALLOWED_ACTIONS:
                 continue
+            ALLOWED_EXTRA_KEYS = {'screen', 'action', 'platform', 'version', 'os'}
+            extra = {k: v for k, v in event.get('extra', {}).items()
+                     if k in ALLOWED_EXTRA_KEYS and isinstance(v, str)}
             log_event(
                 'client_events',
                 level        = 'warning',
@@ -563,7 +566,7 @@ class ClientLogsView(APIView):
                 app_version  = event.get('app_version', ''),
                 network_type = event.get('network_type', ''),
                 ip           = request.META.get('HTTP_X_FORWARDED_FOR', request.META.get('REMOTE_ADDR', '')),
-                **{k: v for k, v in event.get('extra', {}).items() if isinstance(v, str)},
+                **extra,
             )
             written += 1
 

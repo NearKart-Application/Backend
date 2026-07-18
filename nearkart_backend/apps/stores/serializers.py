@@ -4,7 +4,7 @@ NearKart — Store Serializers
 from django.db import models
 from rest_framework import serializers
 from drf_spectacular.utils import extend_schema_field
-from .models import Store, StoreHours, StoreFollow, StoreReview, StoreOffer, Invoice, StaffMember
+from .models import Store, StoreHours, StoreFollow, StoreReview, StoreOffer, Invoice, StaffMember, ServiceCatalogue
 
 
 def annotate_stores_with_subcategories(stores):
@@ -58,6 +58,7 @@ class StoreSerializer(serializers.ModelSerializer):
         model  = Store
         fields = [
             'id', 'owner_phone', 'name', 'description', 'category', 'store_type',
+            'vendor_type', 'is_home_based',
             'phone', 'address', 'locality',
             'area', 'city', 'district', 'state', 'country',
             'latitude', 'longitude', 'lat', 'lng',
@@ -119,7 +120,8 @@ class StoreListSerializer(serializers.ModelSerializer):
     class Meta:
         model  = Store
         fields = [
-            'id', 'name', 'category', 'store_type', 'locality', 'location',
+            'id', 'name', 'category', 'store_type', 'vendor_type', 'is_home_based',
+            'locality', 'location',
             'avatar', 'cover_image', 'is_open', 'is_verified',
             'holiday_mode',
             'performance_score', 'lat', 'lng', 'distance_km',
@@ -280,11 +282,13 @@ class StoreMobileDetailSerializer(serializers.ModelSerializer):
     class Meta:
         model  = Store
         fields = [
-            'id', 'name', 'avatar', 'cover_image', 'category',
+            'id', 'name', 'description', 'phone', 'address',
+            'avatar', 'cover_image', 'logo_url', 'banner_url', 'qr_code_url',
+            'category', 'store_type', 'vendor_type', 'is_home_based',
             'location', 'distance_km',
-            'is_open', 'open_status_label', 'todays_hours', 'closes_at', 'next_open',
+            'is_open', 'is_verified', 'is_women_owned', 'privacy_mode', 'holiday_mode',
+            'open_status_label', 'todays_hours', 'closes_at', 'next_open',
             'rating', 'review_count', 'follower_count', 'is_followed',
-            'store_type',
         ]
 
     @extend_schema_field(serializers.FloatField(allow_null=True))
@@ -422,3 +426,14 @@ class StaffMemberSerializer(serializers.ModelSerializer):
 
     def get_profile_id(self, obj):
         return obj.user.profile_id
+
+
+class ServiceCatalogueSerializer(serializers.ModelSerializer):
+    class Meta:
+        model  = ServiceCatalogue
+        fields = [
+            'id', 'store', 'name', 'slug', 'description',
+            'price_from', 'price_to', 'duration_minutes',
+            'is_active', 'image_url', 'sort_order',
+        ]
+        read_only_fields = ['id', 'slug', 'store']

@@ -388,6 +388,23 @@ class VideoDeleteView(APIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
         store_id = str(video.store_id)
+        # Best-effort S3 cleanup before deleting the DB record
+        # TODO: replace with a dedicated Celery task (delete_s3_video) when implemented
+        raw_key = video.raw_s3_key
+        hls_key = video.hls_s3_key
+        if raw_key or hls_key:
+            try:
+                from .services import AWSService
+                client = AWSService._client()
+                objects_to_delete = [{'Key': k} for k in [raw_key, hls_key] if k]
+                if objects_to_delete:
+                    from django.conf import settings as _settings
+                    client.delete_objects(
+                        Bucket=_settings.AWS_S3_BUCKET,
+                        Delete={'Objects': objects_to_delete, 'Quiet': True},
+                    )
+            except Exception as s3_exc:
+                logger.warning('VideoDeleteView: S3 cleanup failed for video %s — %s', video_id, s3_exc)
         video.delete()
         CacheService.invalidate_video_feeds()
         log_event('videos', action='video_deleted', video_id=str(video_id),
@@ -572,7 +589,7 @@ class VideoTagsView(APIView):
     )
     def get(self, request, video_id):
         try:
-            video = Video.objects.get(id=video_id)
+            video = Video.objects.get(id=video_id, status='ready', is_visible=True)
         except Video.DoesNotExist:
             return Response({'error': 'not_found', 'message': 'Video not found.'},
                             status=status.HTTP_404_NOT_FOUND)

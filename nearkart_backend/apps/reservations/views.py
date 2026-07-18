@@ -31,8 +31,17 @@ _TAG = 'Reservations'
 
 
 class ReservationCreateView(APIView):
-    """POST /reservations/ — customer creates a reservation (hold for 2h)."""
+    """GET/POST /reservations/ — list reservations or create a new one."""
     permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        tags=[_TAG],
+        summary='List reservations',
+        description='Customers see their own reservations. Vendors see all reservations for their store.',
+        responses={200: ReservationSerializer(many=True)},
+    )
+    def get(self, request):
+        return ReservationListView().get(request)
 
     @extend_schema(
         tags=[_TAG],
@@ -153,6 +162,17 @@ class ReservationListView(APIView):
             except Exception:
                 return Response({'error': 'no_store', 'message': 'Create a store first.'}, status=400)
             qs = ReservationService.get_for_store(store)
+        elif user.role in ('admin', 'master_admin'):
+            # Admins see all reservations; location-scoped admins filtered by assigned city
+            qs = Reservation.objects.select_related('store', 'product', 'customer').all()
+            assigned_city = (getattr(user, 'admin_assigned_city', '') or '').strip()
+            if assigned_city:
+                cities = [c.strip() for c in assigned_city.split(',') if c.strip()]
+                from django.db.models import Q
+                city_q = Q()
+                for city in cities:
+                    city_q |= Q(store__city__icontains=city) | Q(store__locality__icontains=city)
+                qs = qs.filter(city_q)
         else:
             qs = ReservationService.get_for_customer(user)
 

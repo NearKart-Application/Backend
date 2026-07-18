@@ -42,6 +42,15 @@ class UserSerializer(serializers.ModelSerializer):
         # MeView.patch() enforces the "only settable once" constraint.
         read_only_fields = ['id', 'profile_id', 'phone_number', 'is_suspended', 'created_at']
 
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        request = self.context.get('request')
+        user = getattr(request, 'user', None)
+        if not user or not user.is_authenticated or getattr(user, 'role', '') not in ('admin', 'master_admin'):
+            data.pop('admin_assigned_city', None)
+            data.pop('is_suspended', None)
+        return data
+
 
 class UserSearchSerializer(serializers.ModelSerializer):
     """Public search result — exposes name, profile_id, and role only. No phone number."""

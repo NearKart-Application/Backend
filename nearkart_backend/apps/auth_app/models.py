@@ -2,6 +2,7 @@
 NearKart — Auth Models
 User, OTPToken, DeviceToken
 """
+import functools
 import hashlib
 import uuid
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
@@ -72,12 +73,13 @@ class User(AbstractBaseUser, PermissionsMixin, BaseModel):
 
     objects = UserManager()
 
-    @property
+    @functools.cached_property
     def store(self):
         """
         Returns the vendor's primary (first active) store.
         Raises AttributeError when the user has no active store so that
         existing hasattr(user, 'store') guard patterns continue to work.
+        Cached per instance to avoid repeated DB hits within a single request.
         """
         s = self.stores.filter(is_active=True).order_by('created_at').first()
         if s is None:

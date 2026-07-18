@@ -15,7 +15,7 @@ import logging
 from decimal import Decimal, InvalidOperation
 
 from django.conf import settings
-from django.db import models
+from django.db import models, transaction
 from django.utils import timezone
 from drf_spectacular.utils import OpenApiExample, OpenApiResponse, extend_schema, inline_serializer
 from rest_framework import serializers as s
@@ -622,9 +622,10 @@ class PaymentWebhookView(APIView):
                     from apps.stores.models import Store
                     store = Store.objects.get(id=store_id)
                     plan  = Plan.objects.get(name=plan_name, is_active=True)
-                    BillingService.topup(store, plan.price, reference_id=payment_id)
-                    store.refresh_from_db(fields=['wallet_balance'])
-                    BillingService.subscribe(store, plan)
+                    with transaction.atomic():
+                        BillingService.topup(store, plan.price, reference_id=payment_id)
+                        store.refresh_from_db(fields=['wallet_balance'])
+                        BillingService.subscribe(store, plan)
                     logger.info('Razorpay webhook: activated %s for store %s', plan_name, store_id)
                 except Exception as exc:
                     logger.exception('Razorpay webhook: failed to activate plan — %s', exc)

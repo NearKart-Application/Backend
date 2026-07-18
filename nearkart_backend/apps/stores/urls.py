@@ -2,7 +2,7 @@ from django.urls import path
 from .views import (
     NearbyStoresView, StoreDetailView, SimilarStoresView, StoreCreateView, StoreMyView, StoreVisitedView,
     StoreUpdateView, StoreFollowView, StoreFollowerListView, StoreReviewView, StoreQRCodeView,
-    StoreHoursView, StoreReviewListView, StoreOfferView, StoreOfferDeleteView, StoreStatsView,
+    StoreHoursView, StoreOfferView, StoreOfferDeleteView, StoreStatsView,
     VendorReviewReplyView, VendorReviewsListView, MyReviewsView, StoreInvoiceListCreateView,
     VendorStoresListView, StoreLocationsView, WebsiteRequestView,
     StaffListCreateView, StaffRemoveView, StoreImagesUploadView,
@@ -12,6 +12,7 @@ from .views import (
     CustomerBroadcastChannelListView, CustomerBroadcastPostListView,
     StoreReviewEligibilityView, CustomerPurchaseHistoryView, InvoiceExportView,
     CustomerBlockStoreView, MonthlyEarningsPDFView,
+    ServiceCatalogueListCreateView, ServiceCatalogueDetailView,
 )
 from apps.blacklist.views import BlacklistToggleView, BlacklistListView
 from apps.admin_panel.views import PublicOfferTemplateListView
@@ -32,6 +33,8 @@ urlpatterns = [
     path('mine/staff/<uuid:staff_id>/', StaffRemoveView.as_view(),        name='store-staff-remove'),
     path('mine/followers/',          StoreFollowerListView.as_view(),      name='store-mine-followers'),
     path('mine/stats/',              StoreStatsView.as_view(),            name='store-mine-stats'),
+    path('mine/services/',           ServiceCatalogueListCreateView.as_view(), name='service-catalogue-list'),
+    path('mine/services/<uuid:service_id>/', ServiceCatalogueDetailView.as_view(), name='service-catalogue-detail'),
     path('mine/reviews/',            MyReviewsView.as_view(),             name='my-reviews'),
     path('mine/invoices/',           StoreInvoiceListCreateView.as_view(), name='store-invoices'),
     path('mine/invoices/export/',    InvoiceExportView.as_view(),          name='store-invoices-export'),
@@ -43,7 +46,6 @@ urlpatterns = [
     path('<uuid:store_id>/similar/', SimilarStoresView.as_view(), name='store-similar'),
     path('<uuid:store_id>/update/',  StoreUpdateView.as_view(),   name='store-update'),
     path('<uuid:store_id>/follow/',  StoreFollowView.as_view(),   name='store-follow'),
-    path('<uuid:store_id>/review/',              StoreReviewView.as_view(),             name='store-review'),
     path('<uuid:store_id>/reviews/',             StoreReviewView.as_view(),             name='store-reviews'),
     path('<uuid:store_id>/review-eligibility/',  StoreReviewEligibilityView.as_view(),  name='store-review-eligibility'),
     path('<uuid:store_id>/reviews/vendor/',                                  VendorReviewsListView.as_view(),  name='store-reviews-vendor'),

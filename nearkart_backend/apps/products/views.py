@@ -159,7 +159,11 @@ class ProductDetailView(APIView):
         if cached is not None:
             return Response(cached)
         try:
-            product = Product.objects.select_related('store').prefetch_related('variants', 'images').get(
+            from django.db.models import Avg, Count
+            product = Product.objects.select_related('store').prefetch_related('variants', 'images').annotate(
+                store_avg_rating=Avg('store__reviews__rating'),
+                store_review_count=Count('store__reviews'),
+            ).get(
                 id=product_id, is_visible=True, status='active',
             )
         except Product.DoesNotExist:
@@ -646,6 +650,7 @@ class ProductVariantBulkUpdateView(APIView):
         variants_map = {str(v.id): v for v in product.variants.filter(id__in=variant_ids)}
 
         updated = []
+        stock_changes = []  # (variant, old_qty, new_qty) for logging
         errors  = []
         for item in updates:
             vid = item.get('id')
@@ -667,13 +672,30 @@ class ProductVariantBulkUpdateView(APIView):
                 if not isinstance(qty, int) or qty < 0:
                     errors.append({'id': vid, 'error': 'invalid_stock_quantity'})
                     continue
+                old_qty = variant.stock_quantity
                 variant.stock_quantity = qty
                 changed = True
+                stock_changes.append((variant, old_qty, qty))
             if changed:
                 updated.append(variant)
 
         if updated:
             ProductVariant.objects.bulk_update(updated, ['price', 'stock_quantity'])
+            # Log stock movements for variants where stock_quantity changed
+            if stock_changes:
+                from .models import StockMovementLog
+                StockMovementLog.objects.bulk_create([
+                    StockMovementLog(
+                        variant=v,
+                        old_qty=old_q,
+                        new_qty=new_q,
+                        delta=new_q - old_q,
+                        reason=StockMovementReason.MANUAL,
+                        changed_by=request.user,
+                        note='bulk update',
+                    )
+                    for v, old_q, new_q in stock_changes
+                ])
 
         return Response({
             'updated': len(updated),
@@ -791,17 +813,19 @@ class ProductReviewView(APIView):
 
     @extend_schema(tags=[_TAG], summary='List product reviews', auth=[])
     def get(self, request, product_id):
+        from django.db.models import Avg
         try:
-            product = Product.objects.get(id=product_id)
+            product = Product.objects.get(id=product_id, status='active', is_visible=True)
         except Product.DoesNotExist:
             return Response({'error': 'not_found', 'message': 'Product not found.'}, status=status.HTTP_404_NOT_FOUND)
-        reviews = product.reviews.select_related('reviewer').order_by('-created_at')[:50]
+        reviews_qs = product.reviews.select_related('reviewer').order_by('-created_at')
+        total = reviews_qs.count()
+        avg_rating = reviews_qs.aggregate(avg=Avg('rating'))['avg'] or 0.0
+        reviews = reviews_qs[:50]
         data = {
             'results': ProductReviewListSerializer(reviews, many=True).data,
-            'count':   reviews.count(),
-            'avg_rating': round(
-                sum(r.rating for r in reviews) / len(reviews) if reviews else 0, 1
-            ),
+            'count':   total,
+            'avg_rating': round(avg_rating, 1),
         }
         return Response(data)
 

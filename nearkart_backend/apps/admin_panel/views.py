@@ -59,7 +59,7 @@ def _in_scope(user, locality: str) -> bool:
 
 class PlatformStatsView(APIView):
     """GET /admin-panel/stats/ — platform-wide aggregated statistics."""
-    permission_classes = [IsAuthenticated, IsAdminUser]
+    permission_classes = [IsAuthenticated, IsAdmin | IsMasterAdmin]
 
     @extend_schema(
         summary='Platform Statistics',
@@ -327,20 +327,25 @@ class PublicBannersView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request):
-        now = timezone.now()
+        from django.core.cache import cache
         city = (request.query_params.get('city') or '').strip()
-        banners = PromoBanner.objects.filter(
-            is_active=True,
-        ).filter(
-            Q(starts_at__isnull=True) | Q(starts_at__lte=now)
-        ).filter(
-            Q(ends_at__isnull=True) | Q(ends_at__gte=now)
-        ).order_by('display_order', '-created_at')
+        cache_key = f'public_banners_v1:{city}'
+        data = cache.get(cache_key)
+        if data is None:
+            now = timezone.now()
+            banners = PromoBanner.objects.filter(
+                is_active=True,
+            ).filter(
+                Q(starts_at__isnull=True) | Q(starts_at__lte=now)
+            ).filter(
+                Q(ends_at__isnull=True) | Q(ends_at__gte=now)
+            ).order_by('display_order', '-created_at')
 
-        if city:
-            banners = banners.filter(Q(target_city='') | Q(target_city__iexact=city))
+            if city:
+                banners = banners.filter(Q(target_city='') | Q(target_city__iexact=city))
 
-        data = [_banner_to_dict(b) for b in banners]
+            data = [_banner_to_dict(b) for b in banners]
+            cache.set(cache_key, data, timeout=300)
         return Response({'count': len(data), 'results': data})
 
 

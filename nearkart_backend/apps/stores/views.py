@@ -25,13 +25,14 @@ from core.permissions import IsVendor, IsStoreOwner
 from core.utils.cache import CacheService
 from apps.blacklist.services import BlacklistService
 from django.utils import timezone as tz
-from .models import Store, StoreHours, StoreOffer, StoreReview, Invoice, WebsiteRequest, StaffMember, StaffRole, BroadcastChannel, BroadcastPost, CustomerBlockedStore
+from .models import Store, StoreHours, StoreOffer, StoreReview, Invoice, WebsiteRequest, StaffMember, StaffRole, BroadcastChannel, BroadcastPost, CustomerBlockedStore, ServiceCatalogue
 from .serializers import (
     StoreSerializer, StoreListSerializer, StoreReviewSerializer,
     StoreReviewListSerializer, StoreOfferSerializer,
     StoreHoursSerializer, StoreMobileDetailSerializer, VendorReplySerializer,
     InvoiceSerializer, StaffMemberSerializer, StoreFollowerSerializer,
     CustomerInvoiceSerializer, annotate_stores_with_subcategories,
+    ServiceCatalogueSerializer,
 )
 from .services import StoreService, QRService
 
@@ -104,6 +105,13 @@ class StoreDetailView(APIView):
             # Algorithm 5 — HyperLogLog: count unique visitors even on cache hits
             if request.user and request.user.is_authenticated:
                 CacheService.record_store_visit(str(store_id), str(request.user.id))
+            # Recompute per-user is_followed — not cached to avoid leaking user-specific state
+            from .models import StoreFollow
+            cached = dict(cached)
+            cached['is_followed'] = (
+                StoreFollow.objects.filter(store_id=store_id, user=request.user).exists()
+                if (request.user and request.user.is_authenticated) else False
+            )
             return Response(cached)
         try:
             from django.db.models import Count, Avg, Prefetch
@@ -119,8 +127,9 @@ class StoreDetailView(APIView):
         except Store.DoesNotExist:
             return Response({'error': 'not_found', 'message': 'Store not found.'}, status=status.HTTP_404_NOT_FOUND)
         data = StoreMobileDetailSerializer(store, context={'request': request}).data
-        # Cache the serialised response so subsequent requests are served from Redis
-        CacheService.set(key, data, timeout=CacheService.TTL_STORE_DETAIL)
+        # Strip user-specific field before caching so different callers don't get each other's state
+        cache_data = {k: v for k, v in data.items() if k != 'is_followed'}
+        CacheService.set(key, cache_data, timeout=CacheService.TTL_STORE_DETAIL)
         # Algorithm 5 — HyperLogLog unique visitor tracking
         if request.user and request.user.is_authenticated:
             CacheService.record_store_visit(str(store_id), str(request.user.id))
@@ -140,7 +149,7 @@ class SimilarStoresView(APIView):
     )
     def get(self, request, store_id):
         try:
-            store = Store.objects.get(id=store_id)
+            store = Store.objects.get(id=store_id, is_active=True)
         except Store.DoesNotExist:
             return Response({'error': 'not_found', 'message': 'Store not found.'}, status=404)
 
@@ -181,11 +190,6 @@ class StoreCreateView(APIView):
         ],
     )
     def post(self, request):
-        if hasattr(request.user, 'store'):
-            return Response(
-                {'error': 'validation_error', 'message': 'You already have a store.'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
         serializer = StoreSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         store = StoreService.create(request.user, serializer.validated_data)
@@ -613,25 +617,6 @@ class MyReviewsView(APIView):
         return Response({'results': data, 'count': count})
 
 
-class StoreReviewListView(APIView):
-    """GET /api/v1/stores/<id>/reviews/ — public list of reviews for a store."""
-    permission_classes = [AllowAny]
-
-    @extend_schema(tags=[_TAG], summary='List store reviews', responses={200: StoreReviewListSerializer(many=True)}, auth=[])
-    def get(self, request, store_id):
-        try:
-            store = Store.objects.get(id=store_id, is_active=True)
-        except Store.DoesNotExist:
-            return Response({'error': 'not_found', 'message': 'Store not found.'}, status=status.HTTP_404_NOT_FOUND)
-        key    = CacheService.store_reviews_key(str(store_id))
-        cached = CacheService.get(key)
-        if cached is not None:
-            return Response(cached)
-        reviews = store.reviews.select_related('user').order_by('-created_at')[:50]
-        data = {'results': StoreReviewListSerializer(reviews, many=True).data, 'count': len(reviews)}
-        CacheService.set(key, data, timeout=CacheService.TTL_STORE_REVIEWS)
-        return Response(data)
-
 
 class StoreOfferView(APIView):
     """
@@ -718,7 +703,7 @@ class StoreVisitedView(APIView):
         store_ids = StoreFollow.objects.filter(user=request.user)\
             .order_by('-created_at').values_list('store_id', flat=True)[:limit]
         stores = annotate_stores_with_subcategories(
-            list(Store.objects.filter(id__in=store_ids, is_active=True))
+            list(Store.objects.filter(id__in=store_ids, is_active=True).prefetch_related('offers', 'hours'))
         )
         return Response({'results': StoreListSerializer(stores, many=True).data, 'count': len(stores)})
 
@@ -1713,6 +1698,9 @@ class ApplyDiscountCodeView(APIView):
             return Response({'valid': False, 'error': reason, 'message': messages.get(reason, 'Code cannot be applied.')})
 
         discount_amount = code.calculate_discount(order_amount) if order_amount else 0
+        # Increment usage counter so max_uses limit is enforced on subsequent calls
+        from django.db.models import F
+        DiscountCode.objects.filter(pk=code.pk).update(uses_count=F('uses_count') + 1)
         return Response({
             'valid':           True,
             'code':            code.code,
@@ -2035,3 +2023,71 @@ class MonthlyEarningsPDFView(APIView):
         resp = HttpResponse(buf.getvalue(), content_type='application/pdf')
         resp['Content-Disposition'] = f'attachment; filename="{filename}.pdf"'
         return resp
+
+
+# ── Service Catalogue ─────────────────────────────────────────────────────────
+
+class ServiceCatalogueListCreateView(APIView):
+    """
+    GET  /stores/mine/services/  — list services for the vendor's store
+    POST /stores/mine/services/  — create a new service entry
+    """
+    permission_classes = [IsAuthenticated, IsVendor]
+
+    @extend_schema(tags=[_TAG], summary='List service catalogue (vendor)', responses={200: ServiceCatalogueSerializer(many=True)})
+    def get(self, request):
+        if not hasattr(request.user, 'store'):
+            return Response({'results': [], 'count': 0})
+        services = ServiceCatalogue.objects.filter(store=request.user.store)
+        return Response({'results': ServiceCatalogueSerializer(services, many=True).data, 'count': services.count()})
+
+    @extend_schema(tags=[_TAG], summary='Create service catalogue entry (vendor)', request=ServiceCatalogueSerializer, responses={201: ServiceCatalogueSerializer})
+    def post(self, request):
+        if not hasattr(request.user, 'store'):
+            return Response({'error': 'no_store', 'message': 'Create a store first.'}, status=status.HTTP_400_BAD_REQUEST)
+        serializer = ServiceCatalogueSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        service = serializer.save(store=request.user.store)
+        return Response(ServiceCatalogueSerializer(service).data, status=status.HTTP_201_CREATED)
+
+
+class ServiceCatalogueDetailView(APIView):
+    """
+    GET    /stores/mine/services/<service_id>/  — retrieve a service
+    PUT    /stores/mine/services/<service_id>/  — update a service
+    DELETE /stores/mine/services/<service_id>/  — delete a service
+    """
+    permission_classes = [IsAuthenticated, IsVendor]
+
+    def _get_service(self, request, service_id):
+        if not hasattr(request.user, 'store'):
+            return None
+        try:
+            return ServiceCatalogue.objects.get(id=service_id, store=request.user.store)
+        except ServiceCatalogue.DoesNotExist:
+            return None
+
+    @extend_schema(tags=[_TAG], summary='Retrieve a service catalogue entry', responses={200: ServiceCatalogueSerializer})
+    def get(self, request, service_id):
+        service = self._get_service(request, service_id)
+        if service is None:
+            return Response({'error': 'not_found', 'message': 'Service not found.'}, status=status.HTTP_404_NOT_FOUND)
+        return Response(ServiceCatalogueSerializer(service).data)
+
+    @extend_schema(tags=[_TAG], summary='Update a service catalogue entry', request=ServiceCatalogueSerializer, responses={200: ServiceCatalogueSerializer})
+    def put(self, request, service_id):
+        service = self._get_service(request, service_id)
+        if service is None:
+            return Response({'error': 'not_found', 'message': 'Service not found.'}, status=status.HTTP_404_NOT_FOUND)
+        serializer = ServiceCatalogueSerializer(service, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
+
+    @extend_schema(tags=[_TAG], summary='Delete a service catalogue entry', responses={204: None})
+    def delete(self, request, service_id):
+        service = self._get_service(request, service_id)
+        if service is None:
+            return Response({'error': 'not_found', 'message': 'Service not found.'}, status=status.HTTP_404_NOT_FOUND)
+        service.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
