@@ -625,7 +625,7 @@ class PaymentWebhookView(APIView):
                     with transaction.atomic():
                         BillingService.topup(store, plan.price, reference_id=payment_id)
                         store.refresh_from_db(fields=['wallet_balance'])
-                        BillingService.subscribe(store, plan)
+                        BillingService.subscribe(store, plan, razorpay_payment_id=payment_id)
                     logger.info('Razorpay webhook: activated %s for store %s', plan_name, store_id)
                 except Exception as exc:
                     logger.exception('Razorpay webhook: failed to activate plan — %s', exc)

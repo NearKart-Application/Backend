@@ -176,8 +176,11 @@ class ReservationListView(APIView):
         else:
             qs = ReservationService.get_for_customer(user)
 
-        page      = max(int(request.query_params.get('page', 1)), 1)
-        page_size = min(max(int(request.query_params.get('page_size', 20)), 1), 100)
+        try:
+            page      = max(int(request.query_params.get('page', 1)), 1)
+            page_size = min(max(int(request.query_params.get('page_size', 20)), 1), 100)
+        except (TypeError, ValueError):
+            return Response({'error': 'invalid_param', 'message': 'page and page_size must be integers.'}, status=400)
         total     = qs.count()
         offset    = (page - 1) * page_size
         results   = qs[offset: offset + page_size]

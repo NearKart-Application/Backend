@@ -1,7 +1,7 @@
 """
 NearKart — Billing Service
 """
-import hashlib
+import secrets
 from decimal import Decimal
 from django.db import transaction as db_transaction
 from django.db.models import F
@@ -128,11 +128,10 @@ class BillingService:
             if coupon:
                 Coupon.objects.filter(pk=coupon.pk).update(used_count=F('used_count') + 1)
 
-            # Sync verified badge with plan
+            # Sync verified badge with plan — only grant on Premium; never forcibly revoke on downgrade
             from apps.stores.models import Store as StoreModel
-            StoreModel.objects.filter(pk=store.pk).update(
-                is_verified=(plan.name == Plan.SLUG_PREMIUM)
-            )
+            if plan.name == Plan.SLUG_PREMIUM:
+                StoreModel.objects.filter(pk=store.pk).update(is_verified=True)
 
             sub, _ = Subscription.objects.update_or_create(
                 store=store,
@@ -265,17 +264,23 @@ class BillingService:
 class ReferralService:
 
     @staticmethod
-    def _generate_code(store_id: str) -> str:
-        h = hashlib.md5(str(store_id).encode()).hexdigest().upper()
-        return f'NSR{h[:7]}'   # e.g. NSRA1B2C3D
-
-    @staticmethod
     def get_or_create_code(store) -> ReferralCode:
-        obj, _ = ReferralCode.objects.get_or_create(
-            store=store,
-            defaults={'code': ReferralService._generate_code(str(store.id))},
-        )
-        return obj
+        # Return existing code if one already exists for this store
+        try:
+            return ReferralCode.objects.get(store=store)
+        except ReferralCode.DoesNotExist:
+            pass
+        # Generate a collision-free code with a retry loop
+        for _ in range(10):
+            code = 'NSR' + secrets.token_hex(4).upper()  # e.g. NSRA1B2C3D4E
+            obj, created = ReferralCode.objects.get_or_create(
+                store=store, defaults={'code': code}
+            )
+            if created:
+                return obj
+            # Another request created the code concurrently — return it
+            return obj
+        raise ValueError('Could not generate unique referral code after 10 attempts')
 
     @staticmethod
     def get_config(city: str = '') -> ReferralConfig:

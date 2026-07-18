@@ -273,12 +273,16 @@ class VideoUpdateView(APIView):
                 {'error': 'not_found', 'message': 'Video not found.'},
                 status=status.HTTP_404_NOT_FOUND,
             )
-        allowed = {'title', 'description', 'is_visible'}
         update_fields = []
-        for field in allowed:
+        for field in ('title', 'description', 'video_type'):
             if field in request.data:
                 setattr(video, field, request.data[field])
                 update_fields.append(field)
+        for bool_field in ('is_visible', 'is_pinned'):
+            if bool_field in request.data:
+                val = request.data[bool_field]
+                setattr(video, bool_field, str(val).lower() not in ('false', '0', 'no', ''))
+                update_fields.append(bool_field)
         if update_fields:
             update_fields.append('updated_at')
             video.save(update_fields=update_fields)

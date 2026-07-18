@@ -124,9 +124,10 @@ class StockMovementLog(BaseModel):
 
 class StockWatchlist(BaseModel):
     """Customer subscribes to back-in-stock notification for a product."""
-    customer = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
-                                 related_name='stock_watches')
-    product  = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='stock_watchers')
+    customer     = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+                                     related_name='stock_watches')
+    product      = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='stock_watchers')
+    notified_at  = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table        = 'stock_watchlist'

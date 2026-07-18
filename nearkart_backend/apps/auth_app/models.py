@@ -32,11 +32,13 @@ class UserManager(BaseUserManager):
             raise ValueError('Phone number is required')
         if not extra_fields.get('profile_id'):
             name = extra_fields.get('full_name', '')
-            while True:
+            for attempt in range(100):
                 pid = _generate_profile_id(name=name, role=role)
                 if not self.model.objects.filter(profile_id=pid).exists():
                     extra_fields['profile_id'] = pid
                     break
+            else:
+                raise RuntimeError('Could not generate unique profile_id after 100 attempts')
         user = self.model(phone_number=phone_number, role=role, **extra_fields)
         user.set_unusable_password()
         user.save(using=self._db)

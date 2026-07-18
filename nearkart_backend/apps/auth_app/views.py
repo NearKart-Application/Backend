@@ -100,19 +100,21 @@ class OTPSendView(APIView):
         from core.utils.cache import CacheService
         from .models import User as _User
         is_dev_bypass = phone_number in getattr(_s, 'DEV_BYPASS_PHONES', set())
-        is_admin_bypass = _User.objects.filter(
-            phone_number=phone_number, role__in=('admin', 'master_admin')
-        ).exists()
-        if not is_dev_bypass and not is_admin_bypass and CacheService.is_rate_limited(
+        # Rate-limit check runs first; admin bypass DB query only fires when the limit is hit
+        if not is_dev_bypass and CacheService.is_rate_limited(
             f'otp:{phone_number}', max_requests=5, window_secs=3600
         ):
-            log_event('security', level='warning', action='otp_rate_limited',
-                      phone=phone_number,
-                      ip=request.META.get('HTTP_X_FORWARDED_FOR', request.META.get('REMOTE_ADDR', '')))
-            return Response(
-                {'error': 'rate_limited', 'message': 'Too many OTP requests. Please try again later.'},
-                status=status.HTTP_429_TOO_MANY_REQUESTS,
-            )
+            is_admin_bypass = _User.objects.filter(
+                phone_number=phone_number, role__in=('admin', 'master_admin')
+            ).exists()
+            if not is_admin_bypass:
+                log_event('security', level='warning', action='otp_rate_limited',
+                          phone=phone_number,
+                          ip=request.META.get('HTTP_X_FORWARDED_FOR', request.META.get('REMOTE_ADDR', '')))
+                return Response(
+                    {'error': 'rate_limited', 'message': 'Too many OTP requests. Please try again later.'},
+                    status=status.HTTP_429_TOO_MANY_REQUESTS,
+                )
 
         is_signup       = serializer.validated_data.get('is_signup', False)
         delivery_method = serializer.validated_data.get('delivery_method', 'sms')
@@ -516,6 +518,18 @@ class AvatarUploadView(APIView):
         file = request.FILES.get('avatar')
         if not file:
             return Response({'error': 'no_file', 'message': 'Provide an image in the `avatar` field.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        _ALLOWED_IMAGE_TYPES = {'image/jpeg', 'image/png', 'image/webp', 'image/gif'}
+        if file.content_type not in _ALLOWED_IMAGE_TYPES:
+            return Response({'error': 'invalid_file', 'message': 'File must be a valid image (JPEG, PNG, WebP, or GIF).'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            from PIL import Image
+            import io as _io
+            img = Image.open(file)
+            img.verify()
+            file.seek(0)
+        except Exception:
+            return Response({'error': 'invalid_file', 'message': 'File must be a valid image.'}, status=status.HTTP_400_BAD_REQUEST)
 
         ext = os.path.splitext(file.name)[1].lower() or '.jpg'
         filename = f'avatars/{request.user.id}/avatar_{uuid.uuid4().hex}{ext}'

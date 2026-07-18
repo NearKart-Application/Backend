@@ -318,8 +318,10 @@ class StoreReviewView(APIView):
         cached = CacheService.get(key)
         if cached is not None:
             return Response(cached)
-        reviews = store.reviews.select_related('user').order_by('-created_at')[:50]
-        data = {'results': StoreReviewListSerializer(reviews, many=True).data, 'count': len(reviews)}
+        reviews_qs = store.reviews.select_related('user').order_by('-created_at')
+        total = reviews_qs.count()
+        reviews = reviews_qs[:50]
+        data = {'results': StoreReviewListSerializer(reviews, many=True).data, 'count': total}
         CacheService.set(key, data, timeout=CacheService.TTL_STORE_REVIEWS)
         return Response(data)
 
@@ -377,12 +379,7 @@ class StoreReviewView(APIView):
             is_verified=is_verified,
         )
         CacheService.invalidate_store_reviews(str(store_id))
-        # Notify vendor
-        try:
-            from apps.notifications.services import NotificationService
-            NotificationService.notify_new_review(store.owner, store.name, review.rating, str(store.id))
-        except Exception:
-            pass
+        # NOTE: notification is sent inside StoreService.add_review — do not duplicate here
         return Response(StoreReviewSerializer(review).data)
 
 
@@ -1349,7 +1346,7 @@ def _check_eligibility(user):
         return False, []
 
     try:
-        product_count = store.products.filter(is_active=True).count()
+        product_count = store.products.filter(status='active').count()
     except Exception:
         product_count = 0
 
@@ -1552,11 +1549,22 @@ class StoreImagesUploadView(APIView):
         except AttributeError:
             return Response({'error': 'no_store'}, status=status.HTTP_400_BAD_REQUEST)
 
+        _ALLOWED_IMAGE_TYPES = {'image/jpeg', 'image/png', 'image/webp', 'image/gif'}
         updated = {}
         for field in ('logo', 'banner'):
             file = request.FILES.get(field)
             if not file:
                 continue
+            if file.content_type not in _ALLOWED_IMAGE_TYPES:
+                return Response({'error': 'invalid_file', 'message': f'{field}: file must be a valid image (JPEG, PNG, WebP, or GIF).'}, status=status.HTTP_400_BAD_REQUEST)
+            try:
+                from PIL import Image
+                import io as _io
+                img = Image.open(file)
+                img.verify()
+                file.seek(0)
+            except Exception:
+                return Response({'error': 'invalid_file', 'message': f'{field}: file must be a valid image.'}, status=status.HTTP_400_BAD_REQUEST)
             ext = os.path.splitext(file.name)[1].lower() or '.jpg'
             filename = f'stores/{store.id}/{field}_{uuid.uuid4().hex}{ext}'
             path = default_storage.save(filename, ContentFile(file.read()))
@@ -1698,9 +1706,8 @@ class ApplyDiscountCodeView(APIView):
             return Response({'valid': False, 'error': reason, 'message': messages.get(reason, 'Code cannot be applied.')})
 
         discount_amount = code.calculate_discount(order_amount) if order_amount else 0
-        # Increment usage counter so max_uses limit is enforced on subsequent calls
-        from django.db.models import F
-        DiscountCode.objects.filter(pk=code.pk).update(uses_count=F('uses_count') + 1)
+        # NOTE: uses_count must be incremented only when an invoice is actually created,
+        # NOT here — incrementing here burns single-use codes on validation preview.
         return Response({
             'valid':           True,
             'code':            code.code,

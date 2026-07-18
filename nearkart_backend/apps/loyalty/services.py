@@ -10,6 +10,8 @@ Points config:
   Max redeem per transaction        : 500 pts (= ₹50)
 """
 import logging
+from django.db import transaction
+from django.db.models import F
 from django.utils import timezone
 
 from .models import LoyaltyAccount, LoyaltyTransaction, Referral
@@ -88,11 +90,14 @@ class LoyaltyService:
         if points > MAX_REDEEM:
             raise ValueError(f'Maximum redemption per transaction is {MAX_REDEEM} points (₹{MAX_REDEEM // POINTS_PER_RUPEE}).')
 
-        account = cls.get_account(user)
-        if account.balance < points:
-            raise ValueError(f'Insufficient points. Balance: {account.balance} pts.')
+        with transaction.atomic():
+            account = LoyaltyAccount.objects.select_for_update().get(
+                pk=cls.get_account(user).pk
+            )
+            if account.balance < points:
+                raise ValueError(f'Insufficient points. Balance: {account.balance} pts.')
 
-        cls._deduct_points(account=account, points=points, source=LoyaltyTransaction.SOURCE_REDEMPTION, description=description)
+            cls._deduct_points(account=account, points=points, source=LoyaltyTransaction.SOURCE_REDEMPTION, description=description)
         discount_rupees = points // POINTS_PER_RUPEE
         logger.info('[loyalty] redeemed %d pts (₹%d) for %s', points, discount_rupees, user.phone_number)
         return discount_rupees
@@ -121,9 +126,12 @@ class LoyaltyService:
 
     @classmethod
     def _add_points(cls, account: LoyaltyAccount, points: int, source: str, description: str):
-        account.balance      += points
-        account.total_earned += points
-        account.save(update_fields=['balance', 'total_earned', 'updated_at'])
+        LoyaltyAccount.objects.filter(pk=account.pk).update(
+            balance=F('balance') + points,
+            total_earned=F('total_earned') + points,
+            updated_at=timezone.now(),
+        )
+        account.refresh_from_db(fields=['balance', 'total_earned'])
         LoyaltyTransaction.objects.create(
             account=account,
             transaction_type=LoyaltyTransaction.EARN,
@@ -135,9 +143,12 @@ class LoyaltyService:
 
     @classmethod
     def _deduct_points(cls, account: LoyaltyAccount, points: int, source: str, description: str):
-        account.balance        -= points
-        account.total_redeemed += points
-        account.save(update_fields=['balance', 'total_redeemed', 'updated_at'])
+        LoyaltyAccount.objects.filter(pk=account.pk).update(
+            balance=F('balance') - points,
+            total_redeemed=F('total_redeemed') + points,
+            updated_at=timezone.now(),
+        )
+        account.refresh_from_db(fields=['balance', 'total_redeemed'])
         LoyaltyTransaction.objects.create(
             account=account,
             transaction_type=LoyaltyTransaction.REDEEM,

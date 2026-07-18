@@ -376,7 +376,10 @@ class GroupProductListView(APIView):
         if not ser.is_valid():
             return Response(ser.errors, status=400)
 
-        product = Product.objects.select_related('store').get(id=ser.validated_data['product_id'])
+        try:
+            product = Product.objects.select_related('store').get(id=ser.validated_data['product_id'])
+        except Product.DoesNotExist:
+            return Response({'error': 'not_found', 'message': 'Product not found.'}, status=status.HTTP_404_NOT_FOUND)
         shared = GroupService.share_product(
             group=group,
             product=product,

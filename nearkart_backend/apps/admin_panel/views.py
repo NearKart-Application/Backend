@@ -152,7 +152,7 @@ class PlatformStatsView(APIView):
 
 class AdminStoreListView(APIView):
     """GET /admin-panel/stores/ — paginated list of all stores with search."""
-    permission_classes = [IsAuthenticated, IsAdminUser]
+    permission_classes = [IsAuthenticated, IsAdmin | IsMasterAdmin]
 
     @extend_schema(
         summary='List All Stores (Admin)',
@@ -792,6 +792,24 @@ class AdminDeleteVideoView(APIView):
 
         store_name = video.store.name
         title      = video.title
+
+        # S3 cleanup before deleting the DB record
+        raw_key = video.raw_s3_key
+        hls_key = video.hls_s3_key
+        if raw_key or hls_key:
+            try:
+                from apps.videos.services import AWSService
+                from django.conf import settings as _settings
+                client = AWSService._client()
+                objects_to_delete = [{'Key': k} for k in [raw_key, hls_key] if k]
+                if objects_to_delete:
+                    client.delete_objects(
+                        Bucket=_settings.AWS_S3_BUCKET,
+                        Delete={'Objects': objects_to_delete, 'Quiet': True},
+                    )
+            except Exception as s3_exc:
+                logger.warning('[admin] S3 cleanup failed for video %s — %s', video_id, s3_exc)
+
         _log_action(request.user, 'delete_video', 'video', str(video.id),
                     f'{title} ({store_name})', f'store_id={video.store_id}')
         video.delete()

@@ -283,6 +283,13 @@ class BroadcastChannel(BaseModel):
 
     @property
     def subscriber_count(self):
+        """
+        Returns the number of store followers (potential broadcast reach), NOT
+        per-channel subscribers.  Calling this in a loop causes an N+1 query.
+        In list views, annotate the queryset instead:
+          BroadcastChannel.objects.annotate(follower_count=Count('store__followers', distinct=True))
+        and use follower_count rather than this property.
+        """
         return self.store.followers.count()
 
     @property
