@@ -27,8 +27,11 @@ class NotificationListView(APIView):
         responses={200: NotificationSerializer(many=True)},
     )
     def get(self, request):
-        page      = max(int(request.query_params.get('page', 1)), 1)
-        page_size = min(max(int(request.query_params.get('page_size', 20)), 1), 100)
+        try:
+            page      = max(int(request.query_params.get('page', 1)), 1)
+            page_size = min(max(int(request.query_params.get('page_size', 20)), 1), 100)
+        except (TypeError, ValueError):
+            return Response({'error': 'invalid_param', 'message': 'page and page_size must be integers.'}, status=400)
         qs        = Notification.objects.filter(recipient=request.user).order_by('-created_at')
         total     = qs.count()
         offset    = (page - 1) * page_size

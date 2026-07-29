@@ -198,7 +198,7 @@ class AdminStoreListView(APIView):
 
 class AdminStoreUpdateView(APIView):
     """PATCH /admin-panel/stores/<store_id>/ — update is_verified / is_active / is_open."""
-    permission_classes = [IsAuthenticated, IsAdminUser]
+    permission_classes = [IsAuthenticated, IsAdmin | IsMasterAdmin]
 
     @extend_schema(
         summary='Update Store (Admin)',
@@ -231,7 +231,7 @@ class AdminStoreUpdateView(APIView):
 
 class AdminUserListView(APIView):
     """GET /admin-panel/users/ — paginated list of all users."""
-    permission_classes = [IsAuthenticated, IsAdminUser]
+    permission_classes = [IsAuthenticated, IsAdmin | IsMasterAdmin]
 
     @extend_schema(
         summary='List All Users (Admin)',
@@ -276,7 +276,7 @@ class AdminUserListView(APIView):
 
 class AdminUserToggleActiveView(APIView):
     """POST /admin-panel/users/<user_id>/toggle-active/ — enable or disable a user."""
-    permission_classes = [IsAuthenticated, IsAdminUser]
+    permission_classes = [IsAuthenticated, IsAdmin | IsMasterAdmin]
 
     @extend_schema(
         summary='Toggle User Active (Admin)',
@@ -521,7 +521,7 @@ class AdminUserDeleteView(APIView):
 
 class AdminProductListView(APIView):
     """GET /admin-panel/products/ — list all products across all stores."""
-    permission_classes = [IsAuthenticated, IsAdminUser]
+    permission_classes = [IsAuthenticated, IsAdmin | IsMasterAdmin]
 
     @extend_schema(
         summary='List All Products (Admin)',
@@ -560,7 +560,7 @@ class AdminProductListView(APIView):
 
 class AdminProductDetailView(APIView):
     """PATCH /admin-panel/products/<product_id>/ — update product status / visibility."""
-    permission_classes = [IsAuthenticated, IsAdminUser]
+    permission_classes = [IsAuthenticated, IsAdmin | IsMasterAdmin]
 
     @extend_schema(
         summary='Update Product (Admin)',
@@ -594,7 +594,7 @@ class AdminProductDetailView(APIView):
 
 class AdminWebsiteRequestListView(APIView):
     """GET /admin-panel/website-requests/ — list all vendor website requests."""
-    permission_classes = [IsAuthenticated, IsAdminUser]
+    permission_classes = [IsAuthenticated, IsAdmin | IsMasterAdmin]
 
     @extend_schema(
         summary='List Website Requests (Admin)',
@@ -622,7 +622,7 @@ class AdminWebsiteRequestListView(APIView):
 
 class AdminWebsiteRequestUpdateView(APIView):
     """PATCH /admin-panel/website-requests/<request_id>/ — approve or reject."""
-    permission_classes = [IsAuthenticated, IsAdminUser]
+    permission_classes = [IsAuthenticated, IsAdmin | IsMasterAdmin]
 
     @extend_schema(
         summary='Update Website Request (Admin)',
@@ -662,7 +662,7 @@ class AdminWebsiteRequestUpdateView(APIView):
 
 class AdminCreateUserView(APIView):
     """POST /admin-panel/users/create/ — create a new user account."""
-    permission_classes = [IsAuthenticated, IsAdminUser]
+    permission_classes = [IsAuthenticated, IsAdmin | IsMasterAdmin]
 
     @extend_schema(
         summary='Create User (Admin)',
@@ -694,7 +694,7 @@ class AdminCreateUserView(APIView):
 
 class AdminUserSuspendView(APIView):
     """POST /admin-panel/users/<user_id>/suspend/ — suspend or unsuspend a user."""
-    permission_classes = [IsAuthenticated, IsAdminUser]
+    permission_classes = [IsAuthenticated, IsAdmin | IsMasterAdmin]
 
     @extend_schema(
         summary='Suspend / Unsuspend User (Admin)',
@@ -748,7 +748,7 @@ class AdminUserSuspendView(APIView):
 
 class AdminStoreVideoListView(APIView):
     """GET /admin-panel/stores/<store_id>/videos/ — list all videos for a store."""
-    permission_classes = [IsAuthenticated, IsAdminUser]
+    permission_classes = [IsAuthenticated, IsAdmin | IsMasterAdmin]
 
     @extend_schema(
         summary='List Store Videos (Admin)',
@@ -772,7 +772,7 @@ class AdminStoreVideoListView(APIView):
 
 class AdminDeleteVideoView(APIView):
     """DELETE /admin-panel/videos/<video_id>/ — delete a video."""
-    permission_classes = [IsAuthenticated, IsAdminUser]
+    permission_classes = [IsAuthenticated, IsAdmin | IsMasterAdmin]
 
     @extend_schema(
         summary='Delete Video (Admin)',
@@ -821,7 +821,7 @@ class AdminDeleteVideoView(APIView):
 
 class AdminActivityLogView(APIView):
     """GET/POST /admin-panel/activity-log/ — admin action log."""
-    permission_classes = [IsAuthenticated, IsAdminUser]
+    permission_classes = [IsAuthenticated, IsAdmin | IsMasterAdmin]
 
     @extend_schema(
         summary='Admin Activity Log',

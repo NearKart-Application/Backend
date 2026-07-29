@@ -290,8 +290,11 @@ class StoreFollowerListView(APIView):
             .order_by('-created_at')
         )
         count = qs.count()
-        page      = max(1, int(request.query_params.get('page', 1)))
-        page_size = min(50, max(1, int(request.query_params.get('page_size', 30))))
+        try:
+            page      = max(int(request.query_params.get('page', 1)), 1)
+            page_size = min(max(int(request.query_params.get('page_size', 30)), 1), 50)
+        except (TypeError, ValueError):
+            return Response({'error': 'invalid_param', 'message': 'page and page_size must be integers.'}, status=400)
         start = (page - 1) * page_size
         ser = StoreFollowerSerializer(qs[start:start + page_size], many=True)
         return Response({'results': ser.data, 'count': count})
@@ -587,8 +590,11 @@ class VendorReviewsListView(APIView):
         self.check_object_permissions(request, store)
         reviews = store.reviews.select_related('user').order_by('-created_at')
         count     = reviews.count()
-        page      = max(1, int(request.query_params.get('page', 1)))
-        page_size = min(50, max(1, int(request.query_params.get('page_size', 20))))
+        try:
+            page      = max(int(request.query_params.get('page', 1)), 1)
+            page_size = min(max(int(request.query_params.get('page_size', 20)), 1), 50)
+        except (TypeError, ValueError):
+            return Response({'error': 'invalid_param', 'message': 'page and page_size must be integers.'}, status=400)
         offset    = (page - 1) * page_size
         return Response({'results': StoreReviewListSerializer(reviews[offset:offset + page_size], many=True).data, 'count': count})
 
@@ -602,8 +608,11 @@ class MyReviewsView(APIView):
         from .models import StoreReview
         reviews   = StoreReview.objects.filter(user=request.user).select_related('store').order_by('-created_at')
         count     = reviews.count()
-        page      = max(1, int(request.query_params.get('page', 1)))
-        page_size = min(50, max(1, int(request.query_params.get('page_size', 20))))
+        try:
+            page      = max(int(request.query_params.get('page', 1)), 1)
+            page_size = min(max(int(request.query_params.get('page_size', 20)), 1), 50)
+        except (TypeError, ValueError):
+            return Response({'error': 'invalid_param', 'message': 'page and page_size must be integers.'}, status=400)
         offset    = (page - 1) * page_size
         data = []
         for r in reviews[offset:offset + page_size]:
@@ -695,7 +704,10 @@ class StoreVisitedView(APIView):
         responses={200: StoreListSerializer(many=True)},
     )
     def get(self, request):
-        limit = int(request.query_params.get('limit', 5))
+        try:
+            limit = max(int(request.query_params.get('limit', 5)), 1)
+        except (TypeError, ValueError):
+            return Response({'error': 'invalid_param', 'message': 'page and page_size must be integers.'}, status=400)
         from apps.stores.models import StoreFollow
         store_ids = StoreFollow.objects.filter(user=request.user)\
             .order_by('-created_at').values_list('store_id', flat=True)[:limit]
@@ -784,8 +796,11 @@ class StoreInvoiceListCreateView(APIView):
             return Response({'results': [], 'count': 0})
         invoices  = Invoice.objects.filter(store=request.user.store).order_by('-created_at')
         count     = invoices.count()
-        page      = max(1, int(request.query_params.get('page', 1)))
-        page_size = min(100, max(1, int(request.query_params.get('page_size', 20))))
+        try:
+            page      = max(int(request.query_params.get('page', 1)), 1)
+            page_size = min(max(int(request.query_params.get('page_size', 20)), 1), 100)
+        except (TypeError, ValueError):
+            return Response({'error': 'invalid_param', 'message': 'page and page_size must be integers.'}, status=400)
         offset    = (page - 1) * page_size
         return Response({'results': InvoiceSerializer(invoices[offset:offset + page_size], many=True).data, 'count': count})
 
@@ -796,7 +811,10 @@ class StoreInvoiceListCreateView(APIView):
         ser = InvoiceSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
         items = ser.validated_data.get('items', [])
-        subtotal = sum(float(i.get('price', 0)) * int(i.get('qty', 1)) for i in items)
+        try:
+            subtotal = sum(float(i.get('price', 0)) * int(i.get('qty', 1)) for i in items)
+        except (TypeError, ValueError):
+            return Response({'error': 'invalid_item', 'message': 'Item price and qty must be valid numbers.'}, status=400)
         discount_type  = ser.validated_data.get('discount_type') or ''
         discount_value = float(ser.validated_data.get('discount_value') or 0)
         if discount_type == 'amount':
@@ -899,8 +917,11 @@ class CustomerPurchaseHistoryView(APIView):
             .order_by('-created_at')
         )
         count     = invoices.count()
-        page      = max(1, int(request.query_params.get('page', 1)))
-        page_size = min(50, max(1, int(request.query_params.get('page_size', 20))))
+        try:
+            page      = max(int(request.query_params.get('page', 1)), 1)
+            page_size = min(max(int(request.query_params.get('page_size', 20)), 1), 50)
+        except (TypeError, ValueError):
+            return Response({'error': 'invalid_param', 'message': 'page and page_size must be integers.'}, status=400)
         offset    = (page - 1) * page_size
         return Response({
             'results': CustomerInvoiceSerializer(invoices[offset:offset + page_size], many=True).data,
@@ -1837,8 +1858,11 @@ class VendorBroadcastPostListCreateView(APIView):
             return Response({'error': 'not_found'}, status=status.HTTP_404_NOT_FOUND)
         posts     = channel.posts.order_by('-created_at')
         count     = posts.count()
-        page      = max(1, int(request.query_params.get('page', 1)))
-        page_size = min(50, max(1, int(request.query_params.get('page_size', 20))))
+        try:
+            page      = max(int(request.query_params.get('page', 1)), 1)
+            page_size = min(max(int(request.query_params.get('page_size', 20)), 1), 50)
+        except (TypeError, ValueError):
+            return Response({'error': 'invalid_param', 'message': 'page and page_size must be integers.'}, status=400)
         offset    = (page - 1) * page_size
         return Response({'results': [_serialize_post(p) for p in posts[offset:offset + page_size]], 'count': count})
 
@@ -1873,8 +1897,11 @@ class CustomerBroadcastPostListView(APIView):
             return Response({'error': 'not_found'}, status=status.HTTP_404_NOT_FOUND)
         posts     = channel.posts.order_by('-created_at')
         count     = posts.count()
-        page      = max(1, int(request.query_params.get('page', 1)))
-        page_size = min(50, max(1, int(request.query_params.get('page_size', 20))))
+        try:
+            page      = max(int(request.query_params.get('page', 1)), 1)
+            page_size = min(max(int(request.query_params.get('page_size', 20)), 1), 50)
+        except (TypeError, ValueError):
+            return Response({'error': 'invalid_param', 'message': 'page and page_size must be integers.'}, status=400)
         offset    = (page - 1) * page_size
         return Response({'results': [_serialize_post(p) for p in posts[offset:offset + page_size]], 'count': count})
 

@@ -26,7 +26,10 @@ class OTPVerifySerializer(serializers.Serializer):
     referral_code = serializers.CharField(max_length=16, required=False, allow_blank=True, default='')
 
     def validate_phone_number(self, value):
-        return re.sub(r'\s+', '', value)
+        value = re.sub(r'\s+', '', value)
+        if not re.match(r'^\+91[6-9]\d{9}$', value):
+            raise serializers.ValidationError('Enter a valid Indian mobile number (+91XXXXXXXXXX).')
+        return value
 
     def validate_otp(self, value):
         if not value.isdigit():

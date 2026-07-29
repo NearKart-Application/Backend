@@ -38,46 +38,51 @@ class LoyaltyService:
         """Called when a new user enters a referral code. Awards points to referrer."""
         code = referral_code.strip().upper()
 
-        # Already used a code?
-        if Referral.objects.filter(referred=user, status=Referral.STATUS_COMPLETED).exists():
-            raise ValueError('You have already applied a referral code.')
+        with transaction.atomic():
+            # Lock the user row to prevent concurrent referral applications
+            from apps.auth_app.models import User as _User
+            _User.objects.select_for_update().get(pk=user.pk)
 
-        # Resolve referrer by profile_id (the NS code IS the referral code)
-        try:
-            referrer_account = LoyaltyAccount.objects.get(user__profile_id=code)
-        except LoyaltyAccount.DoesNotExist:
-            raise ValueError('Invalid referral code. Please check and try again.')
+            # Already used a code?
+            if Referral.objects.filter(referred=user, status=Referral.STATUS_COMPLETED).exists():
+                raise ValueError('You have already applied a referral code.')
 
-        referrer = referrer_account.user
-        if referrer == user:
-            raise ValueError('You cannot use your own referral code.')
+            # Resolve referrer by profile_id (the NS code IS the referral code)
+            try:
+                referrer_account = LoyaltyAccount.objects.get(user__profile_id=code)
+            except LoyaltyAccount.DoesNotExist:
+                raise ValueError('Invalid referral code. Please check and try again.')
 
-        # Points depend on referrer's role
-        pts = REFERRAL_PTS_VENDOR if referrer.role == 'vendor' else REFERRAL_PTS_CUSTOMER
+            referrer = referrer_account.user
+            if referrer == user:
+                raise ValueError('You cannot use your own referral code.')
 
-        # Record referral
-        Referral.objects.create(
-            referrer=referrer,
-            referred=user,
-            referral_code=code,
-            status=Referral.STATUS_COMPLETED,
-            points_awarded=pts,
-            completed_at=timezone.now(),
-        )
+            # Points depend on referrer's role
+            pts = REFERRAL_PTS_VENDOR if referrer.role == 'vendor' else REFERRAL_PTS_CUSTOMER
 
-        # Credit referrer
-        cls._add_points(
-            account=referrer_account,
-            points=pts,
-            source=LoyaltyTransaction.SOURCE_REFERRAL,
-            description=f'Referral bonus — {user.full_name or user.phone_number} joined NearSpot',
-        )
+            # Record referral
+            Referral.objects.create(
+                referrer=referrer,
+                referred=user,
+                referral_code=code,
+                status=Referral.STATUS_COMPLETED,
+                points_awarded=pts,
+                completed_at=timezone.now(),
+            )
 
-        # Notify referrer
-        cls._send_referral_notification(referrer, pts, user)
+            # Credit referrer
+            cls._add_points(
+                account=referrer_account,
+                points=pts,
+                source=LoyaltyTransaction.SOURCE_REFERRAL,
+                description=f'Referral bonus — {user.full_name or user.phone_number} joined NearSpot',
+            )
 
-        logger.info('[loyalty] referral applied: %s → %s, %d pts', referrer.phone_number, user.phone_number, pts)
-        return {'points_awarded': pts, 'referrer_phone': referrer.phone_number}
+            # Notify referrer
+            cls._send_referral_notification(referrer, pts, user)
+
+            logger.info('[loyalty] referral applied: %s → %s, %d pts', referrer.phone_number, user.phone_number, pts)
+            return {'points_awarded': pts, 'referrer_phone': referrer.phone_number}
 
     @classmethod
     def redeem_points(cls, user, points: int, description: str = 'Reservation discount') -> int:

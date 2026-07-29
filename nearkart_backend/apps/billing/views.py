@@ -623,8 +623,6 @@ class PaymentWebhookView(APIView):
                     store = Store.objects.get(id=store_id)
                     plan  = Plan.objects.get(name=plan_name, is_active=True)
                     with transaction.atomic():
-                        BillingService.topup(store, plan.price, reference_id=payment_id)
-                        store.refresh_from_db(fields=['wallet_balance'])
                         BillingService.subscribe(store, plan, razorpay_payment_id=payment_id)
                     logger.info('Razorpay webhook: activated %s for store %s', plan_name, store_id)
                 except Exception as exc:

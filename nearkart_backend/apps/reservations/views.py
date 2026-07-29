@@ -218,6 +218,8 @@ class ReservationDetailView(APIView):
                     return None
             except Exception:
                 return None
+        elif user.role in ('admin', 'master_admin'):
+            pass  # admins can access any reservation
         else:
             if r.customer_id != user.id:
                 return None
@@ -338,6 +340,7 @@ class ReservationCancelView(APIView):
         monthly_cancels = Reservation.objects.filter(
             customer=request.user,
             status=ReservationStatus.CANCELLED,
+            cancelled_by='customer',
             updated_at__year=now.year,
             updated_at__month=now.month,
         ).count()
