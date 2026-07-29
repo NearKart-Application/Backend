@@ -25,7 +25,7 @@ class BillingService:
             raise ValueError('Top-up amount must be positive.')
         with db_transaction.atomic():
             store.__class__.objects.filter(pk=store.pk).update(
-                wallet_balance=store.wallet_balance + amount
+                wallet_balance=F('wallet_balance') + amount
             )
             store.refresh_from_db(fields=['wallet_balance'])
             txn = Transaction.objects.create(
