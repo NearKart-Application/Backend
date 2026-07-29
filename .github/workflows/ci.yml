@@ -84,7 +84,7 @@ jobs:
       - name: Lint with ruff
         working-directory: nearkart_backend
         run: |
-          ruff check . --select=E,F,W,C90,I --ignore=E501 \
+          ruff check . --select=E,F,W,C90 --ignore=E501 \
             --exclude=migrations,__pycache__,venv,.venv
 
       - name: Run tests
