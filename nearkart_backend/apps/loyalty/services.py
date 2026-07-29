@@ -18,11 +18,12 @@ from .models import LoyaltyAccount, LoyaltyTransaction, Referral
 
 logger = logging.getLogger(__name__)
 
-REFERRAL_PTS_CUSTOMER = 50
-REFERRAL_PTS_VENDOR   = 100
-POINTS_PER_RUPEE      = 10
-MIN_REDEEM            = 50
-MAX_REDEEM            = 500
+REFERRAL_PTS_CUSTOMER  = 50
+REFERRAL_PTS_VENDOR    = 100
+PICKUP_BONUS_POINTS    = 20   # awarded when customer completes a reservation pickup
+POINTS_PER_RUPEE       = 10
+MIN_REDEEM             = 50
+MAX_REDEEM             = 500
 
 
 class LoyaltyService:
@@ -106,6 +107,15 @@ class LoyaltyService:
         discount_rupees = points // POINTS_PER_RUPEE
         logger.info('[loyalty] redeemed %d pts (₹%d) for %s', points, discount_rupees, user.phone_number)
         return discount_rupees
+
+    @classmethod
+    def award_pickup_bonus(cls, user, description: str = 'Reservation pickup bonus') -> int:
+        """Awards PICKUP_BONUS_POINTS when a customer completes a reservation pickup. Returns points awarded."""
+        account = cls.get_account(user)
+        cls._add_points(account=account, points=PICKUP_BONUS_POINTS,
+                        source=LoyaltyTransaction.SOURCE_EARNED, description=description)
+        logger.info('[loyalty] pickup bonus %d pts for %s', PICKUP_BONUS_POINTS, user.phone_number)
+        return PICKUP_BONUS_POINTS
 
     @classmethod
     def deduct_cancellation_penalty(cls, user, points: int = 5, description: str = 'Reservation cancellation penalty') -> int:

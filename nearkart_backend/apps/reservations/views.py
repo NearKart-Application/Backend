@@ -299,6 +299,14 @@ class ReservationStatusView(APIView):
             reservation = ReservationService.cancel(reservation, note=vendor_note, cancelled_by='vendor')
         elif new_status == ReservationStatus.COMPLETED:
             reservation = ReservationService.complete(reservation)
+            try:
+                from apps.loyalty.services import LoyaltyService
+                LoyaltyService.award_pickup_bonus(
+                    user=reservation.customer,
+                    description=f'Pickup bonus — {reservation.product.name}',
+                )
+            except Exception:
+                pass
 
         log_event('reservations', action=f'reservation_{new_status}',
                   reservation_id=str(reservation.id), store_id=str(store.id),

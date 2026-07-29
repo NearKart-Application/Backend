@@ -226,6 +226,10 @@ CELERY_BEAT_SCHEDULE = {
         'task':     'reservations.notify_1day_expiry',
         'schedule': crontab(hour=8, minute=0),   # 8 AM daily
     },
+    'notify-30min-reservation-expiry': {
+        'task':     'reservations.notify_30min_expiry',
+        'schedule': crontab(minute='*/15'),       # every 15 minutes
+    },
     'notify-price-drops-6h': {
         'task':     'products.notify_price_drops',
         'schedule': crontab(minute=0, hour='*/6'),  # every 6 hours
