@@ -41,6 +41,7 @@ jobs:
       DATABASE_URL: postgis://nearspot:nearspot@localhost:5432/nearspot_test
       REDIS_URL: redis://localhost:6379/0
       SECRET_KEY: ci-secret-key-not-for-production
+      DB_PASSWORD: nearspot
       DEBUG: "False"
       ALLOWED_HOSTS: localhost,127.0.0.1
 
