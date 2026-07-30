@@ -24,6 +24,7 @@ def expire_reservations(self):
 @shared_task(name='reservations.notify_30min_expiry', time_limit=120, soft_time_limit=100)
 def notify_30min_expiry():
     """Runs every 15 min. Notifies customers whose reservation expires in 25–35 min."""
+    from django.core.cache import cache
     from django.utils import timezone
     from datetime import timedelta
     from .models import Reservation
@@ -41,13 +42,19 @@ def notify_30min_expiry():
 
     notified = 0
     for res in qs:
+        cache_key = f'notified_30min_{res.id}'
+        if cache.get(cache_key):
+            continue  # already notified this reservation in the current window
         try:
             NotificationService.notify_reservation_expiring_soon(
                 customer       = res.customer,
                 store_name     = res.product.store.name,
                 reservation_id = str(res.id),
                 product_name   = res.product.name,
+                time_label     = 'soon',
+                time_body      = '~30 minutes',
             )
+            cache.set(cache_key, True, timeout=7200)  # 2-hour TTL covers the expiry window
             notified += 1
         except Exception as exc:
             logger.warning('[notify_30min_expiry] failed for res %s: %s', res.id, exc)
