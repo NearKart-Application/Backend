@@ -205,10 +205,8 @@ CELERY_BEAT_SCHEDULE = {
         'task':     'reservations.expire_reservations',
         'schedule': crontab(minute=0),           # top of every hour
     },
-    'notify-expiring-subscriptions-daily': {
-        'task':     'notifications.notify_expiring_subscriptions',
-        'schedule': crontab(hour=9, minute=0),   # 9 AM daily
-    },
+    # Subscription expiry notifications handled by billing.notify_expiring_subscriptions
+    # (covers both 7-day and 3-day windows in one task — no duplicate needed here)
     'notify-expired-subscriptions-daily': {
         'task':     'notifications.notify_expired_subscriptions',
         'schedule': crontab(hour=9, minute=5),   # 9:05 AM daily
@@ -229,6 +227,26 @@ CELERY_BEAT_SCHEDULE = {
     'notify-30min-reservation-expiry': {
         'task':     'reservations.notify_30min_expiry',
         'schedule': crontab(minute='*/15'),       # every 15 minutes
+    },
+    # Analytics aggregation — 3 AM daily
+    'aggregate-daily-analytics': {
+        'task':     'analytics.aggregate_daily_stats',
+        'schedule': crontab(hour=3, minute=0),
+    },
+    # Weekly analytics digest — Monday 9 AM IST
+    'send-weekly-digest': {
+        'task':     'analytics.send_weekly_digest_emails',
+        'schedule': crontab(hour=9, minute=0, day_of_week=1),
+    },
+    # Blacklist engine — check inactive products at midnight
+    'check-inactive-products': {
+        'task':     'blacklist.check_inactive_products',
+        'schedule': crontab(hour=0, minute=0),
+    },
+    # Store open/close status — every 30 minutes
+    'update-store-open-status': {
+        'task':     'stores.update_all_store_statuses',
+        'schedule': crontab(minute='*/30'),
     },
     'notify-price-drops-6h': {
         'task':     'products.notify_price_drops',
@@ -273,7 +291,7 @@ SIMPLE_JWT = {
     'REFRESH_TOKEN_LIFETIME': timedelta(
         days=env.int('JWT_REFRESH_TOKEN_LIFETIME_DAYS', default=30)
     ),
-    'ROTATE_REFRESH_TOKENS': False,
+    'ROTATE_REFRESH_TOKENS': True,
     'BLACKLIST_AFTER_ROTATION': True,
     'ALGORITHM': 'HS256',
     'SIGNING_KEY': env('JWT_SECRET_KEY', default=SECRET_KEY),

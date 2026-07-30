@@ -100,6 +100,16 @@ class ReservationService:
             ReferralService.handle_customer_reservation_completed(reservation.customer)
         except Exception:
             pass  # referral credit must never break reservation completion
+        try:
+            from apps.notifications.services import NotificationService
+            NotificationService.notify_reservation_completed(
+                customer=reservation.customer,
+                store_name=reservation.store.name,
+                reservation_id=str(reservation.id),
+                product_name=reservation.product.name,
+            )
+        except Exception:
+            logger.exception('[reservations] notify_reservation_completed failed for %s', reservation.id)
         return reservation
 
     @staticmethod

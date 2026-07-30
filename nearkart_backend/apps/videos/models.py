@@ -62,6 +62,7 @@ class Video(models.Model):
     like_count       = models.PositiveIntegerField(default=0)
 
     is_visible       = models.BooleanField(default=True, db_index=True)
+    is_pinned        = models.BooleanField(default=False, db_index=True)
     expires_at       = models.DateTimeField(null=True, blank=True, db_index=True)
 
     created_at       = models.DateTimeField(auto_now_add=True)

@@ -17,6 +17,7 @@ class NotificationType(models.TextChoices):
     RESERVATION_CANCELLED      = 'reservation_cancelled',      'Reservation Cancelled'
     RESERVATION_EXPIRED        = 'reservation_expired',        'Reservation Expired'
     RESERVATION_EXPIRING_SOON  = 'reservation_expiring_soon',  'Reservation Expiring Soon'
+    RESERVATION_COMPLETED      = 'reservation_completed',      'Reservation Completed'
     # Store
     NEW_FOLLOWER            = 'new_follower',            'New Follower'
     NEW_REVIEW              = 'new_review',              'New Review'

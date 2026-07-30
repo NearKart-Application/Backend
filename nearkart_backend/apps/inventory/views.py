@@ -8,9 +8,10 @@ from rest_framework.permissions import IsAuthenticated
 
 from core.permissions import IsVendor
 from .models import (
-    StockMovementLog, StockWatchlist,
     Supplier, PurchaseOrder, StockAudit, StockAuditStatus,
 )
+# StockMovementLog and StockWatchlist live in the products app (canonical tables)
+from apps.products.models import StockMovementLog, StockWatchlist
 from .serializers import (
     StockMovementLogSerializer, StockWatchlistSerializer,
     SupplierSerializer, PurchaseOrderSerializer, StockAuditSerializer,

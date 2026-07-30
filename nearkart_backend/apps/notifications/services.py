@@ -232,6 +232,24 @@ class NotificationService:
         )
 
     @staticmethod
+    def notify_reservation_completed(customer, store_name: str, reservation_id: str, product_name: str):
+        NotificationService.send(
+            customer, NotificationType.RESERVATION_COMPLETED,
+            title='Pickup Marked Complete',
+            body=f'{store_name} marked your reservation of {product_name} as completed. Thanks for visiting!',
+            data={'reservation_id': reservation_id, 'notification_type': 'reservation', 'type': 'reservation'},
+        )
+
+    @staticmethod
+    def notify_back_in_stock(customer, product_name: str, store_name: str, product_id: str):
+        NotificationService.send(
+            customer, NotificationType.BACK_IN_STOCK,
+            title=f'{product_name} is back in stock!',
+            body=f'{product_name} at {store_name} is available again. Reserve before it runs out.',
+            data={'product_id': product_id, 'notification_type': 'back_in_stock'},
+        )
+
+    @staticmethod
     def notify_price_drop(customer, product_name: str, product_id: str, old_price: str, new_price: str):
         NotificationService.send(
             customer, NotificationType.PRICE_DROP_ALERT,

@@ -179,16 +179,11 @@ class InventoryService:
         from django.utils import timezone
         watchers = StockWatchlist.objects.filter(product=product, notified_at__isnull=True).select_related('customer')
         for watch in watchers:
-            NotificationService.send(
-                recipient=watch.customer,
-                notification_type='back_in_stock',
-                title='Back in stock!',
-                body=f'{product.name} is available again at {product.store.name}.',
-                data={
-                    'notification_type': 'back_in_stock',
-                    'product_id':        str(product.id),
-                    'store_id':          str(product.store_id),
-                },
+            NotificationService.notify_back_in_stock(
+                customer=watch.customer,
+                product_name=product.name,
+                store_name=product.store.name,
+                product_id=str(product.id),
             )
         # Bug 4 fix: mark notified so they won't be re-notified until product goes OOS again
         StockWatchlist.objects.filter(product=product, notified_at__isnull=True).update(notified_at=timezone.now())

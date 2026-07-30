@@ -72,7 +72,7 @@ class ProductVariant(BaseModel):
 class ProductImage(BaseModel):
     product    = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='images')
     image_url  = models.URLField()
-    s3_key     = models.CharField(max_length=500)
+    s3_key     = models.CharField(max_length=500, blank=True)
     is_primary = models.BooleanField(default=False)
     order      = models.PositiveSmallIntegerField(default=0)
 

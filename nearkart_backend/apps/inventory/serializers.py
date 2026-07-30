@@ -1,9 +1,9 @@
 """Nearspot — Inventory Serializers"""
 from rest_framework import serializers
-from .models import (
-    StockMovementLog, StockWatchlist,
-    Supplier, PurchaseOrder, StockAudit,
-)
+from .models import Supplier, PurchaseOrder, StockAudit
+# StockMovementLog and StockWatchlist live in the products app (canonical tables);
+# the inventory.models duplicates are empty shadow tables.
+from apps.products.models import StockMovementLog, StockWatchlist
 
 
 class StockMovementLogSerializer(serializers.ModelSerializer):
