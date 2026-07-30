@@ -57,9 +57,10 @@ class CacheService:
 
     @staticmethod
     def nearby_stores_key(lat: float, lng: float,
-                          radius: int, category: str = 'all') -> str:
+                          radius: int, category: str = 'all',
+                          store_type: str = 'all') -> str:
         cell = _h3_cell(lat, lng)
-        raw  = f'stores:nearby:{cell}:{radius}:{category}'
+        raw  = f'stores:nearby:{cell}:{radius}:{category}:{store_type}'
         return hashlib.md5(raw.encode()).hexdigest()
 
     @staticmethod

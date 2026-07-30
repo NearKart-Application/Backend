@@ -30,6 +30,7 @@ def build_point(lat: float, lng: float) -> Point:
 
 def get_nearby_stores(lat: float, lng: float,
                       radius_km: int = 2, category: str = None,
+                      store_type: str = None,
                       limit: int = 50) -> list:
     """
     Find stores within radius using PostGIS ST_DWithin (GIST index).
@@ -46,7 +47,7 @@ def get_nearby_stores(lat: float, lng: float,
     from apps.stores.models import Store, StoreHours, StoreOffer
     from core.utils.cache import CacheService
 
-    cache_key = CacheService.nearby_stores_key(lat, lng, radius_km, category or 'all')
+    cache_key = CacheService.nearby_stores_key(lat, lng, radius_km, category or 'all', store_type or 'all')
 
     def _fetch():
         user_point = build_point(lat, lng)
@@ -100,6 +101,9 @@ def get_nearby_stores(lat: float, lng: float,
 
         if category and category != 'all':
             qs = qs.filter(category=category)
+
+        if store_type and store_type in ('product', 'service', 'home'):
+            qs = qs.filter(store_type=store_type)
 
         return list(qs[:limit])
 

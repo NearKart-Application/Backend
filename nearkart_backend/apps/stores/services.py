@@ -44,8 +44,8 @@ class StoreService:
         return store
 
     @staticmethod
-    def get_nearby(lat: float, lng: float, radius_km: int = 2, category: str = None):
-        return get_nearby_stores(lat, lng, radius_km, category)
+    def get_nearby(lat: float, lng: float, radius_km: int = 2, category: str = None, store_type: str = None):
+        return get_nearby_stores(lat, lng, radius_km, category, store_type=store_type)
 
     @staticmethod
     def toggle_follow(user, store):
