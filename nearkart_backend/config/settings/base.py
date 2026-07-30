@@ -667,7 +667,7 @@ JAZZMIN_SETTINGS = {
         'chat.Conversation':                  'fas fa-comments',
         'reservations.Reservation':           'fas fa-calendar-check',
         'videos.Video':                       'fas fa-video',
-        'blacklist.BlacklistRecord':          'fas fa-ban',
+        'blacklist.Blacklist':                'fas fa-ban',
         'loyalty.LoyaltyAccount':             'fas fa-award',
         'loyalty.LoyaltyTransaction':         'fas fa-coins',
         'loyalty.Referral':                   'fas fa-user-plus',

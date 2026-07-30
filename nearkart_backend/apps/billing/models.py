@@ -81,9 +81,9 @@ class Transaction(BaseModel):
         (TYPE_REFERRAL,     'Referral Reward'),
     ]
 
-    store         = models.ForeignKey(Store, on_delete=models.CASCADE, related_name='transactions')
-    type          = models.CharField(max_length=20, choices=TYPE_CHOICES)
-    amount        = models.DecimalField(max_digits=10, decimal_places=2)  # + credit / - debit
+    store            = models.ForeignKey(Store, on_delete=models.CASCADE, related_name='transactions')
+    transaction_type = models.CharField(max_length=20, choices=TYPE_CHOICES, db_column='type')
+    amount           = models.DecimalField(max_digits=10, decimal_places=2)  # + credit / - debit
     description   = models.CharField(max_length=255)
     reference_id  = models.CharField(max_length=100, blank=True)         # Razorpay order ID in prod
     balance_after = models.DecimalField(max_digits=10, decimal_places=2) # wallet snapshot
@@ -93,7 +93,7 @@ class Transaction(BaseModel):
         ordering = ['-created_at']
 
     def __str__(self):
-        return f'{self.store.name} — {self.type} ₹{self.amount}'
+        return f'{self.store.name} — {self.transaction_type} ₹{self.amount}'
 
 
 class Coupon(BaseModel):

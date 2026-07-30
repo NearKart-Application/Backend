@@ -96,7 +96,7 @@ class TransactionAdmin(admin.ModelAdmin):
         'store', 'type_badge', 'amount', 'balance_after',
         'reference_id', 'description', 'created_at',
     ]
-    list_filter     = ['type']
+    list_filter     = ['transaction_type']
     search_fields   = ['store__name', 'reference_id', 'description']
     ordering        = ['-created_at']
     date_hierarchy  = 'created_at'
@@ -106,7 +106,7 @@ class TransactionAdmin(admin.ModelAdmin):
     readonly_fields = ['created_at', 'updated_at']
     list_select_related    = ['store']
 
-    @admin.display(description='Type', ordering='type')
+    @admin.display(description='Type', ordering='transaction_type')
     def type_badge(self, obj):
         colors = {
             'topup':        ('#d4edda', '#155724'),
@@ -114,8 +114,8 @@ class TransactionAdmin(admin.ModelAdmin):
             'refund':       ('#fff3cd', '#856404'),
             'referral':     ('#e2e3e5', '#383d41'),
         }
-        bg, color = colors.get(obj.type, ('#e2e3e5', '#333'))
-        return _badge(obj.get_type_display(), bg, color)
+        bg, color = colors.get(obj.transaction_type, ('#e2e3e5', '#333'))
+        return _badge(obj.get_transaction_type_display(), bg, color)
 
 
 # ─── Coupon Admin ─────────────────────────────────────────────────────────────

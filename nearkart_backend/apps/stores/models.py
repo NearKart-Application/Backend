@@ -95,6 +95,8 @@ class StoreHours(models.Model):
     open_time  = models.TimeField()
     close_time = models.TimeField()
     is_closed  = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True, null=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         db_table        = 'store_hours'
