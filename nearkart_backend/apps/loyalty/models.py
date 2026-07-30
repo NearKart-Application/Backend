@@ -22,6 +22,7 @@ class LoyaltyAccount(BaseModel):
     balance        = models.PositiveIntegerField(default=0)
     total_earned   = models.PositiveIntegerField(default=0)
     total_redeemed = models.PositiveIntegerField(default=0)
+    is_active      = models.BooleanField(default=True, db_index=True)
 
     class Meta:
         db_table = 'loyalty_accounts'

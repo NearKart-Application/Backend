@@ -1708,3 +1708,155 @@ class AdminReferralConfigDetailView(APIView):
 
         cfg.save()
         return Response(_referral_config_dict(cfg))
+
+
+# ─── Admin Blacklist Views ─────────────────────────────────────────────────────
+
+class AdminBlacklistListView(APIView):
+    """GET /admin-panel/blacklist/ — all blacklist entries across all stores."""
+    permission_classes = [IsAuthenticated, IsAdmin | IsMasterAdmin]
+
+    def get(self, request):
+        from apps.blacklist.models import Blacklist
+        qs = Blacklist.objects.select_related('store', 'customer').order_by('-created_at')
+        store_id = request.query_params.get('store_id')
+        if store_id:
+            qs = qs.filter(store__id=store_id)
+        search = request.query_params.get('search')
+        if search:
+            qs = qs.filter(
+                Q(customer__phone_number__icontains=search) |
+                Q(store__name__icontains=search) |
+                Q(reason__icontains=search)
+            )
+        page = StandardOffsetPagination()
+        results = page.paginate_queryset(qs, request)
+        data = [
+            {
+                'id':               str(item.id),
+                'store_id':         str(item.store.id),
+                'store_name':       item.store.name,
+                'customer_phone':   item.customer.phone_number,
+                'reason':           item.reason,
+                'created_at':       item.created_at,
+            }
+            for item in results
+        ]
+        return page.get_paginated_response(data)
+
+
+# ─── Admin Loyalty Views ───────────────────────────────────────────────────────
+
+class AdminLoyaltyListView(APIView):
+    """GET /admin-panel/loyalty/ — all loyalty accounts."""
+    permission_classes = [IsAuthenticated, IsAdmin | IsMasterAdmin]
+
+    def get(self, request):
+        from apps.loyalty.models import LoyaltyAccount
+        qs = LoyaltyAccount.objects.select_related('user').order_by('-balance')
+        search = request.query_params.get('search')
+        if search:
+            qs = qs.filter(user__phone_number__icontains=search)
+        active = request.query_params.get('is_active')
+        if active is not None:
+            qs = qs.filter(is_active=(active.lower() == 'true'))
+        page = StandardOffsetPagination()
+        results = page.paginate_queryset(qs, request)
+        data = [
+            {
+                'id':             str(acc.id),
+                'user_phone':     acc.user.phone_number,
+                'user_id':        str(acc.user.id),
+                'balance':        acc.balance,
+                'total_earned':   acc.total_earned,
+                'total_redeemed': acc.total_redeemed,
+                'is_active':      acc.is_active,
+                'created_at':     acc.created_at,
+            }
+            for acc in results
+        ]
+        return page.get_paginated_response(data)
+
+
+class AdminLoyaltyAdjustView(APIView):
+    """POST /admin-panel/loyalty/{account_id}/adjust/ — adjust a user's loyalty balance."""
+    permission_classes = [IsAuthenticated, IsAdmin | IsMasterAdmin]
+
+    def post(self, request, account_id):
+        from apps.loyalty.models import LoyaltyAccount, LoyaltyTransaction
+        try:
+            account = LoyaltyAccount.objects.get(id=account_id)
+        except LoyaltyAccount.DoesNotExist:
+            return Response({'error': 'not_found'}, status=404)
+
+        points = request.data.get('points')
+        reason = request.data.get('reason', '').strip()
+        if not isinstance(points, int) or points == 0:
+            return Response({'error': 'validation_error', 'message': 'points must be a non-zero integer'}, status=400)
+        if not reason:
+            return Response({'error': 'validation_error', 'message': 'reason is required'}, status=400)
+
+        if points > 0:
+            account.balance        += points
+            account.total_earned   += points
+            tx_type = LoyaltyTransaction.EARN
+        else:
+            account.balance        = max(0, account.balance + points)
+            account.total_redeemed += abs(points)
+            tx_type = LoyaltyTransaction.REDEEM
+
+        account.save(update_fields=['balance', 'total_earned', 'total_redeemed'])
+        LoyaltyTransaction.objects.create(
+            account=account,
+            transaction_type=tx_type,
+            source=LoyaltyTransaction.SOURCE_BONUS,
+            points=abs(points),
+            description=f'Admin adjustment: {reason}',
+            balance_after=account.balance,
+        )
+        logger.info('[admin] loyalty adjustment %+d pts for user %s by admin %s', points, account.user.id, request.user.id)
+        return Response({'balance': account.balance, 'adjusted': points})
+
+    def patch(self, request, account_id):
+        from apps.loyalty.models import LoyaltyAccount
+        try:
+            account = LoyaltyAccount.objects.get(id=account_id)
+        except LoyaltyAccount.DoesNotExist:
+            return Response({'error': 'not_found'}, status=404)
+        is_active = request.data.get('is_active')
+        if is_active is not None:
+            account.is_active = bool(is_active)
+            account.save(update_fields=['is_active'])
+        return Response({'id': str(account.id), 'is_active': account.is_active})
+
+
+# ─── Admin Subscription Views ──────────────────────────────────────────────────
+
+class AdminSubscriptionListView(APIView):
+    """GET /admin-panel/subscriptions/ — all vendor subscriptions."""
+    permission_classes = [IsAuthenticated, IsAdmin | IsMasterAdmin]
+
+    def get(self, request):
+        from apps.billing.models import Subscription
+        qs = Subscription.objects.select_related('vendor', 'plan').order_by('-created_at')
+        active = request.query_params.get('is_active')
+        if active is not None:
+            qs = qs.filter(is_active=(active.lower() == 'true'))
+        search = request.query_params.get('search')
+        if search:
+            qs = qs.filter(vendor__phone_number__icontains=search)
+        page = StandardOffsetPagination()
+        results = page.paginate_queryset(qs, request)
+        data = [
+            {
+                'id':           str(sub.id),
+                'vendor_phone': sub.vendor.phone_number,
+                'vendor_id':    str(sub.vendor.id),
+                'plan':         sub.plan.name if sub.plan else None,
+                'is_active':    sub.is_active,
+                'expires_at':   sub.expires_at,
+                'created_at':   sub.created_at,
+            }
+            for sub in results
+        ]
+        return page.get_paginated_response(data)

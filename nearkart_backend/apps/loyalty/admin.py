@@ -22,7 +22,8 @@ def _badge(text, bg, color):
 
 @admin.register(LoyaltyAccount)
 class LoyaltyAccountAdmin(admin.ModelAdmin):
-    list_display    = ['user_phone', 'balance_display', 'total_earned', 'total_redeemed', 'created_at']
+    list_display    = ['user_phone', 'balance_display', 'total_earned', 'total_redeemed', 'is_active', 'created_at']
+    list_filter     = ['is_active']
     search_fields   = ['user__phone_number', 'user__profile_id']
     ordering        = ['-balance']
     list_per_page   = 25

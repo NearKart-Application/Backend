@@ -105,13 +105,40 @@ def detect_dead_stock(self):
     try:
         from apps.inventory.models import StockMovementLog
         from apps.products.models import Product
+        from apps.notifications.services import NotificationService
         cutoff = timezone.now() - timedelta(days=30)
         active_product_ids = StockMovementLog.objects.filter(
             created_at__gte=cutoff
         ).values_list('variant__product_id', flat=True).distinct()
-        dead_products = Product.objects.filter(status='active').exclude(id__in=active_product_ids)
-        count = dead_products.count()
-        logger.info('[inventory] dead stock: %d products with no movement in 30 days', count)
+        dead_products = (
+            Product.objects
+            .filter(status='active')
+            .exclude(id__in=active_product_ids)
+            .select_related('store__owner')
+        )
+        count = 0
+        notified_stores: set = set()
+        for product in dead_products.iterator():
+            count += 1
+            store = product.store
+            if store.id not in notified_stores:
+                notified_stores.add(store.id)
+                try:
+                    NotificationService.send(
+                        recipient=store.owner,
+                        notification_type='dead_stock_alert',
+                        title='Slow-moving products detected',
+                        body=(
+                            f'Some products in {store.name} have had no stock activity in 30+ days. '
+                            'Consider running a sale or updating your inventory.'
+                        ),
+                        data={'store_id': str(store.id)},
+                    )
+                except Exception as notify_exc:
+                    logger.warning('[inventory] dead_stock notify failed store %s: %s', store.id, notify_exc)
+        logger.info(
+            '[inventory] dead stock: %d products, %d stores notified', count, len(notified_stores)
+        )
         return count
     except Exception as exc:
         logger.error('[inventory] detect_dead_stock failed, retrying: %s', exc)

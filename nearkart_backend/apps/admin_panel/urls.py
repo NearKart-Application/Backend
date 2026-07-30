@@ -16,6 +16,9 @@ from .views import (
     AdminCouponListCreateView, AdminCouponDetailView, AdminVendorSearchView,
     AdminPlanListView, AdminPlanDetailView,
     AdminReferralConfigListView, AdminReferralConfigDetailView,
+    AdminBlacklistListView,
+    AdminLoyaltyListView, AdminLoyaltyAdjustView,
+    AdminSubscriptionListView,
 )
 
 urlpatterns = [
@@ -78,4 +81,14 @@ urlpatterns = [
     # Referral reward config (admin + master admin)
     path('referral-config/',                      AdminReferralConfigListView.as_view(),      name='admin-referral-config-list'),
     path('referral-config/<uuid:config_id>/',     AdminReferralConfigDetailView.as_view(),    name='admin-referral-config-detail'),
+
+    # Blacklist management
+    path('blacklist/',                            AdminBlacklistListView.as_view(),           name='admin-blacklist-list'),
+
+    # Loyalty account management
+    path('loyalty/',                              AdminLoyaltyListView.as_view(),             name='admin-loyalty-list'),
+    path('loyalty/<uuid:account_id>/adjust/',     AdminLoyaltyAdjustView.as_view(),           name='admin-loyalty-adjust'),
+
+    # Subscription management
+    path('subscriptions/',                        AdminSubscriptionListView.as_view(),        name='admin-subscription-list'),
 ]
