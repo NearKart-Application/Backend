@@ -306,7 +306,7 @@ class ReservationStatusView(APIView):
                     description=f'Pickup bonus — {reservation.product.name}',
                 )
             except Exception:
-                pass
+                logger.exception('[reservations] award_pickup_bonus failed for reservation %s', reservation.id)
 
         log_event('reservations', action=f'reservation_{new_status}',
                   reservation_id=str(reservation.id), store_id=str(store.id),
@@ -373,7 +373,7 @@ class ReservationCancelView(APIView):
                 description=f'Cancellation penalty — {reservation.product.name}',
             )
         except Exception:
-            pass
+            logger.exception('[reservations] deduct_cancellation_penalty failed for reservation %s', reservation.id)
 
         log_event('reservations', action='reservation_cancelled_by_customer',
                   reservation_id=str(reservation_id), store_id=str(reservation.store_id),
