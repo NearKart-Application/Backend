@@ -4,7 +4,19 @@ NearKart — Store Serializers
 from django.db import models
 from rest_framework import serializers
 from drf_spectacular.utils import extend_schema_field
-from .models import Store, StoreHours, StoreFollow, StoreReview, StoreOffer, Invoice, StaffMember, ServiceCatalogue
+from .models import Store, StoreHours, StoreFollow, StoreReview, StoreOffer, OfferDiscountType, Invoice, StaffMember, ServiceCatalogue
+
+
+def _offer_label(offer) -> str:
+    """Build a human-readable label for a StoreOffer, supporting both percent and flat discount."""
+    label = offer.title
+    if offer.discount_type == OfferDiscountType.PERCENT and offer.discount_value:
+        label += f' · {offer.discount_value:.0f}% off'
+    elif offer.discount_type == OfferDiscountType.FLAT and offer.discount_value:
+        label += f' · ₹{offer.discount_value:.0f} off'
+    elif offer.discount_pct:
+        label += f' · {offer.discount_pct}% off'
+    return label
 
 
 def annotate_stores_with_subcategories(stores):
@@ -165,26 +177,18 @@ class StoreListSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_top_offer_label(self, obj):
-        # Uses prefetched active offers sorted by -created_at — zero DB hit
         offer = next(iter(obj.offers.all()), None)
         if not offer:
             return None
-        label = offer.title
-        if offer.discount_pct:
-            label += f' · {offer.discount_pct}% off'
-        return label
+        return _offer_label(offer)
 
     @extend_schema_field(serializers.ListField(child=serializers.CharField()))
     def get_active_offer_labels(self, obj):
-        # Latest 5 active non-expired offers — uses prefetched queryset, zero DB hit
         labels = []
         for offer in obj.offers.all():
             if len(labels) >= 5:
                 break
-            label = offer.title
-            if offer.discount_pct:
-                label += f' · {offer.discount_pct}% off'
-            labels.append(label)
+            labels.append(_offer_label(offer))
         return labels
 
     @extend_schema_field(serializers.CharField())
@@ -260,7 +264,12 @@ class VendorReplySerializer(serializers.Serializer):
 class StoreOfferSerializer(serializers.ModelSerializer):
     class Meta:
         model  = StoreOffer
-        fields = ['id', 'title', 'description', 'discount_pct', 'valid_till', 'image_url', 'is_active', 'created_at']
+        fields = [
+            'id', 'title', 'description',
+            'discount_type', 'discount_value',
+            'discount_pct',
+            'valid_till', 'image_url', 'is_active', 'created_at',
+        ]
         read_only_fields = ['id', 'created_at']
 
 

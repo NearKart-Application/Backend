@@ -5,6 +5,8 @@ from .views import (
     PurchaseOrderListView, PurchaseOrderDetailView,
     StockAuditListView, StockAuditDetailView,
     StockWatchlistView,
+    CompositeProductListView, CompositeProductDetailView,
+    SerialNumberListView, SerialNumberDetailView,
 )
 
 app_name = 'inventory'
@@ -18,4 +20,8 @@ urlpatterns = [
     path('audits/',                 StockAuditListView.as_view(),        name='audit-list'),
     path('audits/<uuid:audit_id>/', StockAuditDetailView.as_view(),     name='audit-detail'),
     path('watchlist/',              StockWatchlistView.as_view(),        name='watchlist'),
+    path('bundles/',                        CompositeProductListView.as_view(),   name='bundle-list'),
+    path('bundles/<uuid:comp_id>/',         CompositeProductDetailView.as_view(), name='bundle-detail'),
+    path('serial-numbers/',                 SerialNumberListView.as_view(),       name='serial-list'),
+    path('serial-numbers/<uuid:sn_id>/',    SerialNumberDetailView.as_view(),     name='serial-detail'),
 ]

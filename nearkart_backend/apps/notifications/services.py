@@ -259,6 +259,27 @@ class NotificationService:
         )
 
     @staticmethod
+    def notify_vendor_reorder_point(variant) -> None:
+        """Fire once when stock hits or crosses below the variant's reorder_point."""
+        from apps.notifications.models import NotificationType
+        vendor = variant.product.store.owner
+        NotificationService.send(
+            recipient=vendor,
+            notification_type=NotificationType.REORDER_POINT,
+            title='Reorder point reached',
+            body=(
+                f'{variant.product.name} — {variant.name} has {variant.stock_quantity} units left. '
+                'Time to reorder from your supplier.'
+            ),
+            data={
+                'notification_type': 'reorder_point',
+                'product_id': str(variant.product_id),
+                'variant_id': str(variant.id),
+                'stock_quantity': str(variant.stock_quantity),
+            },
+        )
+
+    @staticmethod
     def notify_referral_reward(vendor, amount: str, reward_type: str):
         type_label = 'vendor signup' if reward_type == 'vendor' else 'customer reservation'
         NotificationService.send(

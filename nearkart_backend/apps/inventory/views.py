@@ -9,12 +9,14 @@ from rest_framework.permissions import IsAuthenticated
 from core.permissions import IsVendor
 from .models import (
     Supplier, PurchaseOrder, StockAudit, StockAuditStatus,
+    CompositeProduct, SerialNumber, SerialNumberStatus,
 )
 # StockMovementLog and StockWatchlist live in the products app (canonical tables)
 from apps.products.models import StockMovementLog, StockWatchlist
 from .serializers import (
     StockMovementLogSerializer, StockWatchlistSerializer,
     SupplierSerializer, PurchaseOrderSerializer, StockAuditSerializer,
+    CompositeProductSerializer, SerialNumberSerializer,
 )
 
 logger = logging.getLogger(__name__)
@@ -313,3 +315,149 @@ class StockWatchlistView(APIView):
             customer=request.user,
         ).select_related('product').order_by('-created_at')
         return Response(StockWatchlistSerializer(qs, many=True).data)
+
+
+class CompositeProductListView(APIView):
+    """GET/POST /inventory/bundles/ — bundle component definitions for vendor's products."""
+    permission_classes = [IsAuthenticated, IsVendor]
+
+    def get(self, request):
+        try:
+            store = _vendor_store(request)
+        except Exception:
+            return Response({'error': 'no_store', 'message': 'Create a store first.'}, status=400)
+        qs = CompositeProduct.objects.filter(
+            bundle_product__store=store,
+        ).select_related('bundle_product', 'component_variant').order_by('bundle_product__name')
+        return Response(CompositeProductSerializer(qs, many=True).data)
+
+    def post(self, request):
+        try:
+            store = _vendor_store(request)
+        except Exception:
+            return Response({'error': 'no_store', 'message': 'Create a store first.'}, status=400)
+        ser = CompositeProductSerializer(data=request.data)
+        if not ser.is_valid():
+            return Response(ser.errors, status=400)
+        bundle_product = ser.validated_data['bundle_product']
+        if bundle_product.store_id != store.id:
+            return Response({'error': 'forbidden', 'message': 'Product does not belong to your store.'}, status=403)
+        comp = ser.save()
+        return Response(CompositeProductSerializer(comp).data, status=201)
+
+
+class CompositeProductDetailView(APIView):
+    """GET/DELETE /inventory/bundles/<id>/"""
+    permission_classes = [IsAuthenticated, IsVendor]
+
+    def _get(self, request, comp_id):
+        try:
+            store = _vendor_store(request)
+        except Exception:
+            return None, Response({'error': 'no_store', 'message': 'Create a store first.'}, status=400)
+        try:
+            comp = CompositeProduct.objects.select_related('bundle_product').get(pk=comp_id)
+        except CompositeProduct.DoesNotExist:
+            return None, Response({'error': 'not_found', 'message': 'Bundle component not found.'}, status=404)
+        if comp.bundle_product.store_id != store.id:
+            return None, Response({'error': 'forbidden', 'message': 'Not your product.'}, status=403)
+        return comp, None
+
+    def get(self, request, comp_id):
+        comp, err = self._get(request, comp_id)
+        if err:
+            return err
+        return Response(CompositeProductSerializer(comp).data)
+
+    def delete(self, request, comp_id):
+        comp, err = self._get(request, comp_id)
+        if err:
+            return err
+        comp.delete()
+        return Response(status=204)
+
+
+class SerialNumberListView(APIView):
+    """GET/POST /inventory/serial-numbers/ — serial number registry for vendor's variants."""
+    permission_classes = [IsAuthenticated, IsVendor]
+
+    def get(self, request):
+        try:
+            store = _vendor_store(request)
+        except Exception:
+            return Response({'error': 'no_store', 'message': 'Create a store first.'}, status=400)
+        variant_id = request.query_params.get('variant_id')
+        status_filter = request.query_params.get('status')
+        qs = SerialNumber.objects.filter(
+            variant__product__store=store,
+        ).select_related('variant').order_by('-created_at')
+        if variant_id:
+            qs = qs.filter(variant_id=variant_id)
+        if status_filter:
+            qs = qs.filter(status=status_filter)
+        try:
+            page      = max(int(request.query_params.get('page', 1)), 1)
+            page_size = min(max(int(request.query_params.get('page_size', 30)), 1), 100)
+        except (TypeError, ValueError):
+            return Response({'error': 'invalid_param', 'message': 'page and page_size must be integers.'}, status=400)
+        total   = qs.count()
+        offset  = (page - 1) * page_size
+        results = qs[offset: offset + page_size]
+        return Response({
+            'count':    total,
+            'page':     page,
+            'has_next': offset + page_size < total,
+            'results':  SerialNumberSerializer(results, many=True).data,
+        })
+
+    def post(self, request):
+        try:
+            store = _vendor_store(request)
+        except Exception:
+            return Response({'error': 'no_store', 'message': 'Create a store first.'}, status=400)
+        ser = SerialNumberSerializer(data=request.data)
+        if not ser.is_valid():
+            return Response(ser.errors, status=400)
+        variant = ser.validated_data['variant']
+        if variant.product.store_id != store.id:
+            return Response({'error': 'forbidden', 'message': 'Variant does not belong to your store.'}, status=403)
+        sn = ser.save()
+        return Response(SerialNumberSerializer(sn).data, status=201)
+
+
+class SerialNumberDetailView(APIView):
+    """GET/PATCH /inventory/serial-numbers/<id>/"""
+    permission_classes = [IsAuthenticated, IsVendor]
+
+    def _get(self, request, sn_id):
+        try:
+            store = _vendor_store(request)
+        except Exception:
+            return None, Response({'error': 'no_store', 'message': 'Create a store first.'}, status=400)
+        try:
+            sn = SerialNumber.objects.select_related('variant__product').get(pk=sn_id)
+        except SerialNumber.DoesNotExist:
+            return None, Response({'error': 'not_found', 'message': 'Serial number not found.'}, status=404)
+        if sn.variant.product.store_id != store.id:
+            return None, Response({'error': 'forbidden', 'message': 'Not your product.'}, status=403)
+        return sn, None
+
+    def get(self, request, sn_id):
+        sn, err = self._get(request, sn_id)
+        if err:
+            return err
+        return Response(SerialNumberSerializer(sn).data)
+
+    def patch(self, request, sn_id):
+        sn, err = self._get(request, sn_id)
+        if err:
+            return err
+        ser = SerialNumberSerializer(sn, data=request.data, partial=True)
+        if not ser.is_valid():
+            return Response(ser.errors, status=400)
+        sn = ser.save()
+        if sn.status == SerialNumberStatus.SOLD and not sn.sold_at:
+            from django.utils import timezone
+            sn.sold_at = timezone.now()
+            sn.save(update_fields=['sold_at', 'updated_at'])
+        return Response(SerialNumberSerializer(sn).data)

@@ -1,6 +1,6 @@
 """Nearspot — Inventory Serializers"""
 from rest_framework import serializers
-from .models import Supplier, PurchaseOrder, StockAudit
+from .models import Supplier, PurchaseOrder, StockAudit, CompositeProduct, SerialNumber
 # StockMovementLog and StockWatchlist live in the products app (canonical tables);
 # the inventory.models duplicates are empty shadow tables.
 from apps.products.models import StockMovementLog, StockWatchlist
@@ -62,3 +62,31 @@ class StockWatchlistSerializer(serializers.ModelSerializer):
         model  = StockWatchlist
         fields = ['id', 'product', 'product_name', 'notified_at', 'created_at']
         read_only_fields = ['id', 'notified_at', 'created_at']
+
+
+class CompositeProductSerializer(serializers.ModelSerializer):
+    bundle_product_name    = serializers.CharField(source='bundle_product.name', read_only=True)
+    component_variant_name = serializers.CharField(source='component_variant.name', read_only=True)
+    component_sku          = serializers.CharField(source='component_variant.sku', read_only=True)
+
+    class Meta:
+        model  = CompositeProduct
+        fields = [
+            'id', 'bundle_product', 'bundle_product_name',
+            'component_variant', 'component_variant_name', 'component_sku',
+            'quantity', 'created_at',
+        ]
+        read_only_fields = ['id', 'created_at']
+
+
+class SerialNumberSerializer(serializers.ModelSerializer):
+    variant_name = serializers.CharField(source='variant.name', read_only=True)
+    variant_sku  = serializers.CharField(source='variant.sku', read_only=True)
+
+    class Meta:
+        model  = SerialNumber
+        fields = [
+            'id', 'variant', 'variant_name', 'variant_sku',
+            'serial_number', 'status', 'sold_at', 'notes', 'created_at',
+        ]
+        read_only_fields = ['id', 'created_at']

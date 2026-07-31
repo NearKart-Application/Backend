@@ -107,6 +107,7 @@ class ProductService:
 
     @staticmethod
     def update(product, validated_data: dict):
+        old_price = product.base_price
         for attr, value in validated_data.items():
             setattr(product, attr, value)
         product.save()
@@ -114,7 +115,34 @@ class ProductService:
             product.store.location.y,
             product.store.location.x,
         )
+        # PRICE_DROP_ALERT — notify wishlist customers when base_price drops
+        new_price = product.base_price
+        if new_price < old_price:
+            ProductService._notify_price_drop(product, old_price, new_price)
         return product
+
+    @staticmethod
+    def _notify_price_drop(product, old_price, new_price) -> None:
+        """Notify all active wishlist customers that base_price dropped."""
+        import logging
+        logger = logging.getLogger(__name__)
+        try:
+            from apps.products.models import Wishlist
+            from apps.notifications.services import NotificationService
+            watchers = Wishlist.objects.filter(product=product).select_related('user')
+            for watch in watchers:
+                try:
+                    NotificationService.notify_price_drop(
+                        customer=watch.user,
+                        product_name=product.name,
+                        product_id=str(product.id),
+                        old_price=str(old_price),
+                        new_price=str(new_price),
+                    )
+                except Exception as exc:
+                    logger.warning('[products] price_drop notify failed user %s: %s', watch.user_id, exc)
+        except Exception as exc:
+            logger.warning('[products] _notify_price_drop failed product %s: %s', product.id, exc)
 
     @staticmethod
     def get_nearby(lat: float, lng: float, radius_km: int = 2, category: str = None, store_id: str = None):

@@ -135,14 +135,21 @@ class StoreReview(BaseModel):
         return f'{self.store.name} — {self.rating}★'
 
 
+class OfferDiscountType(models.TextChoices):
+    PERCENT = 'percent', 'Percentage'
+    FLAT    = 'flat',    'Flat Amount'
+
+
 class StoreOffer(BaseModel):
-    store        = models.ForeignKey(Store, on_delete=models.CASCADE, related_name='offers')
-    title        = models.CharField(max_length=200)
-    description  = models.TextField(blank=True)
-    discount_pct = models.PositiveSmallIntegerField(null=True, blank=True)  # e.g. 20 = 20% off
-    valid_till   = models.DateField(null=True, blank=True)
-    image_url    = models.URLField(blank=True)
-    is_active    = models.BooleanField(default=True, db_index=True)
+    store          = models.ForeignKey(Store, on_delete=models.CASCADE, related_name='offers')
+    title          = models.CharField(max_length=200)
+    description    = models.TextField(blank=True)
+    discount_pct   = models.PositiveSmallIntegerField(null=True, blank=True)  # legacy — use discount_type+discount_value
+    discount_type  = models.CharField(max_length=10, choices=OfferDiscountType.choices, null=True, blank=True)
+    discount_value = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    valid_till     = models.DateField(null=True, blank=True)
+    image_url      = models.URLField(blank=True)
+    is_active      = models.BooleanField(default=True, db_index=True)
 
     class Meta:
         db_table = 'store_offers'

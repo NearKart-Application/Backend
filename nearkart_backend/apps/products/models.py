@@ -24,7 +24,13 @@ class Product(BaseModel):
     product_code   = models.CharField(max_length=20, unique=True, blank=True, db_index=True)
     name           = models.CharField(max_length=200)
     description    = models.TextField(blank=True)
-    category       = models.CharField(max_length=50, blank=True)
+    category     = models.CharField(max_length=50, blank=True)
+    category_fk  = models.ForeignKey(
+        'admin_panel.Category',
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name='products',
+    )
     subcategory    = models.CharField(max_length=100, blank=True)
     status         = models.CharField(max_length=20, choices=ProductStatus.choices, default=ProductStatus.DRAFT)
     is_visible     = models.BooleanField(default=True, db_index=True)

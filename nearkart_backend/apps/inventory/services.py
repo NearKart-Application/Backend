@@ -56,6 +56,16 @@ class InventoryService:
         if reason == StockMovementReason.MANUAL and 0 < new_qty <= variant.low_stock_threshold < old_qty:
             InventoryService._notify_vendor_low_stock(variant)
 
+        # Reorder point alert — fires when stock crosses below reorder_point
+        if (
+            variant.reorder_point is not None
+            and old_qty > variant.reorder_point >= new_qty > 0
+        ):
+            try:
+                NotificationService.notify_vendor_reorder_point(variant)
+            except Exception:
+                logger.warning('[inventory] reorder_point notify failed for variant %s', variant.id)
+
         # Bug 3 fix: reset blacklist timer on stock update
         from django.utils import timezone
         Product.objects.filter(pk=variant.product_id).update(last_updated_at=timezone.now())
