@@ -52,8 +52,8 @@ class InventoryService:
         if was_zero and new_qty > 0:
             InventoryService._notify_watchers(variant.product)
 
-        # Low-stock alert to vendor
-        if reason == StockMovementReason.MANUAL and 0 < new_qty <= LOW_STOCK_THRESHOLD < old_qty:
+        # Low-stock alert to vendor — use per-variant threshold, not global constant
+        if reason == StockMovementReason.MANUAL and 0 < new_qty <= variant.low_stock_threshold < old_qty:
             InventoryService._notify_vendor_low_stock(variant)
 
         # Bug 3 fix: reset blacklist timer on stock update
@@ -149,7 +149,7 @@ class InventoryService:
         InventoryService._sync_product_status(product)
 
         for variant in variants:
-            if 0 < variant.stock_quantity <= LOW_STOCK_THRESHOLD:
+            if 0 < variant.stock_quantity <= variant.low_stock_threshold:
                 InventoryService._notify_vendor_low_stock(variant)
                 break
 

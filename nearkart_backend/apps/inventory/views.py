@@ -26,6 +26,36 @@ def _vendor_store(request):
     return request.user.store
 
 
+def _apply_po_stock(po, changed_by):
+    """Add stock for every item in a PO when it is marked received."""
+    from django.db import transaction as db_transaction
+    from apps.inventory.services import InventoryService
+    from apps.products.models import ProductVariant, StockMovementReason
+    for item in po.items:
+        variant_id = item.get('variant_id')
+        qty = item.get('qty', 0)
+        try:
+            qty = int(qty)
+        except (TypeError, ValueError):
+            continue
+        if not variant_id or qty <= 0:
+            continue
+        try:
+            with db_transaction.atomic():
+                variant = ProductVariant.objects.select_for_update().get(pk=variant_id)
+                InventoryService.update_stock(
+                    variant=variant,
+                    new_qty=variant.stock_quantity + qty,
+                    changed_by=changed_by,
+                    reason=StockMovementReason.RESTOCK,
+                    note=f'po:{po.id}',
+                )
+        except ProductVariant.DoesNotExist:
+            logger.warning('[inventory] PO %s receive: variant %s not found', po.id, variant_id)
+        except Exception:
+            logger.exception('[inventory] PO %s: failed to update stock for variant %s', po.id, variant_id)
+
+
 class StockMovementLogView(APIView):
     """GET /inventory/movements/ — stock movement history for vendor's products."""
     permission_classes = [IsAuthenticated, IsVendor]
@@ -196,6 +226,7 @@ class PurchaseOrderDetailView(APIView):
         if po.status == 'received' and not po.received_at:
             po.received_at = timezone.now()
             po.save(update_fields=['received_at', 'updated_at'])
+            _apply_po_stock(po, request.user)
         return Response(PurchaseOrderSerializer(po).data)
 
 

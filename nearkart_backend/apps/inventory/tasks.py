@@ -36,14 +36,23 @@ def check_low_stock_all(self):
 def weekly_stock_summary(self):
     """Monday 9AM IST: send weekly inventory digest to all active product vendors."""
     try:
+        from django.db.models import F
         from apps.stores.models import Store
         from apps.notifications.services import NotificationService
-        from apps.products.models import ProductStatus
+        from apps.products.models import ProductStatus, ProductVariant
         stores = Store.objects.filter(is_active=True, vendor_type='product').select_related('owner')
         for store in stores:
-            low_count = store.products.filter(
-                variants__stock_quantity__lte=5, variants__stock_quantity__gt=0
-            ).distinct().count()
+            low_variant_pids = (
+                ProductVariant.objects
+                .filter(
+                    product__store=store,
+                    stock_quantity__gt=0,
+                    stock_quantity__lte=F('low_stock_threshold'),
+                )
+                .values_list('product_id', flat=True)
+                .distinct()
+            )
+            low_count = low_variant_pids.count()
             oos_count = store.products.filter(status=ProductStatus.OUT_OF_STOCK).count()
             NotificationService.send(
                 recipient=store.owner,
@@ -86,8 +95,7 @@ def check_po_due_dates(self):
 def reset_watchlist_notifications(self):
     """Daily midnight: reset notified_at for products that went OOS again."""
     try:
-        from apps.inventory.models import StockWatchlist
-        from apps.products.models import ProductStatus
+        from apps.products.models import StockWatchlist, ProductStatus
         reset_count = StockWatchlist.objects.filter(
             product__status=ProductStatus.OUT_OF_STOCK,
             notified_at__isnull=False
@@ -103,8 +111,7 @@ def reset_watchlist_notifications(self):
 def detect_dead_stock(self):
     """Weekly Sunday midnight: flag products with no stock movement in 30 days."""
     try:
-        from apps.inventory.models import StockMovementLog
-        from apps.products.models import Product
+        from apps.products.models import StockMovementLog, Product
         from apps.notifications.services import NotificationService
         cutoff = timezone.now() - timedelta(days=30)
         active_product_ids = StockMovementLog.objects.filter(
