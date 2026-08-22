@@ -10,14 +10,16 @@ from apps.products.models import Product, ProductVariant
 
 
 class StockMovementReason(models.TextChoices):
-    MANUAL      = 'manual',      'Manual Update'
-    RESERVATION = 'reservation', 'Reservation Placed'
-    RESTORATION = 'restoration', 'Reservation Cancelled/Expired'
-    INVOICE     = 'invoice',     'Invoice Sale'
-    PURCHASE    = 'purchase',    'Purchase Order Received'
-    RETURN      = 'return',      'Customer Return'
-    DAMAGE      = 'damage',      'Damaged / Written Off'
-    CORRECTION  = 'correction',  'Stock Audit Correction'
+    MANUAL               = 'manual',               'Manual Update'
+    RESERVATION          = 'reservation',          'Reservation Placed'
+    RESTORATION          = 'restoration',          'Reservation Cancelled/Expired'
+    INVOICE              = 'invoice',              'Invoice Sale'
+    PURCHASE             = 'purchase',             'Purchase Order Received'
+    RETURN               = 'return',               'Customer Return'
+    RETURN_FROM_CUSTOMER = 'return_from_customer', 'Customer Return (Invoice)'
+    DAMAGE               = 'damage',               'Damaged / Written Off'
+    CORRECTION           = 'correction',           'Stock Audit Correction'
+    AUDIT_ADJUSTMENT     = 'audit_adjustment',     'Stock Audit Adjustment'
 
 
 class StockMovementLog(BaseModel):

@@ -22,6 +22,8 @@ import rest_framework.serializers as s
 
 from core.logging import log_event
 from core.permissions import IsVendor, IsStoreOwner
+from core.utils.vendor_log import log_vendor_action
+from core.utils.customer_log import log_customer_action
 from core.utils.cache import CacheService
 from apps.blacklist.services import BlacklistService
 from django.utils import timezone as tz
@@ -135,6 +137,9 @@ class StoreDetailView(APIView):
         # Algorithm 5 — HyperLogLog unique visitor tracking
         if request.user and request.user.is_authenticated:
             CacheService.record_store_visit(str(store_id), str(request.user.id))
+        log_customer_action(request, 'store_view', entity_type='store',
+                            entity_id=str(store_id), entity_name=store.name,
+                            meta={'category': store.category, 'locality': store.locality})
         return Response(data)
 
 
@@ -226,6 +231,9 @@ class StoreUpdateView(APIView):
         else:
             log_event('stores', action='store_updated', store_id=str(store.id),
                       user_id=str(request.user.id))
+        log_vendor_action(request, 'store_update', store=store, entity_type='store',
+                          entity_id=str(store.id), entity_name=store.name,
+                          meta={'fields': list(serializer.validated_data.keys()), 'is_open': store.is_open})
         return Response(StoreSerializer(store).data)
 
 
@@ -542,6 +550,9 @@ class StoreHoursView(APIView):
             for entry in serializer.validated_data
         ])
         CacheService.delete(CacheService.store_detail_key(str(store.id)))
+        log_vendor_action(request, 'store_hours_update', store=store, entity_type='store',
+                          entity_id=str(store_id), entity_name=store.name,
+                          meta={'days_set': len(hours)})
         return Response(StoreHoursSerializer(sorted(hours, key=lambda h: h.day), many=True).data)
 
 
@@ -681,6 +692,9 @@ class StoreOfferView(APIView):
         if follower_ids:
             disc = f' — {offer.discount_pct}% off' if offer.discount_pct else ''
             _dispatch_new_offer(follower_ids, store.name, offer.title + disc, str(store.id))
+        log_vendor_action(request, 'offer_create', store=store, entity_type='offer',
+                          entity_id=str(offer.id), entity_name=offer.title,
+                          meta={'discount_pct': offer.discount_pct, 'valid_till': str(offer.valid_till) if offer.valid_till else ''})
         return Response(StoreOfferSerializer(offer).data, status=status.HTTP_201_CREATED)
 
 
@@ -731,11 +745,14 @@ class StoreOfferDeleteView(APIView):
         except (Store.DoesNotExist, StoreOffer.DoesNotExist):
             return Response({'error': 'not_found'}, status=status.HTTP_404_NOT_FOUND)
         self.check_object_permissions(request, store)
+        offer_title = offer.title
         offer.is_active = False
         offer.save(update_fields=['is_active'])
         CacheService.invalidate_store_offers(str(store_id))
         if store.location:
             CacheService.invalidate_store_caches(store.location.y, store.location.x)
+        log_vendor_action(request, 'offer_delete', store=store, entity_type='offer',
+                          entity_id=str(offer_id), entity_name=offer_title)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -871,17 +888,40 @@ class StoreInvoiceListCreateView(APIView):
 
             # Deduct inventory stock for each item linked to a product
             from apps.products.inventory_service import InventoryService
+            from apps.products.models import StockMovementLog as _SML
             for item in items:
                 product_id = str(item.get('product_id', '')).strip()
                 if product_id:
                     qty = max(1, int(item.get('qty', 1)))
+                    variant_id = str(item.get('variant_id', '')).strip() or None
                     InventoryService.deduct_for_invoice(
                         product_id=product_id,
                         qty=qty,
                         changed_by=request.user,
                         invoice_id=str(invoice.id),
                         store=request.user.store,
+                        variant_id=variant_id,
                     )
+
+            # Write back the exact variant_id that was deducted into each item's JSON.
+            # The Returns flow uses this to auto-resolve which variant to restock —
+            # without it the vendor would have to re-pick size/colour, risking a mismatch.
+            updated_items = [dict(it) for it in items]
+            invoice_note  = f'invoice:{invoice.id}'
+            for it in updated_items:
+                pid = str(it.get('product_id', '')).strip()
+                if not pid or it.get('variant_id'):
+                    continue  # manual item or frontend already supplied variant_id
+                log = (
+                    _SML.objects
+                    .filter(variant__product_id=pid, note=invoice_note)
+                    .select_related('variant')
+                    .first()
+                )
+                if log and log.variant_id:
+                    it['variant_id'] = str(log.variant_id)
+            invoice.items = updated_items
+            invoice.save(update_fields=['items'])
 
         if customer_user is not None:
             from apps.notifications.services import NotificationService
@@ -893,6 +933,131 @@ class StoreInvoiceListCreateView(APIView):
             ).start()
 
         return Response(InvoiceSerializer(invoice).data, status=status.HTTP_201_CREATED)
+
+
+class InvoiceReturnView(APIView):
+    """
+    POST /stores/mine/invoices/<id>/return/
+    Process a customer return for one or more items in an invoice.
+
+    Atomically:
+      1. Validates return quantities (return_qty ≤ qty − returned_qty per item)
+      2. Increments returned_qty in the invoice items JSON
+      3. Adds stock back to the correct variant (reason = return_from_customer)
+      4. Creates a StockMovementLog entry with the correct reason and note
+
+    Request body:
+        {
+          "items": [
+            {"item_index": 0, "return_qty": 1, "reason": "Defective / damaged"},
+            {"item_index": 2, "return_qty": 2, "reason": "Changed mind"}
+          ]
+        }
+    """
+    permission_classes = [IsAuthenticated, IsVendor]
+
+    def post(self, request, invoice_id):
+        try:
+            invoice = Invoice.objects.get(id=invoice_id, store=request.user.store)
+        except Invoice.DoesNotExist:
+            return Response({'error': 'not_found'}, status=status.HTTP_404_NOT_FOUND)
+
+        return_items = request.data.get('items', [])
+        if not isinstance(return_items, list) or not return_items:
+            return Response(
+                {'error': 'no_items', 'message': 'Provide a non-empty items list.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        from apps.inventory.services import InventoryService
+        from apps.inventory.models import StockMovementReason
+        from apps.products.models import ProductVariant
+        from django.db import transaction as db_transaction
+
+        invoice_items  = [dict(it) for it in (invoice.items or [])]
+        invoice_label  = f'NS-{str(invoice.id)[-8:].upper()}'
+        processed      = 0
+        restocked      = 0
+        errors         = []
+
+        with db_transaction.atomic():
+            for ri in return_items:
+                idx = ri.get('item_index')
+                try:
+                    return_qty = max(1, int(ri.get('return_qty', 1)))
+                except (TypeError, ValueError):
+                    errors.append(f'item_index {idx}: invalid return_qty')
+                    continue
+
+                reason_label = str(ri.get('reason', 'Customer return'))[:200]
+
+                if not isinstance(idx, int) or idx < 0 or idx >= len(invoice_items):
+                    errors.append(f'Invalid item_index {idx}')
+                    continue
+
+                inv_item         = invoice_items[idx]
+                already_returned = int(inv_item.get('returned_qty', 0))
+                total_qty        = int(inv_item.get('qty', 0))
+                max_returnable   = total_qty - already_returned
+
+                if max_returnable <= 0:
+                    errors.append(f'"{inv_item.get("name", idx)}" is already fully returned')
+                    continue
+
+                if return_qty > max_returnable:
+                    errors.append(
+                        f'"{inv_item.get("name", idx)}": return_qty {return_qty} exceeds remaining {max_returnable}'
+                    )
+                    continue
+
+                # Update returned_qty in invoice JSON
+                invoice_items[idx] = dict(inv_item)
+                invoice_items[idx]['returned_qty'] = already_returned + return_qty
+                processed += 1
+
+                # Restock the exact variant that was sold — variant_id stored at invoice creation.
+                # If variant_id is missing (old invoice), auto-resolve when only 1 variant exists.
+                variant_id = str(inv_item.get('variant_id', '')).strip()
+                product_id = str(inv_item.get('product_id', '')).strip()
+                item_name  = inv_item.get('name', f'item {idx}')
+
+                if product_id and not variant_id:
+                    pv_qs = ProductVariant.objects.filter(product_id=product_id)
+                    if pv_qs.count() == 1:
+                        variant_id = str(pv_qs.first().id)
+                    elif pv_qs.exists():
+                        errors.append(
+                            f'"{item_name}": return recorded but stock not updated — '
+                            f'variant not stored in this invoice. Edit stock manually.'
+                        )
+
+                if variant_id and product_id:
+                    try:
+                        variant = ProductVariant.objects.select_for_update().get(
+                            id=variant_id, product_id=product_id,
+                        )
+                        note = f'{reason_label} — Invoice {invoice_label}'
+                        InventoryService.update_stock(
+                            variant=variant,
+                            new_qty=variant.stock_quantity + return_qty,
+                            changed_by=request.user,
+                            reason=StockMovementReason.RETURN_FROM_CUSTOMER,
+                            note=note,
+                        )
+                        restocked += 1
+                    except ProductVariant.DoesNotExist:
+                        errors.append(f'"{item_name}": variant not found — stock not updated')
+
+            invoice.items = invoice_items
+            invoice.save(update_fields=['items'])
+
+        http_status = status.HTTP_200_OK if processed > 0 else status.HTTP_400_BAD_REQUEST
+        return Response({
+            'processed': processed,
+            'restocked': restocked,
+            'errors':    errors,
+            'invoice':   InvoiceSerializer(invoice).data,
+        }, status=http_status)
 
 
 class CustomerPurchaseHistoryView(APIView):
@@ -1592,7 +1757,10 @@ class StoreImagesUploadView(APIView):
             filename = f'stores/{store.id}/{field}_{uuid.uuid4().hex}{ext}'
             path = default_storage.save(filename, ContentFile(file.read()))
             raw_url = default_storage.url(path)
-            url = raw_url if raw_url.startswith('http') else request.build_absolute_uri(raw_url)
+            if raw_url.startswith('http'):
+                url = raw_url.replace('http://', 'https://', 1)
+            else:
+                url = request.build_absolute_uri(raw_url).replace('http://', 'https://', 1)
             if field == 'logo':
                 store.logo_url = url
                 updated['logo_url'] = url
