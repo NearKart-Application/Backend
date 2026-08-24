@@ -228,7 +228,7 @@ class MyVideosView(APIView):
     )
     def get(self, request):
         if not hasattr(request.user, 'store'):
-            return Response([], status=status.HTTP_200_OK)
+            return Response({'count': 0, 'next': None, 'previous': None, 'results': []}, status=status.HTTP_200_OK)
         qs = (
             Video.objects
             .filter(store=request.user.store)
