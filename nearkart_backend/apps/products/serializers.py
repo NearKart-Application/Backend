@@ -94,6 +94,7 @@ class ProductListSerializer(serializers.ModelSerializer):
     image         = serializers.SerializerMethodField()
     store         = serializers.SerializerMethodField()
     is_on_sale    = serializers.SerializerMethodField()
+    is_wishlisted = serializers.SerializerMethodField()
 
     class Meta:
         model  = Product
@@ -103,6 +104,7 @@ class ProductListSerializer(serializers.ModelSerializer):
             'distance_km', 'status',
             # mobile-compatible fields
             'price', 'sale_price', 'image', 'store', 'is_on_sale', 'festival_tag',
+            'is_wishlisted',
         ]
 
     def _primary_image(self, obj):
@@ -159,6 +161,15 @@ class ProductListSerializer(serializers.ModelSerializer):
     def get_is_on_sale(self, obj):
         v = self._cheapest_variant(obj)
         return bool(v and float(v.price) < float(obj.base_price))
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_is_wishlisted(self, obj):
+        if hasattr(obj, '_is_wishlisted'):
+            return obj._is_wishlisted
+        request = self.context.get('request')
+        if request and request.user.is_authenticated:
+            return obj.wishlisted_by.filter(user=request.user).exists()
+        return False
 
 
 class MobileProductDetailSerializer(serializers.ModelSerializer):
