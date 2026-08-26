@@ -74,7 +74,7 @@ class VideoSerializer(serializers.ModelSerializer):
             'duration_seconds', 'duration', # original + mobile alias
             'view_count', 'like_count', 'is_liked', 'is_saved',
             'locality', 'distance_km',
-            'is_visible', 'expires_at',
+            'is_pinned', 'is_visible', 'expires_at',
             'tags',
             'created_at', 'updated_at',
         ]
