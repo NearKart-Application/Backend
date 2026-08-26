@@ -14,14 +14,15 @@ class StoreMiniSerializer(serializers.Serializer):
 
 
 class VideoProductTagSerializer(serializers.ModelSerializer):
-    id    = serializers.UUIDField(read_only=True)
-    name  = serializers.CharField(source='product.name', read_only=True)
-    price = serializers.DecimalField(source='product.base_price', max_digits=10,
-                                     decimal_places=2, read_only=True)
+    id         = serializers.UUIDField(read_only=True)
+    product_id = serializers.UUIDField(source='product.id', read_only=True)
+    name       = serializers.CharField(source='product.name', read_only=True)
+    price      = serializers.DecimalField(source='product.base_price', max_digits=10,
+                                          decimal_places=2, read_only=True)
 
     class Meta:
         model  = VideoProductTag
-        fields = ['id', 'name', 'price', 'x_pct', 'y_pct']
+        fields = ['id', 'product_id', 'name', 'price', 'x_pct', 'y_pct']
 
 
 class VideoProductTagWriteSerializer(serializers.ModelSerializer):
