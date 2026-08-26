@@ -173,6 +173,18 @@ class ReservationListView(APIView):
                 for city in cities:
                     city_q |= Q(store__city__icontains=city) | Q(store__locality__icontains=city)
                 qs = qs.filter(city_q)
+            # Admin-only filters: status and search
+            status_param = request.query_params.get('status')
+            if status_param:
+                qs = qs.filter(status=status_param)
+            search_param = request.query_params.get('search', '').strip()
+            if search_param:
+                from django.db.models import Q as DQ
+                qs = qs.filter(
+                    DQ(store__name__icontains=search_param) |
+                    DQ(customer__full_name__icontains=search_param) |
+                    DQ(customer__phone_number__icontains=search_param)
+                )
         else:
             qs = ReservationService.get_for_customer(user)
 
