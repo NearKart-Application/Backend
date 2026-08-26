@@ -189,9 +189,12 @@ class MobileProductDetailSerializer(serializers.ModelSerializer):
         model  = Product
         fields = [
             'id', 'name', 'description', 'category', 'subcategory',
-            'price', 'sale_price', 'images', 'store',
+            'price', 'sale_price', 'base_price', 'images', 'store',
             'distance_km', 'sizes', 'colors',
             'stock_count', 'is_on_sale', 'festival_tag', 'is_wishlisted',
+            # Vendor edit form fields
+            'status', 'is_visible', 'product_code',
+            'cost_price', 'hsn_code', 'gst_rate',
         ]
 
     @extend_schema_field(serializers.FloatField(allow_null=True))
