@@ -67,6 +67,44 @@ class LoyaltyTransaction(BaseModel):
         return f'{self.transaction_type} {self.points} pts — {self.description}'
 
 
+class WalletWithdrawalRequest(BaseModel):
+    METHOD_UPI  = 'upi'
+    METHOD_BANK = 'bank'
+    METHOD_CHOICES = [
+        (METHOD_UPI,  'UPI'),
+        (METHOD_BANK, 'Bank Transfer'),
+    ]
+
+    STATUS_PENDING   = 'pending'
+    STATUS_APPROVED  = 'approved'
+    STATUS_REJECTED  = 'rejected'
+    STATUS_PROCESSED = 'processed'
+    STATUS_CHOICES = [
+        (STATUS_PENDING,   'Pending'),
+        (STATUS_APPROVED,  'Approved'),
+        (STATUS_REJECTED,  'Rejected'),
+        (STATUS_PROCESSED, 'Processed'),
+    ]
+
+    user           = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='wallet_withdrawal_requests')
+    amount         = models.DecimalField(max_digits=10, decimal_places=2)
+    method         = models.CharField(max_length=10, choices=METHOD_CHOICES)
+    upi_id         = models.CharField(max_length=100, blank=True)
+    account_number = models.CharField(max_length=30, blank=True)
+    ifsc_code      = models.CharField(max_length=20, blank=True)
+    account_name   = models.CharField(max_length=100, blank=True)
+    note           = models.TextField(blank=True)
+    status         = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING, db_index=True)
+    admin_note     = models.TextField(blank=True)
+
+    class Meta:
+        db_table = 'loyalty_wallet_withdrawal_requests'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'{self.user} — ₹{self.amount} via {self.method} ({self.status})'
+
+
 class Referral(BaseModel):
     STATUS_PENDING   = 'pending'
     STATUS_COMPLETED = 'completed'

@@ -5,6 +5,9 @@ GET  /loyalty/           → balance + referral code
 GET  /loyalty/history/   → transaction list
 POST /loyalty/apply-referral/ → apply someone's referral code (one-time)
 POST /loyalty/redeem/    → redeem points (returns discount in rupees)
+
+GET  /wallet/requests/   → list user's withdrawal requests
+POST /wallet/requests/   → submit a new withdrawal request
 """
 import logging
 
@@ -15,12 +18,15 @@ from core.pagination import StandardOffsetPagination
 from drf_spectacular.utils import extend_schema
 from drf_spectacular.types import OpenApiTypes
 
-from .models import LoyaltyTransaction
+from rest_framework import status as drf_status
+
+from .models import LoyaltyTransaction, WalletWithdrawalRequest
 from .serializers import (
     LoyaltyBalanceSerializer,
     LoyaltyTransactionSerializer,
     ApplyReferralSerializer,
     RedeemPointsSerializer,
+    WalletWithdrawalRequestSerializer,
 )
 from .services import LoyaltyService
 
@@ -120,3 +126,31 @@ class RedeemPointsView(APIView):
             'discount_rupees': discount_rupees,
             'balance_remaining': account.balance,
         })
+
+
+class WalletWithdrawalRequestView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        tags=['Wallet'],
+        summary='List wallet withdrawal requests',
+        responses={200: WalletWithdrawalRequestSerializer(many=True)},
+    )
+    def get(self, request):
+        qs = WalletWithdrawalRequest.objects.filter(user=request.user)
+        paginator = StandardOffsetPagination()
+        page = paginator.paginate_queryset(qs, request)
+        return paginator.get_paginated_response(WalletWithdrawalRequestSerializer(page, many=True).data)
+
+    @extend_schema(
+        tags=['Wallet'],
+        summary='Submit a wallet withdrawal request',
+        request=WalletWithdrawalRequestSerializer,
+        responses={201: WalletWithdrawalRequestSerializer},
+    )
+    def post(self, request):
+        ser = WalletWithdrawalRequestSerializer(data=request.data)
+        if not ser.is_valid():
+            return Response(ser.errors, status=drf_status.HTTP_400_BAD_REQUEST)
+        ser.save(user=request.user)
+        return Response(ser.data, status=drf_status.HTTP_201_CREATED)

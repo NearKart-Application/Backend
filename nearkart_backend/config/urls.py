@@ -64,6 +64,9 @@ urlpatterns = [
     # ── LOYALTY & REFERRALS ───────────────────────────────────────
     path(API_V1 + 'loyalty/', include('apps.loyalty.urls')),
 
+    # ── CUSTOMER WALLET REQUESTS ──────────────────────────────────
+    path(API_V1 + 'wallet/', include('apps.loyalty.wallet_urls')),
+
     # ── INVENTORY ─────────────────────────────────────────────────────
     path(API_V1 + 'inventory/', include('apps.inventory.urls')),
 

@@ -5,7 +5,7 @@ Shopify-grade admin for LoyaltyAccount, LoyaltyTransaction, Referral.
 from django.contrib import admin
 from django.utils.html import format_html
 
-from .models import LoyaltyAccount, LoyaltyTransaction, Referral
+from .models import LoyaltyAccount, LoyaltyTransaction, Referral, WalletWithdrawalRequest
 
 
 # ─── Helper ───────────────────────────────────────────────────────────────────
@@ -124,3 +124,40 @@ class ReferralAdmin(admin.ModelAdmin):
         if obj.status == 'completed':
             return _badge('Completed', '#d4edda', '#155724')
         return _badge('Pending', '#fff3cd', '#856404')
+
+
+# ─── Wallet Withdrawal Request Admin ─────────────────────────────────────────
+
+@admin.register(WalletWithdrawalRequest)
+class WalletWithdrawalRequestAdmin(admin.ModelAdmin):
+    list_display    = ['user_phone', 'amount', 'method', 'status_badge', 'created_at']
+    list_filter     = ['status', 'method']
+    search_fields   = ['user__phone_number', 'upi_id', 'account_number']
+    ordering        = ['-created_at']
+    date_hierarchy  = 'created_at'
+    list_per_page   = 25
+    list_select_related = ['user']
+    raw_id_fields   = ['user']
+    readonly_fields = ['created_at', 'updated_at', 'user', 'amount', 'method',
+                       'upi_id', 'account_number', 'ifsc_code', 'account_name', 'note']
+    fields          = ['user', 'amount', 'method', 'upi_id', 'account_number',
+                       'ifsc_code', 'account_name', 'note', 'status', 'admin_note',
+                       'created_at', 'updated_at']
+
+    @admin.display(description='User', ordering='user__phone_number')
+    def user_phone(self, obj):
+        return obj.user.phone_number
+
+    @admin.display(description='Status', ordering='status')
+    def status_badge(self, obj):
+        colours = {
+            'pending':   ('#fff3cd', '#856404'),
+            'approved':  ('#d4edda', '#155724'),
+            'rejected':  ('#f8d7da', '#721c24'),
+            'processed': ('#cce5ff', '#004085'),
+        }
+        bg, fg = colours.get(obj.status, ('#eee', '#333'))
+        return _badge(obj.status.capitalize(), bg, fg)
+
+    def has_add_permission(self, request):
+        return False

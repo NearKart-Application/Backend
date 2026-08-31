@@ -2,7 +2,7 @@
 NearKart — Loyalty Serializers
 """
 from rest_framework import serializers
-from .models import LoyaltyAccount, LoyaltyTransaction
+from .models import LoyaltyAccount, LoyaltyTransaction, WalletWithdrawalRequest
 from .services import POINTS_PER_RUPEE, MIN_REDEEM, MAX_REDEEM
 
 
@@ -44,3 +44,24 @@ class ApplyReferralSerializer(serializers.Serializer):
 class RedeemPointsSerializer(serializers.Serializer):
     points      = serializers.IntegerField(min_value=MIN_REDEEM, max_value=MAX_REDEEM)
     description = serializers.CharField(max_length=200, required=False, default='Points redeemed')
+
+
+class WalletWithdrawalRequestSerializer(serializers.ModelSerializer):
+    class Meta:
+        model  = WalletWithdrawalRequest
+        fields = [
+            'id', 'amount', 'method',
+            'upi_id', 'account_number', 'ifsc_code', 'account_name',
+            'note', 'status', 'admin_note', 'created_at',
+        ]
+        read_only_fields = ['id', 'status', 'admin_note', 'created_at']
+
+    def validate(self, data):
+        method = data.get('method')
+        if method == WalletWithdrawalRequest.METHOD_UPI and not data.get('upi_id', '').strip():
+            raise serializers.ValidationError({'upi_id': 'UPI ID is required for UPI method.'})
+        if method == WalletWithdrawalRequest.METHOD_BANK:
+            for field in ('account_number', 'ifsc_code', 'account_name'):
+                if not data.get(field, '').strip():
+                    raise serializers.ValidationError({field: f'{field.replace("_", " ").title()} is required for bank transfer.'})
+        return data
