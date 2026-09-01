@@ -565,3 +565,57 @@ class ReservationWaitlistView(APIView):
             'product_name': product.name,
             'message':      'You\'ll be notified when this product is back in stock.' if created else 'Already on waitlist.',
         }, status=201 if created else 200)
+
+
+class ReservationReturnView(APIView):
+    """POST /reservations/<id>/return/ — vendor marks item returned, restores stock."""
+    permission_classes = [IsAuthenticated, IsVendor]
+
+    @extend_schema(
+        tags=[_TAG],
+        summary='Mark reservation as returned (vendor)',
+        description='Sets status to cancelled and restores stock for the returned item.',
+    )
+    def post(self, request, reservation_id):
+        from django.db import transaction as db_transaction
+        from apps.inventory.services import InventoryService
+        from apps.products.models import ProductVariant, StockMovementReason
+
+        try:
+            store = request.user.store
+        except AttributeError:
+            return Response({'error': 'no_store', 'message': 'Create a store first.'}, status=400)
+
+        try:
+            reservation = Reservation.objects.select_related('variant').get(
+                id=reservation_id, store=store,
+            )
+        except Reservation.DoesNotExist:
+            return Response({'error': 'not_found', 'message': 'Reservation not found.'}, status=404)
+
+        if reservation.status not in ('confirmed', 'completed'):
+            return Response({
+                'error': 'invalid_status',
+                'message': 'Only confirmed or completed reservations can be returned.',
+            }, status=400)
+
+        note = request.data.get('note', '')
+        with db_transaction.atomic():
+            reservation.status = ReservationStatus.CANCELLED
+            reservation.vendor_note = note or reservation.vendor_note
+            reservation.save(update_fields=['status', 'vendor_note', 'updated_at'])
+
+            if reservation.variant_id:
+                try:
+                    variant = ProductVariant.objects.select_for_update().get(id=reservation.variant_id)
+                    InventoryService.update_stock(
+                        variant=variant,
+                        new_qty=variant.stock_quantity + reservation.quantity,
+                        changed_by=request.user,
+                        reason=StockMovementReason.RETURN_FROM_CUSTOMER,
+                        note=f'return:{reservation.id}',
+                    )
+                except ProductVariant.DoesNotExist:
+                    pass
+
+        return Response({'status': 'returned', 'reservation_id': str(reservation.id)})

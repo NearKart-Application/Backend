@@ -10,7 +10,7 @@ from .models import Product, ProductVariant, ProductImage, Wishlist, ProductRevi
 class ProductVariantSerializer(serializers.ModelSerializer):
     class Meta:
         model  = ProductVariant
-        fields = ['id', 'name', 'sku', 'price', 'stock_quantity', 'mrp', 'cost_price', 'reorder_point', 'low_stock_threshold']
+        fields = ['id', 'name', 'sku', 'price', 'stock_quantity', 'mrp', 'cost_price', 'reorder_point', 'low_stock_threshold', 'unit']
         read_only_fields = ['id']
 
 

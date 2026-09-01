@@ -490,3 +490,210 @@ class SerialNumberDetailView(APIView):
             sn.sold_at = timezone.now()
             sn.save(update_fields=['sold_at', 'updated_at'])
         return Response(SerialNumberSerializer(sn).data)
+
+
+class BulkStockAdjustView(APIView):
+    """POST /inventory/bulk-adjust/ — adjust stock for multiple variants in one request."""
+    permission_classes = [IsAuthenticated, IsVendor]
+
+    def post(self, request):
+        from django.db import transaction as db_transaction
+        from apps.inventory.services import InventoryService
+        from apps.products.models import ProductVariant, StockMovementReason
+
+        try:
+            store = _vendor_store(request)
+        except AttributeError:
+            return Response({'error': 'no_store'}, status=400)
+
+        items = request.data.get('items', [])
+        if not items or not isinstance(items, list):
+            return Response({'error': 'items list required'}, status=400)
+
+        results = []
+        for item in items:
+            variant_id = item.get('variant_id')
+            delta = item.get('delta')
+            note  = item.get('note', '')
+            try:
+                delta = int(delta)
+            except (TypeError, ValueError):
+                results.append({'variant_id': variant_id, 'status': 'error', 'message': 'Invalid delta'})
+                continue
+            try:
+                with db_transaction.atomic():
+                    variant = ProductVariant.objects.select_for_update().get(
+                        id=variant_id, product__store=store
+                    )
+                    new_qty = max(0, variant.stock_quantity + delta)
+                    InventoryService.update_stock(
+                        variant=variant,
+                        new_qty=new_qty,
+                        changed_by=request.user,
+                        reason=StockMovementReason.MANUAL,
+                        note=note or 'bulk_adjust',
+                    )
+                    results.append({'variant_id': variant_id, 'status': 'ok', 'new_qty': new_qty})
+            except ProductVariant.DoesNotExist:
+                results.append({'variant_id': variant_id, 'status': 'error', 'message': 'Not found'})
+            except Exception as exc:
+                results.append({'variant_id': variant_id, 'status': 'error', 'message': str(exc)})
+
+        return Response({'results': results})
+
+
+class StockValuationView(APIView):
+    """GET /inventory/valuation/ — total stock value per variant (qty × cost_price)."""
+    permission_classes = [IsAuthenticated, IsVendor]
+
+    def get(self, request):
+        from django.db.models import F, ExpressionWrapper, DecimalField, Sum
+        from apps.products.models import ProductVariant
+
+        try:
+            store = _vendor_store(request)
+        except AttributeError:
+            return Response({'error': 'no_store'}, status=400)
+
+        qs = (
+            ProductVariant.objects
+            .filter(product__store=store, product__status='active')
+            .select_related('product')
+            .annotate(
+                total_value=ExpressionWrapper(
+                    F('stock_quantity') * F('cost_price'),
+                    output_field=DecimalField(max_digits=14, decimal_places=2),
+                )
+            )
+        )
+
+        rows = []
+        grand_total = 0
+        for v in qs:
+            val = float(v.total_value or 0)
+            grand_total += val
+            rows.append({
+                'variant_id':   str(v.id),
+                'product_name': v.product.name,
+                'variant_name': v.name,
+                'sku':          v.sku,
+                'unit':         v.unit,
+                'qty':          v.stock_quantity,
+                'cost_price':   float(v.cost_price or 0),
+                'total_value':  round(val, 2),
+            })
+
+        return Response({'grand_total': round(grand_total, 2), 'items': rows})
+
+
+class InventoryExportView(APIView):
+    """GET /inventory/export/ — download inventory snapshot as CSV."""
+    permission_classes = [IsAuthenticated, IsVendor]
+
+    def get(self, request):
+        import csv
+        from django.http import StreamingHttpResponse
+        from apps.products.models import ProductVariant
+
+        try:
+            store = _vendor_store(request)
+        except AttributeError:
+            return Response({'error': 'no_store'}, status=400)
+
+        qs = (
+            ProductVariant.objects
+            .filter(product__store=store)
+            .select_related('product')
+            .order_by('product__name', 'name')
+        )
+
+        def rows():
+            header = ['Product', 'Variant', 'SKU', 'Unit', 'Stock', 'Cost Price', 'MRP', 'Price', 'Low Stock Threshold']
+            yield header
+            for v in qs:
+                yield [
+                    v.product.name,
+                    v.name,
+                    v.sku,
+                    v.unit,
+                    v.stock_quantity,
+                    str(v.cost_price or ''),
+                    str(v.mrp or ''),
+                    str(v.price),
+                    v.low_stock_threshold,
+                ]
+
+        class Echo:
+            def write(self, value):
+                return value
+
+        writer = csv.writer(Echo())
+        response = StreamingHttpResponse(
+            (writer.writerow(r) for r in rows()),
+            content_type='text/csv',
+        )
+        response['Content-Disposition'] = 'attachment; filename="inventory_export.csv"'
+        return response
+
+
+class DeadStockView(APIView):
+    """GET /inventory/dead-stock/?days=30 — variants with no outbound stock movement in N days."""
+    permission_classes = [IsAuthenticated, IsVendor]
+
+    def get(self, request):
+        from django.utils import timezone
+        from datetime import timedelta
+        from django.db.models import Max
+        from apps.products.models import ProductVariant, StockMovementLog, StockMovementReason
+
+        try:
+            store = _vendor_store(request)
+        except AttributeError:
+            return Response({'error': 'no_store'}, status=400)
+
+        try:
+            days = int(request.query_params.get('days', 30))
+        except ValueError:
+            days = 30
+        cutoff = timezone.now() - timedelta(days=days)
+
+        outbound_reasons = [
+            StockMovementReason.RESERVATION,
+            StockMovementReason.INVOICE,
+        ]
+
+        active_variant_ids = set(
+            StockMovementLog.objects
+            .filter(
+                variant__product__store=store,
+                reason__in=outbound_reasons,
+                created_at__gte=cutoff,
+            )
+            .values_list('variant_id', flat=True)
+        )
+
+        dead = (
+            ProductVariant.objects
+            .filter(product__store=store, stock_quantity__gt=0)
+            .exclude(id__in=active_variant_ids)
+            .select_related('product')
+            .order_by('-stock_quantity')
+        )
+
+        return Response({
+            'days': days,
+            'count': dead.count(),
+            'items': [
+                {
+                    'variant_id':   str(v.id),
+                    'product_name': v.product.name,
+                    'variant_name': v.name,
+                    'sku':          v.sku,
+                    'unit':         v.unit,
+                    'qty':          v.stock_quantity,
+                    'cost_price':   float(v.cost_price or 0),
+                }
+                for v in dead
+            ],
+        })
+        return Response(SerialNumberSerializer(sn).data)

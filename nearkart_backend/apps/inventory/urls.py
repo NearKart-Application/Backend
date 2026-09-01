@@ -7,6 +7,7 @@ from .views import (
     StockWatchlistView,
     CompositeProductListView, CompositeProductDetailView,
     SerialNumberListView, SerialNumberDetailView,
+    BulkStockAdjustView, StockValuationView, InventoryExportView, DeadStockView,
 )
 
 app_name = 'inventory'
@@ -24,4 +25,8 @@ urlpatterns = [
     path('bundles/<uuid:comp_id>/',         CompositeProductDetailView.as_view(), name='bundle-detail'),
     path('serial-numbers/',                 SerialNumberListView.as_view(),       name='serial-list'),
     path('serial-numbers/<uuid:sn_id>/',    SerialNumberDetailView.as_view(),     name='serial-detail'),
+    path('bulk-adjust/',  BulkStockAdjustView.as_view(),  name='bulk-adjust'),
+    path('valuation/',    StockValuationView.as_view(),   name='valuation'),
+    path('export/',       InventoryExportView.as_view(),  name='export'),
+    path('dead-stock/',   DeadStockView.as_view(),        name='dead-stock'),
 ]

@@ -64,6 +64,7 @@ class ProductVariant(BaseModel):
     mrp                   = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True, help_text='Maximum Retail Price — shown to customers as crossed-out price')
     cost_price            = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True, help_text='What vendor paid — used in stock value reports, never shown to customers')
     show_stock_count      = models.BooleanField(default=True, help_text='Vendor toggle — hide stock count from vendor website if False')
+    unit                  = models.CharField(max_length=20, blank=True, default='piece', help_text='Unit of measure (piece, kg, gram, litre, dozen, metre, pair)')
 
     class Meta:
         db_table = 'product_variants'
