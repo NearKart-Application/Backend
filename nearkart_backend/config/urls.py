@@ -81,5 +81,8 @@ urlpatterns = [
 
     # ── FINANCIAL REPORTS ────────────────────────────────────────────────
     path(API_V1 + 'reports/', include('apps.reports.urls')),
+
+    # ── RESTAURANT INVENTORY ─────────────────────────────────────────────
+    path(API_V1 + 'restaurant/', include('apps.restaurant.urls')),
 ] + urlpatterns_media
 
