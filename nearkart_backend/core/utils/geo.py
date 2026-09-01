@@ -133,7 +133,7 @@ def get_nearby_products(lat: float, lng: float,
     )
     cached = CacheService.get(cache_key)
     if cached is not None:
-        return cached
+        return cached[:limit]
 
     user_point  = build_point(lat, lng)
     has_stock   = Exists(
@@ -159,9 +159,10 @@ def get_nearby_products(lat: float, lng: float,
     if category:
         qs = qs.filter(category=category)
 
-    result = list(qs[:limit])
+    # Cache up to 200 items so paginated views can slice without a cache miss
+    result = list(qs[:200])
     CacheService.set(cache_key, result, timeout=CacheService.TTL_PRODUCT_SEARCH)
-    return result
+    return result[:limit]
 
 
 def reverse_geocode(lat: float, lng: float) -> str:

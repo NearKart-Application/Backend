@@ -8,6 +8,7 @@ from .views import (
     CompositeProductListView, CompositeProductDetailView,
     SerialNumberListView, SerialNumberDetailView,
     BulkStockAdjustView, StockValuationView, InventoryExportView, DeadStockView,
+    GroceryBatchListView, GroceryBatchDetailView, WastageRecordView, NearExpiryAlertView,
 )
 
 app_name = 'inventory'
@@ -29,4 +30,9 @@ urlpatterns = [
     path('valuation/',    StockValuationView.as_view(),   name='valuation'),
     path('export/',       InventoryExportView.as_view(),  name='export'),
     path('dead-stock/',   DeadStockView.as_view(),        name='dead-stock'),
+    # Grocery / Perishable
+    path('grocery-batches/',                                  GroceryBatchListView.as_view(),  name='grocery-batch-list'),
+    path('grocery-batches/<uuid:batch_id>/',                  GroceryBatchDetailView.as_view(), name='grocery-batch-detail'),
+    path('grocery-batches/<uuid:batch_id>/wastage/',          WastageRecordView.as_view(),      name='wastage-record'),
+    path('grocery-batches/near-expiry/',                      NearExpiryAlertView.as_view(),    name='near-expiry'),
 ]

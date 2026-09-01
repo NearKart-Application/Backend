@@ -1,25 +1,34 @@
 from django.urls import path
 from .views import (
-    NearbyProductsView, ProductSearchView, ProductDetailView,
+    NearbyProductsView, ProductSearchView, ProductAutocompleteView, ProductDetailView,
     ProductCreateView, ProductUpdateView, ProductWishlistView,
     WishlistListView, VendorProductListView, ProductReserveView,
-    FollowingFeedView,
+    FollowingFeedView, RecommendedProductsView,
     VariantListView, VariantStockUpdateView, ProductVariantBulkUpdateView, StockLogView,
     StockAlertsView, StockWatchView, ProductImageUploadView,
     ProductImageDeleteView,
     GenerateProductCodeView, ProductReviewView, ProductDemoVideoView,
+    VendorStockLogsView,
+    ProductQAView, ProductQAAnswerView,
+    ProductPriceHistoryView,
+    ProductBulkImportView,
+    ProductBundleComponentsView, ProductBundleComponentDeleteView,
 )
 from apps.admin_panel.views import PublicCategoryListView
 
 urlpatterns = [
     path('categories/',                PublicCategoryListView.as_view(),   name='product-categories'),
     path('nearby/',                    NearbyProductsView.as_view(),      name='products-nearby'),
+    path('recommended/',               RecommendedProductsView.as_view(), name='products-recommended'),
     path('search/',                    ProductSearchView.as_view(),        name='products-search'),
+    path('autocomplete/',              ProductAutocompleteView.as_view(),  name='products-autocomplete'),
     path('following/',                 FollowingFeedView.as_view(),        name='products-following'),
     path('wishlist/',                  WishlistListView.as_view(),         name='wishlist-list'),
     path('vendor/',                    VendorProductListView.as_view(),    name='vendor-products'),
     path('vendor/generate-code/',      GenerateProductCodeView.as_view(),  name='generate-product-code'),
     path('vendor/stock-alerts/',       StockAlertsView.as_view(),          name='stock-alerts'),
+    path('vendor/stock-logs/',         VendorStockLogsView.as_view(),      name='vendor-stock-logs'),
+    path('vendor/import-csv/',         ProductBulkImportView.as_view(),    name='product-bulk-import'),
     path('',                           ProductCreateView.as_view(),        name='product-create'),
     path('<uuid:product_id>/',              ProductDetailView.as_view(),   name='product-detail'),
     path('<uuid:product_id>/update/',       ProductUpdateView.as_view(),   name='product-update'),
@@ -35,4 +44,9 @@ urlpatterns = [
          VariantStockUpdateView.as_view(), name='variant-stock-update'),
     path('<uuid:product_id>/reviews/',    ProductReviewView.as_view(),    name='product-reviews'),
     path('<uuid:product_id>/demo-video/', ProductDemoVideoView.as_view(), name='product-demo-video'),
+    path('<uuid:product_id>/qa/',         ProductQAView.as_view(),        name='product-qa'),
+    path('<uuid:product_id>/qa/<uuid:qa_id>/answer/', ProductQAAnswerView.as_view(), name='product-qa-answer'),
+    path('<uuid:product_id>/price-history/', ProductPriceHistoryView.as_view(), name='product-price-history'),
+    path('<uuid:product_id>/bundle-components/', ProductBundleComponentsView.as_view(), name='product-bundle-components'),
+    path('<uuid:product_id>/bundle-components/<uuid:comp_id>/', ProductBundleComponentDeleteView.as_view(), name='product-bundle-component-delete'),
 ]

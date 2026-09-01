@@ -4,7 +4,7 @@ NearKart — Store Serializers
 from django.db import models
 from rest_framework import serializers
 from drf_spectacular.utils import extend_schema_field
-from .models import Store, StoreHours, StoreFollow, StoreReview, StoreOffer, OfferDiscountType, Invoice, StaffMember, ServiceCatalogue
+from .models import Store, StoreHours, StoreFollow, StoreReview, StoreOffer, OfferDiscountType, Invoice, StaffMember, ServiceCatalogue, StorePhoto, StoreQuestion
 
 
 def _offer_label(offer) -> str:
@@ -287,6 +287,9 @@ class StoreMobileDetailSerializer(serializers.ModelSerializer):
     todays_hours     = serializers.SerializerMethodField()
     closes_at        = serializers.SerializerMethodField()
     next_open        = serializers.SerializerMethodField()
+    weekly_hours     = StoreHoursSerializer(source='hours', many=True, read_only=True)
+    live_is_open     = serializers.SerializerMethodField()
+    photos           = serializers.SerializerMethodField()
 
     class Meta:
         model  = Store
@@ -295,9 +298,11 @@ class StoreMobileDetailSerializer(serializers.ModelSerializer):
             'avatar', 'cover_image', 'logo_url', 'banner_url', 'qr_code_url',
             'category', 'store_type', 'vendor_type', 'is_home_based',
             'location', 'distance_km',
-            'is_open', 'is_verified', 'is_women_owned', 'privacy_mode', 'holiday_mode',
+            'is_open', 'live_is_open', 'is_verified', 'is_women_owned', 'privacy_mode', 'holiday_mode',
             'open_status_label', 'todays_hours', 'closes_at', 'next_open',
+            'weekly_hours',
             'rating', 'review_count', 'follower_count', 'is_followed',
+            'photos',
         ]
 
     @extend_schema_field(serializers.FloatField(allow_null=True))
@@ -357,6 +362,45 @@ class StoreMobileDetailSerializer(serializers.ModelSerializer):
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_next_open(self, obj):
         return None
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_live_is_open(self, obj):
+        """Compute open status from StoreHours + current IST time; falls back to is_open."""
+        if obj.holiday_mode:
+            return False
+        try:
+            from datetime import datetime
+            import pytz
+            ist = pytz.timezone('Asia/Kolkata')
+            now = datetime.now(ist)
+            current_time = now.time()
+            day = now.weekday()
+            hours = next((h for h in obj.hours.all() if h.day == day and not h.is_closed), None)
+            if hours:
+                return hours.open_time <= current_time <= hours.close_time
+        except Exception:
+            pass
+        return obj.is_open
+
+    @extend_schema_field(serializers.ListField(child=serializers.DictField()))
+    def get_photos(self, obj):
+        return [{'id': str(p.id), 'image_url': p.image_url, 'caption': p.caption} for p in obj.photos.all()[:12]]
+
+
+class StorePhotoSerializer(serializers.ModelSerializer):
+    class Meta:
+        model  = StorePhoto
+        fields = ['id', 'image_url', 'caption', 'order']
+        read_only_fields = ['id']
+
+
+class StoreQuestionSerializer(serializers.ModelSerializer):
+    user_name = serializers.CharField(source='user.full_name', read_only=True, default='Customer')
+
+    class Meta:
+        model  = StoreQuestion
+        fields = ['id', 'question', 'answer', 'answered_at', 'user_name', 'created_at']
+        read_only_fields = ['id', 'answer', 'answered_at', 'user_name', 'created_at']
 
 
 class InvoiceSerializer(serializers.ModelSerializer):

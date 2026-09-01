@@ -13,6 +13,7 @@ from .views import (
     StoreReviewEligibilityView, CustomerPurchaseHistoryView, InvoiceReturnView, InvoiceExportView,
     CustomerBlockStoreView, MonthlyEarningsPDFView,
     ServiceCatalogueListCreateView, ServiceCatalogueDetailView,
+    StorePhotoView, StorePhotoDeleteView, StoreQAView, StoreQAAnswerView,
 )
 from apps.blacklist.views import BlacklistToggleView, BlacklistListView
 from apps.admin_panel.views import PublicOfferTemplateListView
@@ -64,5 +65,11 @@ urlpatterns = [
     path('<uuid:store_id>/blacklist/<uuid:customer_id>/',        BlacklistToggleView.as_view(), name='store-blacklist-toggle'),
     # Customer block (customer blocks store)
     path('<uuid:store_id>/block/',                               CustomerBlockStoreView.as_view(), name='customer-block-store'),
+    # Photo gallery
+    path('<uuid:store_id>/photos/',                              StorePhotoView.as_view(),         name='store-photos'),
+    path('<uuid:store_id>/photos/<uuid:photo_id>/',              StorePhotoDeleteView.as_view(),    name='store-photo-delete'),
+    # Q&A
+    path('<uuid:store_id>/qa/',                                  StoreQAView.as_view(),            name='store-qa'),
+    path('<uuid:store_id>/qa/<uuid:question_id>/',               StoreQAAnswerView.as_view(),       name='store-qa-answer'),
 ]
 

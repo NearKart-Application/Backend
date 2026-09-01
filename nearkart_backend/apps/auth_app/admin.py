@@ -8,7 +8,7 @@ from django.db.models import Count
 from django.utils.html import format_html
 
 from core.admin_scope import get_user_scope
-from .models import User, OTPToken, DeviceToken
+from .models import User, OTPToken, DeviceToken, SocialAccount
 
 
 # ─── Chained location filters ─────────────────────────────────────────────────
@@ -168,6 +168,27 @@ class OTPTokenAdmin(admin.ModelAdmin):
         return False
 
     def has_change_permission(self, request, obj=None):
+        return False
+
+
+# ─── SocialAccount Admin ──────────────────────────────────────────────────────
+
+@admin.register(SocialAccount)
+class SocialAccountAdmin(admin.ModelAdmin):
+    list_display    = ['user_phone', 'provider', 'provider_uid', 'created_at']
+    list_filter     = ['provider']
+    search_fields   = ['user__phone_number', 'provider_uid', 'extra_data']
+    readonly_fields = ['created_at', 'updated_at', 'provider_uid', 'extra_data']
+    date_hierarchy  = 'created_at'
+    list_per_page   = 50
+    list_select_related = ['user']
+    raw_id_fields   = ['user']
+
+    @admin.display(description='User', ordering='user__phone_number')
+    def user_phone(self, obj):
+        return obj.user.phone_number
+
+    def has_add_permission(self, request):
         return False
 
 

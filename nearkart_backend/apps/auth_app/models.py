@@ -143,6 +143,78 @@ class OTPToken(BaseModel):
         return False
 
 
+class CustomerActivityLog(BaseModel):
+    """Tracks meaningful customer interactions: views, searches, wishlist, reservations."""
+
+    class Action(models.TextChoices):
+        PRODUCT_VIEW       = 'product_view',       'Product Viewed'
+        STORE_VIEW         = 'store_view',          'Store Viewed'
+        SEARCH             = 'search',              'Search'
+        WISHLIST_ADD       = 'wishlist_add',        'Wishlisted'
+        WISHLIST_REMOVE    = 'wishlist_remove',     'Unwishlisted'
+        RESERVATION_CREATE = 'reservation_create',  'Reservation Made'
+
+    user        = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True,
+                                    related_name='activity_logs')
+    phone       = models.CharField(max_length=20, blank=True, db_index=True)
+    action      = models.CharField(max_length=25, choices=Action.choices, db_index=True)
+    entity_type = models.CharField(max_length=20, blank=True)   # product / store / query
+    entity_id   = models.CharField(max_length=40, blank=True, db_index=True)
+    entity_name = models.CharField(max_length=250, blank=True)
+    meta        = models.JSONField(default=dict, blank=True)     # query text, results count, etc.
+    ip_address  = models.GenericIPAddressField(null=True, blank=True)
+    city        = models.CharField(max_length=150, blank=True)
+    device_type = models.CharField(max_length=10, blank=True)   # mobile / tablet / desktop
+
+    class Meta:
+        db_table = 'customer_activity_logs'
+        ordering = ['-created_at']
+        indexes  = [
+            models.Index(fields=['user', 'created_at'],   name='cal_user_idx'),
+            models.Index(fields=['action', 'created_at'], name='cal_action_idx'),
+        ]
+
+    def __str__(self):
+        return f'{self.phone or self.user_id} [{self.action}] @ {self.created_at}'
+
+
+class UserLoginLog(BaseModel):
+    """Audit trail for every login attempt — success and failure."""
+    DEVICE_TYPES = [('mobile', 'Mobile'), ('tablet', 'Tablet'), ('desktop', 'Desktop'), ('unknown', 'Unknown')]
+
+    user           = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True,
+                                       related_name='login_logs')
+    phone          = models.CharField(max_length=20, db_index=True)
+    role           = models.CharField(max_length=20, blank=True)
+    success        = models.BooleanField(default=True, db_index=True)
+    failure_reason = models.CharField(max_length=50, blank=True)
+
+    # Network
+    ip_address     = models.GenericIPAddressField(null=True, blank=True)
+    city           = models.CharField(max_length=150, blank=True)
+
+    # Device (parsed from User-Agent or sent by mobile app)
+    device_type    = models.CharField(max_length=10, choices=DEVICE_TYPES, default='unknown')
+    device_name    = models.CharField(max_length=200, blank=True)   # e.g. "Samsung SM-G991B"
+    os             = models.CharField(max_length=50, blank=True)    # Android / iOS / Windows / macOS
+    os_version     = models.CharField(max_length=30, blank=True)
+    browser        = models.CharField(max_length=100, blank=True)   # Chrome / Safari / NearKart App
+    app_version    = models.CharField(max_length=30, blank=True)    # mobile app version
+    user_agent     = models.TextField(blank=True)
+
+    class Meta:
+        db_table = 'auth_login_logs'
+        ordering = ['-created_at']
+        indexes  = [
+            models.Index(fields=['phone', 'created_at'],  name='login_log_phone_idx'),
+            models.Index(fields=['success', 'created_at'], name='login_log_success_idx'),
+        ]
+
+    def __str__(self):
+        status = 'OK' if self.success else f'FAIL({self.failure_reason})'
+        return f'{self.phone} [{status}] @ {self.created_at}'
+
+
 class DeviceToken(BaseModel):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='device_tokens')
     fcm_token = models.CharField(max_length=512)
@@ -160,3 +232,23 @@ class DeviceToken(BaseModel):
 
     def __str__(self):
         return f'{self.user.phone_number} - {self.device_type}'
+
+
+class SocialAccount(BaseModel):
+    """Stores the link between a NearSpot user and a third-party OAuth provider."""
+    PROVIDER_GOOGLE = 'google'
+    PROVIDER_APPLE  = 'apple'
+    PROVIDER_CHOICES = [('google', 'Google'), ('apple', 'Apple')]
+
+    user         = models.ForeignKey(User, on_delete=models.CASCADE, related_name='social_accounts')
+    provider     = models.CharField(max_length=20, choices=PROVIDER_CHOICES, db_index=True)
+    provider_uid = models.CharField(max_length=255, db_index=True)
+    extra_data   = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        db_table = 'auth_social_accounts'
+        unique_together = [('provider', 'provider_uid')]
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'{self.user.phone_number} [{self.provider}]'

@@ -1,6 +1,6 @@
 """Nearspot — Inventory Serializers"""
 from rest_framework import serializers
-from .models import Supplier, PurchaseOrder, StockAudit, CompositeProduct, SerialNumber
+from .models import Supplier, PurchaseOrder, StockAudit, CompositeProduct, SerialNumber, GroceryBatch, WastageRecord
 # StockMovementLog and StockWatchlist live in the products app (canonical tables);
 # the inventory.models duplicates are empty shadow tables.
 from apps.products.models import StockMovementLog, StockWatchlist
@@ -90,3 +90,32 @@ class SerialNumberSerializer(serializers.ModelSerializer):
             'serial_number', 'status', 'sold_at', 'notes', 'created_at',
         ]
         read_only_fields = ['id', 'created_at']
+
+
+class WastageRecordSerializer(serializers.ModelSerializer):
+    class Meta:
+        model  = WastageRecord
+        fields = ['id', 'quantity', 'reason', 'notes', 'created_at']
+        read_only_fields = ['id', 'created_at']
+
+
+class GroceryBatchSerializer(serializers.ModelSerializer):
+    variant_name    = serializers.CharField(source='variant.name', read_only=True)
+    is_expired      = serializers.BooleanField(read_only=True)
+    days_to_expiry  = serializers.IntegerField(read_only=True)
+    wastage_records = WastageRecordSerializer(many=True, read_only=True)
+    total_wastage   = serializers.SerializerMethodField()
+
+    class Meta:
+        model  = GroceryBatch
+        fields = [
+            'id', 'variant', 'variant_name', 'batch_number', 'quantity',
+            'remaining_qty', 'unit', 'unit_price', 'manufacture_date',
+            'expiry_date', 'is_perishable', 'temperature_zone', 'notes',
+            'is_expired', 'days_to_expiry', 'wastage_records', 'total_wastage',
+            'created_at',
+        ]
+        read_only_fields = ['id', 'remaining_qty', 'created_at']
+
+    def get_total_wastage(self, obj):
+        return str(sum(w.quantity for w in obj.wastage_records.all()))

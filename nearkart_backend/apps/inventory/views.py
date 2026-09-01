@@ -10,6 +10,7 @@ from core.permissions import IsVendor
 from .models import (
     Supplier, PurchaseOrder, StockAudit, StockAuditStatus,
     CompositeProduct, SerialNumber, SerialNumberStatus,
+    GroceryBatch, WastageRecord,
 )
 # StockMovementLog and StockWatchlist live in the products app (canonical tables)
 from apps.products.models import StockMovementLog, StockWatchlist
@@ -17,6 +18,7 @@ from .serializers import (
     StockMovementLogSerializer, StockWatchlistSerializer,
     SupplierSerializer, PurchaseOrderSerializer, StockAuditSerializer,
     CompositeProductSerializer, SerialNumberSerializer,
+    GroceryBatchSerializer, WastageRecordSerializer,
 )
 
 logger = logging.getLogger(__name__)
@@ -695,5 +697,125 @@ class DeadStockView(APIView):
                 }
                 for v in dead
             ],
+        })
+
+
+# ── Grocery / Perishable Inventory ────────────────────────────────────────────
+
+class GroceryBatchListView(APIView):
+    permission_classes = [IsVendor]
+
+    def get(self, request):
+        store = _vendor_store(request)
+        qs = GroceryBatch.objects.filter(
+            variant__product__store=store,
+        ).select_related('variant__product').prefetch_related('wastage_records')
+
+        zone = request.query_params.get('zone')
+        if zone:
+            qs = qs.filter(temperature_zone=zone)
+
+        expired = request.query_params.get('expired')
+        if expired == 'true':
+            from datetime import date
+            qs = qs.filter(expiry_date__lt=date.today())
+        elif expired == 'false':
+            from datetime import date
+            qs = qs.exclude(expiry_date__lt=date.today())
+
+        return Response(GroceryBatchSerializer(qs, many=True).data)
+
+    def post(self, request):
+        store = _vendor_store(request)
+        ser = GroceryBatchSerializer(data=request.data)
+        if not ser.is_valid():
+            return Response(ser.errors, status=400)
+        # Ensure variant belongs to this store
+        variant = ser.validated_data['variant']
+        if variant.product.store_id != store.id:
+            return Response({'error': 'Variant not in your store.'}, status=403)
+        batch = ser.save(remaining_qty=ser.validated_data['quantity'])
+        return Response(GroceryBatchSerializer(batch).data, status=201)
+
+
+class GroceryBatchDetailView(APIView):
+    permission_classes = [IsVendor]
+
+    def _get_batch(self, request, batch_id):
+        store = _vendor_store(request)
+        try:
+            return GroceryBatch.objects.select_related('variant__product').prefetch_related(
+                'wastage_records'
+            ).get(id=batch_id, variant__product__store=store)
+        except GroceryBatch.DoesNotExist:
+            return None
+
+    def get(self, request, batch_id):
+        batch = self._get_batch(request, batch_id)
+        if not batch:
+            return Response({'error': 'Not found.'}, status=404)
+        return Response(GroceryBatchSerializer(batch).data)
+
+    def patch(self, request, batch_id):
+        batch = self._get_batch(request, batch_id)
+        if not batch:
+            return Response({'error': 'Not found.'}, status=404)
+        ser = GroceryBatchSerializer(batch, data=request.data, partial=True)
+        if not ser.is_valid():
+            return Response(ser.errors, status=400)
+        ser.save()
+        return Response(GroceryBatchSerializer(batch).data)
+
+    def delete(self, request, batch_id):
+        batch = self._get_batch(request, batch_id)
+        if not batch:
+            return Response({'error': 'Not found.'}, status=404)
+        batch.delete()
+        return Response(status=204)
+
+
+class WastageRecordView(APIView):
+    permission_classes = [IsVendor]
+
+    def post(self, request, batch_id):
+        store = _vendor_store(request)
+        try:
+            batch = GroceryBatch.objects.get(id=batch_id, variant__product__store=store)
+        except GroceryBatch.DoesNotExist:
+            return Response({'error': 'Not found.'}, status=404)
+
+        ser = WastageRecordSerializer(data=request.data)
+        if not ser.is_valid():
+            return Response(ser.errors, status=400)
+
+        qty = ser.validated_data['quantity']
+        if qty > batch.remaining_qty:
+            return Response({'error': 'Wastage quantity exceeds remaining stock.'}, status=400)
+
+        record = ser.save(batch=batch, recorded_by=request.user)
+        return Response(WastageRecordSerializer(record).data, status=201)
+
+
+class NearExpiryAlertView(APIView):
+    permission_classes = [IsVendor]
+
+    def get(self, request):
+        from datetime import date, timedelta
+        store = _vendor_store(request)
+        days = int(request.query_params.get('days', 7))
+        threshold = date.today() + timedelta(days=days)
+
+        batches = GroceryBatch.objects.filter(
+            variant__product__store=store,
+            is_perishable=True,
+            expiry_date__isnull=False,
+            expiry_date__lte=threshold,
+            expiry_date__gte=date.today(),
+        ).select_related('variant__product').prefetch_related('wastage_records').order_by('expiry_date')
+
+        return Response({
+            'days_threshold': days,
+            'count': batches.count(),
+            'batches': GroceryBatchSerializer(batches, many=True).data,
         })
         return Response(SerialNumberSerializer(sn).data)

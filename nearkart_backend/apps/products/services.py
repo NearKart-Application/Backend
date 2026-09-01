@@ -145,8 +145,8 @@ class ProductService:
             logger.warning('[products] _notify_price_drop failed product %s: %s', product.id, exc)
 
     @staticmethod
-    def get_nearby(lat: float, lng: float, radius_km: int = 2, category: str = None, store_id: str = None):
-        return get_nearby_products(lat, lng, radius_km, category, store_id=store_id)
+    def get_nearby(lat: float, lng: float, radius_km: int = 2, category: str = None, store_id: str = None, limit: int = 200):
+        return get_nearby_products(lat, lng, radius_km, category, store_id=store_id, limit=limit)
 
     @staticmethod
     def search(
@@ -159,6 +159,7 @@ class ProductService:
         min_rating: float = None,
         has_offer: bool = None,
         ordering: str = None,
+        limit: int = 200,
     ):
         """
         Algorithm 7 — BM25 hybrid search with price/rating/offer/sort filters.
@@ -222,7 +223,7 @@ class ProductService:
         else:
             qs = qs.order_by('-hybrid_score')
 
-        return qs[:30]
+        return qs[:limit]
 
     @staticmethod
     def toggle_wishlist(user, product):

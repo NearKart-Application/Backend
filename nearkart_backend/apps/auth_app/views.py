@@ -21,6 +21,7 @@ from drf_spectacular.openapi import AutoSchema
 import rest_framework.serializers as s
 
 from core.logging import log_event
+from core.utils.ua_parser import parse_ua, get_client_ip
 from .serializers import (
     OTPSendSerializer,
     OTPVerifySerializer,
@@ -200,29 +201,68 @@ class OTPVerifyView(APIView):
     def post(self, request):
         serializer = OTPVerifySerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+
+        phone      = serializer.validated_data.get('phone_number', '')
+        ip         = get_client_ip(request)
+        ua_string  = request.META.get('HTTP_USER_AGENT', '')
+        ua_parsed  = parse_ua(ua_string)
+
+        # Extra device fields the mobile app can optionally send
+        device_name  = request.data.get('device_model', ua_parsed['device_name'])
+        os_version   = request.data.get('device_os_version', ua_parsed['os_version'])
+        app_version  = request.data.get('app_version', '')
+        city         = request.data.get('city', '')
+
+        # OkHttp UA doesn't contain "Android"/"Mobile" — if the app sent
+        # device_model it is definitively a mobile device, so override.
+        if request.data.get('device_model'):
+            ua_parsed['device_type'] = 'mobile'
+            if ua_parsed['os'] == 'Unknown':
+                ua_parsed['os'] = 'Android'
+
+        def _write_log(user, success, failure_reason=''):
+            from .models import UserLoginLog
+            try:
+                UserLoginLog.objects.create(
+                    user=user,
+                    phone=str(user.phone_number) if user else phone,
+                    role=user.role if user else '',
+                    success=success,
+                    failure_reason=failure_reason,
+                    ip_address=ip or None,
+                    city=city or (user.location_city if user else ''),
+                    device_type=ua_parsed['device_type'],
+                    device_name=device_name or ua_parsed['device_name'],
+                    os=ua_parsed['os'],
+                    os_version=os_version,
+                    browser=ua_parsed['browser'],
+                    app_version=app_version,
+                    user_agent=ua_string,
+                )
+            except Exception:
+                pass  # logging must never break login
+
         try:
-            user = OTPService.verify(
-                serializer.validated_data['phone_number'],
-                serializer.validated_data['otp'],
-            )
+            user = OTPService.verify(phone, serializer.validated_data['otp'])
         except ValueError as e:
             log_event('security', level='warning', action='login_failed',
-                      phone=serializer.validated_data.get('phone_number', ''),
-                      reason='otp_invalid',
-                      ip=request.META.get('HTTP_X_FORWARDED_FOR', request.META.get('REMOTE_ADDR', '')))
+                      phone=phone, reason='otp_invalid', ip=ip)
+            _write_log(None, success=False, failure_reason='otp_invalid')
             return Response(
                 {'error': 'otp_invalid', 'message': str(e)},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
         if user.is_suspended:
             log_event('security', level='warning', action='login_blocked',
                       user_id=str(user.id), phone=str(user.phone_number),
-                      reason='account_suspended',
-                      ip=request.META.get('HTTP_X_FORWARDED_FOR', request.META.get('REMOTE_ADDR', '')))
+                      reason='account_suspended', ip=ip)
+            _write_log(user, success=False, failure_reason='suspended')
             return Response(
                 {'error': 'account_suspended', 'message': user.suspension_reason or 'Your account has been temporarily suspended. Please contact support.'},
                 status=status.HTTP_403_FORBIDDEN,
             )
+
         # Link referral code for new users only
         referral_code = (serializer.validated_data.get('referral_code') or '').strip().upper()
         is_new_user   = user.registered_location is None
@@ -231,11 +271,13 @@ class OTPVerifyView(APIView):
                 from apps.billing.services import ReferralService
                 ReferralService.link_referred_user(user, referral_code)
             except Exception:
-                pass  # referral link must never break login
+                pass
 
         tokens = JWTService.issue_tokens(user)
         log_event('auth', action='login_success', user_id=str(user.id), role=user.role,
-                  phone=str(user.phone_number), is_new=is_new_user)
+                  phone=str(user.phone_number), is_new=is_new_user, ip=ip,
+                  device=ua_parsed['device_type'], os=ua_parsed['os'])
+        _write_log(user, success=True)
         return Response({
             'message': 'Login successful',
             'user': UserSerializer(user).data,
@@ -535,12 +577,182 @@ class AvatarUploadView(APIView):
         filename = f'avatars/{request.user.id}/avatar_{uuid.uuid4().hex}{ext}'
         path = default_storage.save(filename, ContentFile(file.read()))
         raw_url = default_storage.url(path)
-        avatar_url = raw_url if raw_url.startswith('http') else request.build_absolute_uri(raw_url)
+        if raw_url.startswith('http'):
+            avatar_url = raw_url.replace('http://', 'https://', 1)
+        else:
+            avatar_url = request.build_absolute_uri(raw_url).replace('http://', 'https://', 1)
 
         request.user.avatar = avatar_url
         request.user.save(update_fields=['avatar'])
         log_event('auth', action='avatar_uploaded', user_id=str(request.user.id))
         return Response({'avatar': avatar_url})
+
+
+class SessionListView(APIView):
+    """
+    GET  /auth/me/sessions/  — last 20 successful login sessions for the current user
+    DELETE /auth/me/sessions/ — sign out all devices (blacklist current refresh token)
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from .models import UserLoginLog
+        logs = (
+            UserLoginLog.objects
+            .filter(user=request.user, success=True)
+            .order_by('-created_at')[:20]
+        )
+        results = [
+            {
+                'id':          str(log.id),
+                'device_type': log.device_type,
+                'device_name': log.device_name or 'Unknown device',
+                'os':          log.os or '',
+                'browser':     log.browser or '',
+                'city':        log.city or '',
+                'created_at':  log.created_at,
+            }
+            for log in logs
+        ]
+        return Response({'results': results})
+
+    def delete(self, request):
+        refresh_token = request.data.get('refresh')
+        if refresh_token:
+            try:
+                RefreshToken(refresh_token).blacklist()
+            except TokenError:
+                pass
+        log_event('auth', action='signout_all_devices', user_id=str(request.user.id))
+        return Response({'message': 'Signed out of all devices successfully'})
+
+
+class AccountDeleteView(APIView):
+    """DELETE /auth/me/ — GDPR right-to-be-forgotten: anonymise and deactivate the account."""
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request):
+        user = request.user
+        import uuid as _uuid
+
+        # Blacklist current refresh token so it cannot be reused
+        refresh_token = request.data.get('refresh')
+        if refresh_token:
+            try:
+                RefreshToken(refresh_token).blacklist()
+            except TokenError:
+                pass
+
+        # Anonymise personal data
+        anon_suffix = _uuid.uuid4().hex[:12]
+        user.phone_number = f'+00{anon_suffix}'
+        user.full_name    = 'Deleted User'
+        user.email        = ''
+        user.avatar       = ''
+        user.is_active    = False
+        user.save(update_fields=['phone_number', 'full_name', 'email', 'avatar', 'is_active', 'updated_at'])
+
+        # Remove sensitive linked data
+        from .models import OTPToken, DeviceToken, SocialAccount
+        OTPToken.objects.filter(user=user).delete()
+        DeviceToken.objects.filter(user=user).delete()
+        SocialAccount.objects.filter(user=user).delete()
+
+        log_event('auth', action='account_deleted', user_id=str(user.id))
+        return Response({'message': 'Account deleted successfully'}, status=status.HTTP_204_NO_CONTENT)
+
+
+class SocialGoogleView(APIView):
+    """
+    POST /auth/social/google/
+    Body: { "id_token": "<Google ID token from client>" }
+    Verifies the token with Google, then finds-or-creates a NearSpot user and issues JWT.
+    """
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        import requests as http_requests
+        from django.conf import settings as _s
+
+        id_token_str = request.data.get('id_token', '').strip()
+        if not id_token_str:
+            return Response({'error': 'id_token_required', 'message': 'id_token is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Verify token with Google's tokeninfo endpoint
+        try:
+            resp = http_requests.get(
+                'https://oauth2.googleapis.com/tokeninfo',
+                params={'id_token': id_token_str},
+                timeout=10,
+            )
+            if resp.status_code != 200:
+                raise ValueError('Token verification failed')
+            info = resp.json()
+            if 'error_description' in info:
+                raise ValueError(info['error_description'])
+        except Exception as e:
+            return Response({'error': 'invalid_token', 'message': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Validate audience (optional but recommended when GOOGLE_CLIENT_IDS is set)
+        allowed_audiences = getattr(_s, 'GOOGLE_CLIENT_IDS', [])
+        if allowed_audiences and info.get('aud') not in allowed_audiences:
+            return Response({'error': 'invalid_audience', 'message': 'Token audience mismatch.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        google_uid = info.get('sub', '')
+        email      = info.get('email', '')
+        name       = info.get('name', '')
+        picture    = info.get('picture', '')
+
+        if not google_uid:
+            return Response({'error': 'invalid_token', 'message': 'Could not extract user ID from token.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        from .models import User as _User, SocialAccount
+
+        # Find existing social account
+        try:
+            social  = SocialAccount.objects.select_related('user').get(provider='google', provider_uid=google_uid)
+            user    = social.user
+            is_new  = False
+            # Keep extra_data fresh
+            social.extra_data = {'email': email, 'name': name, 'picture': picture}
+            social.save(update_fields=['extra_data', 'updated_at'])
+        except SocialAccount.DoesNotExist:
+            # Try to match by verified email
+            user = None
+            if email:
+                user = _User.objects.filter(email=email, is_active=True).first()
+
+            if user is None:
+                import uuid as _uuid
+                user = _User.objects.create_user(
+                    phone_number=f'g_{_uuid.uuid4().hex[:12]}',
+                    role='',
+                    full_name=name,
+                    email=email,
+                )
+                if picture:
+                    user.avatar = picture
+                    user.save(update_fields=['avatar'])
+
+            SocialAccount.objects.create(
+                user=user,
+                provider='google',
+                provider_uid=google_uid,
+                extra_data={'email': email, 'name': name, 'picture': picture},
+            )
+            is_new = not user.role
+
+        if not user.is_active:
+            return Response({'error': 'account_inactive', 'message': 'This account is no longer active.'}, status=status.HTTP_403_FORBIDDEN)
+
+        tokens = JWTService.issue_tokens(user)
+        log_event('auth', action='social_login', provider='google', user_id=str(user.id), is_new=is_new)
+        return Response({
+            'message': 'Login successful',
+            'user':    UserSerializer(user).data,
+            'is_new':  is_new,
+            **tokens,
+        }, status=status.HTTP_200_OK)
 
 
 class ClientLogsView(APIView):

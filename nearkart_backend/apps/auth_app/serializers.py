@@ -13,9 +13,9 @@ class OTPSendSerializer(serializers.Serializer):
 
     def validate_phone_number(self, value):
         cleaned = re.sub(r'\s+', '', value)
-        if not re.match(r'^\+91[6-9]\d{9}$', cleaned):
+        if not re.match(r'^\+\d{7,15}$', cleaned):
             raise serializers.ValidationError(
-                'Enter a valid Indian mobile number in +91XXXXXXXXXX format.'
+                'Enter a valid phone number with country code (e.g. +919876543210).'
             )
         return cleaned
 
@@ -27,8 +27,8 @@ class OTPVerifySerializer(serializers.Serializer):
 
     def validate_phone_number(self, value):
         value = re.sub(r'\s+', '', value)
-        if not re.match(r'^\+91[6-9]\d{9}$', value):
-            raise serializers.ValidationError('Enter a valid Indian mobile number (+91XXXXXXXXXX).')
+        if not re.match(r'^\+\d{7,15}$', value):
+            raise serializers.ValidationError('Enter a valid phone number with country code (e.g. +919876543210).')
         return value
 
     def validate_otp(self, value):

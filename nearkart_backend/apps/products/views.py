@@ -20,11 +20,17 @@ import rest_framework.serializers as s
 from core.logging import log_event
 from core.pagination import StandardOffsetPagination
 from core.permissions import IsVendor, IsStoreOwner
+from core.utils.vendor_log import log_vendor_action
+from core.utils.customer_log import log_customer_action
 from apps.billing.services import BillingService
 from core.utils.cache import CacheService
 from core.utils.upload_tracker import UploadTracker
-from .models import Product, ProductVariant, ProductImage, StockWatchlist, StockMovementReason, ProductReview
-from .serializers import ProductSerializer, ProductListSerializer, MobileProductDetailSerializer, ProductReviewSerializer, ProductReviewListSerializer
+from .models import Product, ProductVariant, ProductImage, StockWatchlist, StockMovementReason, ProductReview, ProductQA, ProductPriceHistory
+from .serializers import (
+    ProductSerializer, ProductListSerializer, MobileProductDetailSerializer,
+    ProductReviewSerializer, ProductReviewListSerializer,
+    ProductQASerializer, ProductPriceHistorySerializer,
+)
 from .services import ProductService
 from .inventory_service import InventoryService, LOW_STOCK_THRESHOLD
 
@@ -50,19 +56,28 @@ class NearbyProductsView(APIView):
     )
     def get(self, request):
         try:
-            lat      = float(request.query_params['lat'])
-            lng      = float(request.query_params['lng'])
-            radius   = int(request.query_params.get('radius', 2))
-            category = request.query_params.get('category')
-            store_id = request.query_params.get('store')
+            lat       = float(request.query_params['lat'])
+            lng       = float(request.query_params['lng'])
+            radius    = int(request.query_params.get('radius', 2))
+            category  = request.query_params.get('category')
+            store_id  = request.query_params.get('store')
+            page      = max(int(request.query_params.get('page', 1)), 1)
+            page_size = min(max(int(request.query_params.get('page_size', 20)), 1), 100)
         except (KeyError, ValueError):
             return Response(
                 {'error': 'validation_error', 'message': 'lat and lng are required numbers.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         products = ProductService.get_nearby(lat, lng, radius_km=radius, category=category, store_id=store_id)
-        data = ProductListSerializer(products, many=True, context={'request': request}).data
-        return Response({'count': len(data), 'next': None, 'previous': None, 'results': data})
+        total    = len(products)
+        offset   = (page - 1) * page_size
+        data     = ProductListSerializer(products[offset:offset + page_size], many=True, context={'request': request}).data
+        return Response({
+            'count':    total,
+            'next':     page + 1 if offset + page_size < total else None,
+            'previous': page - 1 if page > 1 else None,
+            'results':  data,
+        })
 
 
 class ProductSearchView(APIView):
@@ -104,6 +119,12 @@ class ProductSearchView(APIView):
         min_rating = request.query_params.get('min_rating')
         has_offer  = request.query_params.get('has_offer', '').lower() in ('1', 'true')
         ordering   = request.query_params.get('ordering')
+        try:
+            page      = max(int(request.query_params.get('page', 1)), 1)
+            page_size = min(max(int(request.query_params.get('page_size', 20)), 1), 50)
+        except ValueError:
+            page, page_size = 1, 20
+        offset = (page - 1) * page_size
         products   = ProductService.search(
             query, lat, lng, radius,
             min_price=float(min_price) if min_price else None,
@@ -111,12 +132,55 @@ class ProductSearchView(APIView):
             min_rating=float(min_rating) if min_rating else None,
             has_offer=has_offer or None,
             ordering=ordering,
+            limit=offset + page_size + 1,
         )
-        serialized = ProductListSerializer(products, many=True, context={'request': request}).data
+        total      = len(products)
+        page_data  = products[offset:offset + page_size]
+        serialized = ProductListSerializer(page_data, many=True, context={'request': request}).data
         user = request.user if request.user.is_authenticated else None
-        log_event('customers', action='product_searched', query=query, results=len(serialized),
-                  user_id=str(user.id) if user else None)
-        return Response({'count': len(serialized), 'next': None, 'previous': None, 'results': serialized})
+        if page == 1:
+            log_event('customers', action='product_searched', query=query, results=total,
+                      user_id=str(user.id) if user else None)
+            log_customer_action(request, 'search', entity_type='query',
+                                entity_name=query, meta={'results': total, 'radius': radius})
+        return Response({
+            'count':    total,
+            'next':     page + 1 if offset + page_size < total else None,
+            'previous': page - 1 if page > 1 else None,
+            'results':  serialized,
+        })
+
+
+class ProductAutocompleteView(APIView):
+    """GET /products/autocomplete/?q= — product name + store name prefix suggestions (max 5)."""
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        q = request.query_params.get('q', '').strip()
+        if len(q) < 2:
+            return Response({'suggestions': []})
+        from apps.stores.models import Store
+        prod_names = list(
+            Product.objects.filter(
+                status='active', is_visible=True,
+                store__is_active=True, store__is_verified=True,
+                name__icontains=q,
+            ).values_list('name', flat=True).distinct()[:5]
+        )
+        store_names = list(
+            Store.objects.filter(is_active=True, is_verified=True, name__icontains=q)
+            .values_list('name', flat=True).distinct()[:5]
+        )
+        seen: set = set()
+        suggestions: list = []
+        for item in prod_names + store_names:
+            key = item.lower()
+            if key not in seen:
+                seen.add(key)
+                suggestions.append(item)
+            if len(suggestions) >= 5:
+                break
+        return Response({'suggestions': suggestions})
 
 
 class FollowingFeedView(APIView):
@@ -149,6 +213,52 @@ class FollowingFeedView(APIView):
         return Response({'count': len(serialized), 'next': None, 'previous': None, 'results': serialized})
 
 
+class RecommendedProductsView(APIView):
+    """GET /api/v1/products/recommended/ — personalised products based on wishlist categories.
+    Falls back to nearest products for unauthenticated or zero-wishlist users."""
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        try:
+            lat    = float(request.query_params['lat'])
+            lng    = float(request.query_params['lng'])
+            radius = int(request.query_params.get('radius', 5))
+        except (KeyError, ValueError):
+            return Response(
+                {'error': 'validation_error', 'message': 'lat and lng are required numbers.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        categories: list[str] = []
+        if request.user.is_authenticated:
+            from .models import Wishlist
+            categories = list(
+                Wishlist.objects.filter(user=request.user)
+                .values_list('product__category', flat=True)
+                .distinct()[:5]
+            )
+
+        if categories:
+            from core.utils.geo import get_nearby_products
+            seen_ids: set = set()
+            rec_products: list = []
+            for cat in categories:
+                for p in get_nearby_products(lat, lng, radius, category=cat, limit=10):
+                    pid = str(p.id)
+                    if pid not in seen_ids:
+                        rec_products.append(p)
+                        seen_ids.add(pid)
+                    if len(rec_products) >= 20:
+                        break
+                if len(rec_products) >= 20:
+                    break
+        else:
+            rec_products = ProductService.get_nearby(lat, lng, radius_km=radius, limit=20)
+
+        data = ProductListSerializer(rec_products[:20], many=True, context={'request': request}).data
+        return Response({'count': len(data), 'results': data})
+
+
 class ProductDetailView(APIView):
     permission_classes = [AllowAny]
 
@@ -173,6 +283,9 @@ class ProductDetailView(APIView):
         user = request.user if request.user.is_authenticated else None
         log_event('products', action='product_viewed', product_id=str(product_id),
                   store_id=str(product.store_id), user_id=str(user.id) if user else None)
+        log_customer_action(request, 'product_view', entity_type='product',
+                            entity_id=str(product_id), entity_name=product.name,
+                            meta={'store_id': str(product.store_id), 'store_name': product.store.name})
         return Response(data)
 
 
@@ -250,6 +363,9 @@ class ProductCreateView(APIView):
         log_event('products', action='product_created', product_id=str(product.id),
                   store_id=str(request.user.store.id), user_id=str(request.user.id),
                   name=product.name, price=str(product.base_price))
+        log_vendor_action(request, 'product_create', entity_type='product',
+                          entity_id=str(product.id), entity_name=product.name,
+                          meta={'price': str(product.base_price), 'category': product.category})
         return Response(ProductSerializer(product, context={'request': request}).data, status=status.HTTP_201_CREATED)
 
 
@@ -301,6 +417,9 @@ class ProductUpdateView(APIView):
         CacheService.invalidate_product_detail(str(product_id))
         log_event('products', action='product_updated', product_id=str(product_id),
                   store_id=str(product.store_id), user_id=str(request.user.id))
+        log_vendor_action(request, 'product_update', entity_type='product',
+                          entity_id=str(product_id), entity_name=product.name,
+                          meta={'fields': list(serializer.validated_data.keys())})
         return Response(ProductSerializer(product, context={'request': request}).data)
 
     @extend_schema(tags=[_TAG], summary='Delete product (owner only)', responses={204: None})
@@ -311,10 +430,13 @@ class ProductUpdateView(APIView):
             return Response({'error': 'not_found', 'message': 'Product not found.'}, status=status.HTTP_404_NOT_FOUND)
         self.check_object_permissions(request, product)
         store_id = str(product.store_id)
+        product_name = product.name
         product.delete()
         CacheService.invalidate_product_detail(str(product_id))
         log_event('products', action='product_deleted', product_id=str(product_id),
                   store_id=store_id, user_id=str(request.user.id))
+        log_vendor_action(request, 'product_delete', entity_type='product',
+                          entity_id=str(product_id), entity_name=product_name)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -376,7 +498,10 @@ class ProductImageUploadView(APIView):
                 filename = f'products/{product_id}/{uuid.uuid4().hex}{ext}'
                 path = default_storage.save(filename, ContentFile(file.read()))
                 raw_url = default_storage.url(path)
-                url = raw_url if raw_url.startswith('http') else request.build_absolute_uri(raw_url)
+                if raw_url.startswith('http'):
+                    url = raw_url.replace('http://', 'https://', 1)
+                else:
+                    url = request.build_absolute_uri(raw_url).replace('http://', 'https://', 1)
                 is_primary = (existing_count == 0 and i == 0)
                 ProductImage.objects.create(
                     product=product,
@@ -387,6 +512,9 @@ class ProductImageUploadView(APIView):
                 saved_urls.append(url)
 
             CacheService.invalidate_product_detail(str(product_id))
+            log_vendor_action(request, 'image_upload', entity_type='product',
+                              entity_id=str(product_id), entity_name=product.name,
+                              meta={'count': len(saved_urls)})
             return Response({'urls': saved_urls, 'primary_image': saved_urls[0] if saved_urls else None})
 
         except Exception as e:
@@ -414,6 +542,8 @@ class ProductImageDeleteView(APIView):
                 first.is_primary = True
                 first.save(update_fields=['is_primary'])
         CacheService.invalidate_product_detail(str(product_id))
+        log_vendor_action(request, 'image_delete', entity_type='product',
+                          entity_id=str(product_id), entity_name=product.name)
         remaining = [{'id': str(img.id), 'image_url': img.image_url, 'is_primary': img.is_primary}
                      for img in product.images.order_by('order')]
         return Response({'images': remaining})
@@ -438,6 +568,8 @@ class ProductWishlistView(APIView):
         log_event('customers', action='product_wishlisted' if added else 'product_unwishlisted',
                   product_id=str(product_id), store_id=str(product.store_id),
                   user_id=str(request.user.id))
+        log_customer_action(request, 'wishlist_add' if added else 'wishlist_remove',
+                            entity_type='product', entity_id=str(product_id), entity_name=product.name)
         return Response({'wishlisted': added, 'message': msg})
 
     @extend_schema(tags=[_TAG], summary='Remove product from wishlist', responses={200: None})
@@ -501,6 +633,10 @@ class ProductReserveView(APIView):
             customer=request.user, store=store, product=product, quantity=quantity, note=note,
             points_redeemed=points_to_redeem, discount_amount=discount_amount,
         )
+        log_customer_action(request, 'reservation_create', entity_type='product',
+                            entity_id=str(product_id), entity_name=product.name,
+                            meta={'store_id': str(store.id), 'store_name': store.name,
+                                  'quantity': quantity, 'reservation_id': str(reservation.id)})
         from apps.reservations.serializers import ReservationSerializer
         return Response(ReservationSerializer(reservation).data, status=status.HTTP_201_CREATED)
 
@@ -617,12 +753,16 @@ class VariantStockUpdateView(APIView):
             return Response({'error': 'validation_error', 'message': 'stock_quantity must be a non-negative integer.'}, status=400)
 
         note = request.data.get('note', '')
+        old_qty = variant.stock_quantity
         InventoryService.update_stock(
             variant=variant, new_qty=new_qty,
             changed_by=request.user,
             reason=StockMovementReason.MANUAL,
             note=note,
         )
+        log_vendor_action(request, 'stock_update', entity_type='variant',
+                          entity_id=str(variant_id), entity_name=f'{product.name} / {variant.name}',
+                          meta={'old_qty': old_qty, 'new_qty': new_qty, 'delta': new_qty - old_qty, 'note': note})
         return Response({
             'id':             str(variant.id),
             'name':           variant.name,
@@ -697,6 +837,10 @@ class ProductVariantBulkUpdateView(APIView):
                     for v, old_q, new_q in stock_changes
                 ])
 
+        if updated:
+            log_vendor_action(request, 'stock_bulk_update', entity_type='product',
+                              entity_id=str(product_id), entity_name=product.name,
+                              meta={'updated': len(updated), 'stock_changes': len(stock_changes), 'errors': len(errors)})
         return Response({
             'updated': len(updated),
             'errors':  errors,
@@ -734,6 +878,68 @@ class StockLogView(APIView):
             for log in logs
         ]
         return Response({'results': data, 'count': len(data)})
+
+
+class VendorStockLogsView(APIView):
+    """GET /products/vendor/stock-logs/ — paginated stock movement history across all vendor products."""
+    permission_classes = [IsAuthenticated, IsVendor]
+
+    @extend_schema(
+        tags=[_TAG],
+        summary='All stock movement logs (vendor-wide)',
+        parameters=[
+            OpenApiParameter('product_id', str,  description='Filter by product UUID',  required=False),
+            OpenApiParameter('variant_id', str,  description='Filter by variant UUID',  required=False),
+            OpenApiParameter('reason',     str,  description='Filter by reason (manual/reservation/restoration/restock/invoice)', required=False),
+        ],
+    )
+    def get(self, request):
+        if not hasattr(request.user, 'store'):
+            return Response({'results': [], 'count': 0})
+
+        from .models import StockMovementLog
+        qs = (
+            StockMovementLog.objects
+            .filter(variant__product__store=request.user.store)
+            .select_related('variant', 'variant__product', 'changed_by')
+            .order_by('-created_at')
+        )
+
+        product_id = request.query_params.get('product_id')
+        if product_id:
+            qs = qs.filter(variant__product__id=product_id)
+
+        variant_id = request.query_params.get('variant_id')
+        if variant_id:
+            qs = qs.filter(variant__id=variant_id)
+
+        reason = request.query_params.get('reason')
+        if reason:
+            qs = qs.filter(reason=reason)
+
+        paginator = StandardOffsetPagination()
+        paginator.page_size = 25
+        page = paginator.paginate_queryset(qs, request)
+
+        data = [
+            {
+                'id':           str(log.id),
+                'product_id':   str(log.variant.product.id),
+                'product_name': log.variant.product.name,
+                'variant_id':   str(log.variant.id),
+                'variant_name': log.variant.name,
+                'sku':          log.variant.sku,
+                'old_qty':      log.old_qty,
+                'new_qty':      log.new_qty,
+                'delta':        log.delta,
+                'reason':       log.reason,
+                'note':         log.note,
+                'changed_by':   log.changed_by.phone_number if log.changed_by else 'system',
+                'created_at':   log.created_at.isoformat(),
+            }
+            for log in page
+        ]
+        return paginator.get_paginated_response(data)
 
 
 class StockAlertsView(APIView):
@@ -907,3 +1113,193 @@ class ProductDemoVideoView(APIView):
         if not video:
             return Response({'detail': 'No demo video found for this product.'}, status=status.HTTP_404_NOT_FOUND)
         return Response(VideoSerializer(video, context={'request': request}).data)
+
+
+class ProductQAView(APIView):
+    """
+    GET  /products/<id>/qa/   — list Q&A (public)
+    POST /products/<id>/qa/   — ask a question (authenticated)
+    """
+
+    def get_permissions(self):
+        if self.request.method == 'GET':
+            return [AllowAny()]
+        return [IsAuthenticated()]
+
+    def get(self, request, product_id):
+        qs = ProductQA.objects.filter(product_id=product_id).select_related('user').order_by('-created_at')[:50]
+        return Response({'results': ProductQASerializer(qs, many=True).data, 'count': qs.count()})
+
+    def post(self, request, product_id):
+        try:
+            product = Product.objects.get(id=product_id, is_visible=True)
+        except Product.DoesNotExist:
+            return Response({'error': 'not_found'}, status=status.HTTP_404_NOT_FOUND)
+        question = request.data.get('question', '').strip()
+        if not question:
+            return Response({'error': 'validation_error', 'message': 'question is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        qa = ProductQA.objects.create(product=product, user=request.user, question=question)
+        return Response(ProductQASerializer(qa).data, status=status.HTTP_201_CREATED)
+
+
+class ProductQAAnswerView(APIView):
+    """PUT /products/<product_id>/qa/<qa_id>/answer/ — vendor answers a question."""
+    permission_classes = [IsAuthenticated, IsStoreOwner]
+
+    def put(self, request, product_id, qa_id):
+        try:
+            product = Product.objects.get(id=product_id)
+        except Product.DoesNotExist:
+            return Response({'error': 'not_found'}, status=status.HTTP_404_NOT_FOUND)
+        self.check_object_permissions(request, product)
+        try:
+            qa = ProductQA.objects.get(id=qa_id, product=product)
+        except ProductQA.DoesNotExist:
+            return Response({'error': 'not_found'}, status=status.HTTP_404_NOT_FOUND)
+        answer = request.data.get('answer', '').strip()
+        if not answer:
+            return Response({'error': 'validation_error', 'message': 'answer is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        from django.utils import timezone
+        qa.answer = answer
+        qa.answered_at = timezone.now()
+        qa.save(update_fields=['answer', 'answered_at'])
+        return Response(ProductQASerializer(qa).data)
+
+
+class ProductPriceHistoryView(APIView):
+    """GET /products/<id>/price-history/ — public price change log."""
+    permission_classes = [AllowAny]
+
+    def get(self, request, product_id):
+        try:
+            product = Product.objects.only('id', 'base_price', 'name').get(id=product_id, is_visible=True)
+        except Product.DoesNotExist:
+            return Response({'error': 'not_found'}, status=status.HTTP_404_NOT_FOUND)
+        history = ProductPriceHistory.objects.filter(product=product).order_by('-created_at')[:24]
+        return Response({
+            'current_price': str(product.base_price),
+            'history': ProductPriceHistorySerializer(history, many=True).data,
+        })
+
+
+class ProductBulkImportView(APIView):
+    """POST /products/vendor/import-csv/ — bulk create products from CSV file."""
+    permission_classes = [IsAuthenticated, IsVendor]
+
+    def post(self, request):
+        import csv, io
+        if not hasattr(request.user, 'store'):
+            return Response({'error': 'no_store', 'message': 'Create a store first.'}, status=status.HTTP_400_BAD_REQUEST)
+        file = request.FILES.get('file')
+        if not file:
+            return Response({'error': 'no_file', 'message': 'CSV file is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            text = file.read().decode('utf-8-sig')
+            reader = csv.DictReader(io.StringIO(text))
+        except Exception:
+            return Response({'error': 'invalid_file', 'message': 'Could not parse CSV.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        created_count = 0
+        errors = []
+        for i, row in enumerate(reader, start=2):
+            name = (row.get('name') or '').strip()
+            if not name:
+                errors.append({'row': i, 'message': 'name is required'})
+                continue
+            try:
+                base_price_raw = row.get('base_price') or row.get('price') or '0'
+                base_price = float(base_price_raw.replace(',', '').strip())
+                if base_price <= 0:
+                    raise ValueError('price must be > 0')
+            except (ValueError, AttributeError):
+                errors.append({'row': i, 'message': f'invalid base_price: {base_price_raw!r}'})
+                continue
+            from decimal import Decimal
+            product = Product.objects.create(
+                store=request.user.store,
+                name=name,
+                category=(row.get('category') or 'others').strip().lower(),
+                description=(row.get('description') or '').strip(),
+                base_price=Decimal(str(base_price)),
+                barcode=(row.get('barcode') or row.get('ean') or '').strip(),
+                status='draft',
+                is_visible=False,
+            )
+            stock = int((row.get('stock') or '0').strip() or '0')
+            sku = f'{product.product_code}-DEFAULT'
+            ProductVariant.objects.create(
+                product=product, name='Default',
+                sku=sku, price=product.base_price, stock_quantity=stock,
+            )
+            created_count += 1
+
+        return Response({'created': created_count, 'errors': errors},
+                        status=status.HTTP_201_CREATED if created_count else status.HTTP_400_BAD_REQUEST)
+
+
+class ProductBundleComponentsView(APIView):
+    """
+    GET  /products/<id>/bundle-components/   — list bundle components
+    POST /products/<id>/bundle-components/   — add a component variant
+    """
+    permission_classes = [IsAuthenticated, IsStoreOwner]
+
+    def get(self, request, product_id):
+        try:
+            product = Product.objects.get(id=product_id)
+        except Product.DoesNotExist:
+            return Response({'error': 'not_found'}, status=status.HTTP_404_NOT_FOUND)
+        from apps.inventory.models import CompositeProduct
+        components = CompositeProduct.objects.filter(bundle_product=product).select_related('component_variant__product')
+        data = [
+            {
+                'id': str(c.id),
+                'variant_id': str(c.component_variant.id),
+                'variant_name': c.component_variant.name,
+                'product_name': c.component_variant.product.name,
+                'quantity': c.quantity,
+            }
+            for c in components
+        ]
+        return Response({'results': data, 'count': len(data)})
+
+    def post(self, request, product_id):
+        try:
+            product = Product.objects.get(id=product_id)
+        except Product.DoesNotExist:
+            return Response({'error': 'not_found'}, status=status.HTTP_404_NOT_FOUND)
+        self.check_object_permissions(request, product)
+        variant_id = request.data.get('variant_id')
+        quantity = int(request.data.get('quantity', 1))
+        if not variant_id:
+            return Response({'error': 'validation_error', 'message': 'variant_id required.'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            variant = ProductVariant.objects.get(id=variant_id, product__store=request.user.store)
+        except ProductVariant.DoesNotExist:
+            return Response({'error': 'not_found', 'message': 'Variant not found in your store.'}, status=status.HTTP_404_NOT_FOUND)
+        from apps.inventory.models import CompositeProduct
+        comp, _ = CompositeProduct.objects.update_or_create(
+            bundle_product=product, component_variant=variant,
+            defaults={'quantity': quantity},
+        )
+        return Response({
+            'id': str(comp.id), 'variant_id': str(variant.id),
+            'variant_name': variant.name, 'quantity': comp.quantity,
+        }, status=status.HTTP_201_CREATED)
+
+
+class ProductBundleComponentDeleteView(APIView):
+    """DELETE /products/<id>/bundle-components/<comp_id>/"""
+    permission_classes = [IsAuthenticated, IsStoreOwner]
+
+    def delete(self, request, product_id, comp_id):
+        try:
+            product = Product.objects.get(id=product_id)
+        except Product.DoesNotExist:
+            return Response({'error': 'not_found'}, status=status.HTTP_404_NOT_FOUND)
+        self.check_object_permissions(request, product)
+        from apps.inventory.models import CompositeProduct
+        deleted, _ = CompositeProduct.objects.filter(id=comp_id, bundle_product=product).delete()
+        if not deleted:
+            return Response({'error': 'not_found'}, status=status.HTTP_404_NOT_FOUND)
+        return Response(status=status.HTTP_204_NO_CONTENT)

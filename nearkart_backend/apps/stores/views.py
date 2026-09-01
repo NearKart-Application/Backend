@@ -27,14 +27,14 @@ from core.utils.customer_log import log_customer_action
 from core.utils.cache import CacheService
 from apps.blacklist.services import BlacklistService
 from django.utils import timezone as tz
-from .models import Store, StoreHours, StoreOffer, StoreReview, Invoice, WebsiteRequest, StaffMember, StaffRole, BroadcastChannel, BroadcastPost, CustomerBlockedStore, ServiceCatalogue
+from .models import Store, StoreHours, StoreOffer, StoreReview, Invoice, WebsiteRequest, StaffMember, StaffRole, BroadcastChannel, BroadcastPost, CustomerBlockedStore, ServiceCatalogue, StorePhoto, StoreQuestion
 from .serializers import (
     StoreSerializer, StoreListSerializer, StoreReviewSerializer,
     StoreReviewListSerializer, StoreOfferSerializer,
     StoreHoursSerializer, StoreMobileDetailSerializer, VendorReplySerializer,
     InvoiceSerializer, StaffMemberSerializer, StoreFollowerSerializer,
     CustomerInvoiceSerializer, annotate_stores_with_subcategories,
-    ServiceCatalogueSerializer,
+    ServiceCatalogueSerializer, StorePhotoSerializer, StoreQuestionSerializer,
 )
 from .services import StoreService, QRService
 
@@ -119,9 +119,10 @@ class StoreDetailView(APIView):
             return Response(cached)
         try:
             from django.db.models import Count, Avg, Prefetch
-            from .models import StoreHours
+            from .models import StoreHours, StorePhoto
             store = Store.objects.prefetch_related(
                 Prefetch('hours', queryset=StoreHours.objects.all()),
+                Prefetch('photos', queryset=StorePhoto.objects.order_by('order', 'created_at')[:12]),
                 'followers',
             ).annotate(
                 follower_count=Count('followers', distinct=True),
@@ -554,6 +555,97 @@ class StoreHoursView(APIView):
                           entity_id=str(store_id), entity_name=store.name,
                           meta={'days_set': len(hours)})
         return Response(StoreHoursSerializer(sorted(hours, key=lambda h: h.day), many=True).data)
+
+
+class StorePhotoView(APIView):
+    """GET  /stores/<id>/photos/   — public list of gallery photos
+       POST /stores/<id>/photos/   — vendor adds a photo (image_url + optional caption)
+       DELETE /stores/<id>/photos/<photo_id>/ — vendor deletes a photo"""
+
+    def get_permissions(self):
+        if self.request.method == 'GET':
+            return [AllowAny()]
+        return [IsAuthenticated(), IsStoreOwner()]
+
+    def get(self, request, store_id):
+        photos = StorePhoto.objects.filter(store_id=store_id).order_by('order', 'created_at')
+        return Response(StorePhotoSerializer(photos, many=True).data)
+
+    def post(self, request, store_id):
+        try:
+            store = Store.objects.get(id=store_id)
+        except Store.DoesNotExist:
+            return Response({'error': 'not_found'}, status=status.HTTP_404_NOT_FOUND)
+        self.check_object_permissions(request, store)
+        serializer = StorePhotoSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        photo = serializer.save(store=store)
+        CacheService.delete(CacheService.store_detail_key(str(store.id)))
+        return Response(StorePhotoSerializer(photo).data, status=status.HTTP_201_CREATED)
+
+
+class StorePhotoDeleteView(APIView):
+    permission_classes = [IsAuthenticated, IsStoreOwner]
+
+    def delete(self, request, store_id, photo_id):
+        try:
+            store = Store.objects.get(id=store_id)
+        except Store.DoesNotExist:
+            return Response({'error': 'not_found'}, status=status.HTTP_404_NOT_FOUND)
+        self.check_object_permissions(request, store)
+        StorePhoto.objects.filter(id=photo_id, store=store).delete()
+        CacheService.delete(CacheService.store_detail_key(str(store.id)))
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class StoreQAView(APIView):
+    """GET  /stores/<id>/qa/   — public list of Q&A (answered questions first)
+       POST /stores/<id>/qa/   — authenticated customer posts a question"""
+
+    def get_permissions(self):
+        if self.request.method == 'GET':
+            return [AllowAny()]
+        return [IsAuthenticated()]
+
+    def get(self, request, store_id):
+        qs = StoreQuestion.objects.filter(store_id=store_id).select_related('user').order_by('-answered_at', '-created_at')[:20]
+        from .serializers import StoreQuestionSerializer
+        return Response(StoreQuestionSerializer(qs, many=True).data)
+
+    def post(self, request, store_id):
+        try:
+            store = Store.objects.get(id=store_id, is_active=True)
+        except Store.DoesNotExist:
+            return Response({'error': 'not_found'}, status=status.HTTP_404_NOT_FOUND)
+        serializer = StoreQuestionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save(store=store, user=request.user)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+class StoreQAAnswerView(APIView):
+    """PATCH /stores/<id>/qa/<question_id>/ — vendor answers a question"""
+    permission_classes = [IsAuthenticated, IsStoreOwner]
+
+    def patch(self, request, store_id, question_id):
+        try:
+            store = Store.objects.get(id=store_id)
+        except Store.DoesNotExist:
+            return Response({'error': 'not_found'}, status=status.HTTP_404_NOT_FOUND)
+        self.check_object_permissions(request, store)
+        try:
+            question = StoreQuestion.objects.get(id=question_id, store=store)
+        except StoreQuestion.DoesNotExist:
+            return Response({'error': 'not_found'}, status=status.HTTP_404_NOT_FOUND)
+        answer = request.data.get('answer', '').strip()
+        if not answer:
+            return Response({'error': 'Answer is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        from django.utils import timezone
+        question.answer = answer
+        question.answered_at = timezone.now()
+        question.save(update_fields=['answer', 'answered_at', 'updated_at'])
+        from .serializers import StoreQuestionSerializer
+        return Response(StoreQuestionSerializer(question).data)
 
 
 class VendorReviewReplyView(APIView):
