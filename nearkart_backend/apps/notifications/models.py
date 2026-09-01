@@ -80,3 +80,43 @@ class Notification(BaseModel):
 
     def __str__(self):
         return f'[{self.notification_type}] → {self.recipient} | {self.title}'
+
+
+class NotificationPreference(BaseModel):
+    """Per-user opt-in/out settings. Created on first access via for_user()."""
+    user          = models.OneToOneField(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='notification_pref'
+    )
+    # In-app categories
+    chat          = models.BooleanField(default=True)
+    reservations  = models.BooleanField(default=True)
+    offers        = models.BooleanField(default=True)
+    loyalty       = models.BooleanField(default=True)
+    wallet        = models.BooleanField(default=True)
+    new_product   = models.BooleanField(default=True)
+    general       = models.BooleanField(default=True)
+    # FCM master toggle
+    push_enabled  = models.BooleanField(default=True)
+
+    class Meta:
+        db_table = 'notification_preferences'
+
+    @classmethod
+    def for_user(cls, user):
+        obj, _ = cls.objects.get_or_create(user=user)
+        return obj
+
+    def to_dict(self):
+        return {
+            'chat':         self.chat,
+            'reservations': self.reservations,
+            'offers':       self.offers,
+            'loyalty':      self.loyalty,
+            'wallet':       self.wallet,
+            'new_product':  self.new_product,
+            'general':      self.general,
+            'push_enabled': self.push_enabled,
+        }
+
+    def __str__(self):
+        return f'NotifPref({self.user})'

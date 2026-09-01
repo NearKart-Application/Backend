@@ -9,6 +9,59 @@ from datetime import timedelta
 logger = logging.getLogger(__name__)
 
 
+@shared_task(name='notifications.send_weekly_digest', time_limit=600, soft_time_limit=540)
+def send_weekly_digest():
+    """
+    Runs every Monday at 9 AM. Sends a weekly activity digest to all active vendors.
+    Covers: reservations, revenue, new followers, and top product for the last 7 days.
+    """
+    from apps.stores.models import Store, Invoice
+    from apps.reservations.models import Reservation
+    from .services import NotificationService
+    from .models import NotificationType
+
+    week_start = timezone.now() - timedelta(days=7)
+    count = 0
+
+    for store in Store.objects.filter(is_active=True).select_related('owner'):
+        try:
+            reservations = Reservation.objects.filter(
+                store=store, created_at__gte=week_start
+            )
+            total_reservations = reservations.count()
+            completed = reservations.filter(status='completed').count()
+
+            invoice_total = sum(
+                float(inv.total or 0)
+                for inv in Invoice.objects.filter(store=store, created_at__gte=week_start)
+            )
+
+            new_followers = store.followers.filter(created_at__gte=week_start).count() if hasattr(store, 'followers') else 0
+
+            body_parts = [f'{total_reservations} reservations ({completed} completed)']
+            if invoice_total > 0:
+                body_parts.append(f'₹{invoice_total:,.0f} in invoices')
+            if new_followers > 0:
+                body_parts.append(f'{new_followers} new follower{"s" if new_followers != 1 else ""}')
+
+            if not body_parts:
+                continue
+
+            NotificationService.send(
+                recipient=store.owner,
+                notification_type=NotificationType.WEEKLY_DIGEST,
+                title=f'📊 {store.name} — Weekly Summary',
+                body='Last 7 days: ' + ' · '.join(body_parts),
+                data={'store_id': str(store.id), 'type': 'weekly_digest'},
+            )
+            count += 1
+        except Exception as exc:
+            logger.warning('[weekly_digest] store %s failed: %s', store.id, exc)
+
+    logger.info('[notifications] weekly digest sent to %d vendors', count)
+    return {'sent': count}
+
+
 @shared_task(name='notifications.notify_expiring_subscriptions', time_limit=300, soft_time_limit=270)
 def notify_expiring_subscriptions():
     """

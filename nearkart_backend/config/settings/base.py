@@ -45,6 +45,7 @@ DJANGO_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'django.contrib.gis',          # PostGIS
+    'django.contrib.postgres',     # GinIndex, ArrayField, JSONField
 ]
 
 THIRD_PARTY_APPS = [
@@ -272,6 +273,10 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'inventory.detect_dead_stock',
         'schedule': crontab(minute=0, hour=0, day_of_week=0),
     },
+    'notifications-weekly-digest': {
+        'task':     'notifications.send_weekly_digest',
+        'schedule': crontab(hour=9, minute=30, day_of_week=1),  # Monday 9:30 AM
+    },
 }
 
 # ── AUTH ───────────────────────────────────────────────────────
@@ -291,8 +296,8 @@ SIMPLE_JWT = {
     'REFRESH_TOKEN_LIFETIME': timedelta(
         days=env.int('JWT_REFRESH_TOKEN_LIFETIME_DAYS', default=30)
     ),
-    'ROTATE_REFRESH_TOKENS': True,
-    'BLACKLIST_AFTER_ROTATION': True,
+    'ROTATE_REFRESH_TOKENS': False,
+    'BLACKLIST_AFTER_ROTATION': False,
     'ALGORITHM': 'HS256',
     'SIGNING_KEY': env('JWT_SECRET_KEY', default=SECRET_KEY),
     'AUTH_HEADER_TYPES': ('Bearer',),

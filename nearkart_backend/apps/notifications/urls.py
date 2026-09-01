@@ -6,6 +6,7 @@ from .views import (
     NotificationMarkAllReadView,
     NotificationDeleteView,
     DeviceTokenRegisterView,
+    NotificationPreferenceView,
 )
 
 urlpatterns = [
@@ -15,4 +16,5 @@ urlpatterns = [
     path('<uuid:notification_id>/',             NotificationDeleteView.as_view(),      name='notification-delete'),
     path('read-all/',                           NotificationMarkAllReadView.as_view(), name='notification-mark-all-read'),
     path('device-token/',                       DeviceTokenRegisterView.as_view(),     name='device-token-register'),
+    path('preferences/',                        NotificationPreferenceView.as_view(),  name='notification-preferences'),
 ]
