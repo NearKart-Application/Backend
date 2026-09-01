@@ -72,5 +72,8 @@ urlpatterns = [
 
     # ── LOCATIONS (public — no auth) ──────────────────────────────────
     path(API_V1 + 'locations/', include('apps.locations.urls')),
+
+    # ── CUSTOMER CREDIT (Udhar) ───────────────────────────────────────
+    path(API_V1 + 'credit/', include('apps.credit.urls')),
 ] + urlpatterns_media
 
