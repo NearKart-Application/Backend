@@ -41,8 +41,11 @@ class Reservation(BaseModel):
     cancel_reason   = models.CharField(max_length=200, blank=True)
     cancelled_by    = models.CharField(max_length=20, blank=True, default='',
                                        choices=[('customer', 'Customer'), ('vendor', 'Vendor')])
-    points_redeemed = models.PositiveIntegerField(default=0)
-    discount_amount = models.DecimalField(max_digits=8, decimal_places=2, default=0)
+    points_redeemed       = models.PositiveIntegerField(default=0)
+    discount_amount       = models.DecimalField(max_digits=8, decimal_places=2, default=0)
+    pickup_time           = models.DateTimeField(null=True, blank=True)
+    actual_selling_price  = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True,
+                                                help_text='Price vendor charged at completion. Used for revenue reports.')
 
     class Meta:
         db_table = 'reservations'

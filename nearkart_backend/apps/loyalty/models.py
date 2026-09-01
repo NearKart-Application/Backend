@@ -68,11 +68,15 @@ class LoyaltyTransaction(BaseModel):
     SOURCE_REDEMPTION = 'redemption'
     SOURCE_BONUS      = 'bonus'
     SOURCE_PENALTY    = 'penalty'
+    SOURCE_EARNED     = 'earned'     # wallet top-up / generic earn
+    SOURCE_PURCHASE   = 'purchase'   # earn on reservation spend
     SOURCE_CHOICES = [
         (SOURCE_REFERRAL,   'Referral Bonus'),
         (SOURCE_REDEMPTION, 'Points Redemption'),
         (SOURCE_BONUS,      'Bonus'),
         (SOURCE_PENALTY,    'Cancellation Penalty'),
+        (SOURCE_EARNED,     'Points Earned'),
+        (SOURCE_PURCHASE,   'Purchase Reward'),
     ]
 
     account          = models.ForeignKey(LoyaltyAccount, on_delete=models.CASCADE, related_name='transactions')
@@ -128,6 +132,28 @@ class WalletWithdrawalRequest(BaseModel):
 
     def __str__(self):
         return f'{self.user} — ₹{self.amount} via {self.method} ({self.status})'
+
+
+class PointMultiplierEvent(BaseModel):
+    """Time-boxed event that multiplies loyalty points earned from purchases."""
+    store       = models.ForeignKey(
+        'stores.Store', on_delete=models.CASCADE, null=True, blank=True,
+        related_name='multiplier_events',
+        help_text='If null, applies platform-wide.',
+    )
+    name        = models.CharField(max_length=200)
+    multiplier  = models.DecimalField(max_digits=4, decimal_places=2, default=2)  # e.g. 2.0 = 2×
+    starts_at   = models.DateTimeField()
+    ends_at     = models.DateTimeField()
+    is_active   = models.BooleanField(default=True)
+
+    class Meta:
+        db_table = 'loyalty_point_multiplier_events'
+        ordering = ['-starts_at']
+
+    def __str__(self):
+        scope = self.store.name if self.store_id else 'Platform-wide'
+        return f'{self.name} ({self.multiplier}×) — {scope}'
 
 
 class Referral(BaseModel):

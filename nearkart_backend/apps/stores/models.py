@@ -125,6 +125,8 @@ class StoreReview(BaseModel):
     vendor_reply    = models.TextField(blank=True, default='')
     vendor_reply_at = models.DateTimeField(null=True, blank=True)
     is_verified     = models.BooleanField(default=False)  # True when gated by invoice NS code
+    is_flagged      = models.BooleanField(default=False, db_index=True)
+    flag_reason     = models.CharField(max_length=200, blank=True)
 
     class Meta:
         db_table        = 'store_reviews'
@@ -168,7 +170,7 @@ class Invoice(BaseModel):
     customer_name     = models.CharField(max_length=200)
     customer_phone    = models.CharField(max_length=20, blank=True)
     customer_ns_code  = models.CharField(max_length=30, blank=True)  # NSC-XX-XX-XXXX — used to send in-app notification
-    items             = models.JSONField(default=list)  # [{"name": ..., "price": ..., "qty": ..., "product_id": ...}]
+    items             = models.JSONField(default=list)  # [{"name": ..., "price": ..., "qty": ..., "product_id": ..., "variant_id": ...}]
     notes             = models.TextField(blank=True)
     total             = models.DecimalField(max_digits=10, decimal_places=2)
     is_sent           = models.BooleanField(default=False)
@@ -365,3 +367,71 @@ class ServiceCatalogue(BaseModel):
 
     def __str__(self):
         return f'{self.store.name} — {self.name}'
+
+
+class VendorActionLog(BaseModel):
+    """DB audit trail for every meaningful vendor action across the platform."""
+
+    class Action(models.TextChoices):
+        PRODUCT_CREATE     = 'product_create',     'Product Created'
+        PRODUCT_UPDATE     = 'product_update',     'Product Updated'
+        PRODUCT_DELETE     = 'product_delete',     'Product Deleted'
+        IMAGE_UPLOAD       = 'image_upload',       'Image Uploaded'
+        IMAGE_DELETE       = 'image_delete',       'Image Deleted'
+        STOCK_UPDATE       = 'stock_update',       'Stock Updated'
+        STOCK_BULK_UPDATE  = 'stock_bulk_update',  'Bulk Stock Update'
+        OFFER_CREATE       = 'offer_create',       'Offer Created'
+        OFFER_DELETE       = 'offer_delete',       'Offer Deleted'
+        STORE_UPDATE       = 'store_update',       'Store Updated'
+        STORE_HOURS_UPDATE = 'store_hours_update', 'Hours Updated'
+
+    user        = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='vendor_action_logs')
+    store       = models.ForeignKey(Store, on_delete=models.SET_NULL, null=True, blank=True, related_name='action_logs')
+    action      = models.CharField(max_length=30, choices=Action.choices, db_index=True)
+    entity_type = models.CharField(max_length=30, blank=True)
+    entity_id   = models.CharField(max_length=40, blank=True, db_index=True)
+    entity_name = models.CharField(max_length=250, blank=True)
+    meta        = models.JSONField(default=dict, blank=True)
+    ip_address  = models.GenericIPAddressField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'vendor_action_logs'
+        ordering = ['-created_at']
+        indexes  = [
+            models.Index(fields=['store', 'created_at'], name='val_store_idx'),
+            models.Index(fields=['user', 'created_at'],  name='val_user_idx'),
+        ]
+
+    def __str__(self):
+        return f'{self.action} by {self.user_id} @ {self.created_at}'
+
+
+class StorePhoto(BaseModel):
+    """Vendor-uploaded store gallery photos."""
+    store     = models.ForeignKey(Store, on_delete=models.CASCADE, related_name='photos')
+    image_url = models.URLField()
+    caption   = models.CharField(max_length=200, blank=True)
+    order     = models.PositiveSmallIntegerField(default=0)
+
+    class Meta:
+        db_table = 'store_photos'
+        ordering = ['order', 'created_at']
+
+    def __str__(self):
+        return f'{self.store.name} photo #{self.order}'
+
+
+class StoreQuestion(BaseModel):
+    """Customer-posted Q&A question for a store."""
+    store    = models.ForeignKey(Store, on_delete=models.CASCADE, related_name='questions')
+    user     = models.ForeignKey(User, on_delete=models.CASCADE, related_name='store_questions')
+    question = models.TextField()
+    answer   = models.TextField(blank=True)
+    answered_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'store_questions'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'Q: {self.question[:50]} for {self.store.name}'

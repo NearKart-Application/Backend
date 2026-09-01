@@ -123,6 +123,7 @@ class ReservationCreateView(APIView):
                 points_redeemed=points_to_redeem,
                 discount_amount=discount_amount,
                 hold_hours=data.get('hours', 2),
+                pickup_time=data.get('pickup_time'),
             )
         except ValueError as exc:
             if str(exc) == 'insufficient_stock':
@@ -310,15 +311,25 @@ class ReservationStatusView(APIView):
         elif new_status == ReservationStatus.CANCELLED:
             reservation = ReservationService.cancel(reservation, note=vendor_note, cancelled_by='vendor')
         elif new_status == ReservationStatus.COMPLETED:
-            reservation = ReservationService.complete(reservation)
+            selling_price = ser.validated_data.get('actual_selling_price')
+            reservation = ReservationService.complete(reservation, actual_selling_price=selling_price)
             try:
                 from apps.loyalty.services import LoyaltyService
                 LoyaltyService.award_pickup_bonus(
                     user=reservation.customer,
                     description=f'Pickup bonus — {reservation.product.name}',
                 )
+                # Earn points on spend (1 pt per ₹1 spent)
+                price = float(selling_price or reservation.product.base_price or 0)
+                if price > 0:
+                    LoyaltyService.award_purchase_points(
+                        user=reservation.customer,
+                        amount_rupees=price,
+                        store=reservation.store,
+                        description=f'Purchase reward — {reservation.product.name}',
+                    )
             except Exception:
-                logger.exception('[reservations] award_pickup_bonus failed for reservation %s', reservation.id)
+                logger.exception('[reservations] loyalty award failed for reservation %s', reservation.id)
 
         log_event('reservations', action=f'reservation_{new_status}',
                   reservation_id=str(reservation.id), store_id=str(store.id),
@@ -393,3 +404,164 @@ class ReservationCancelView(APIView):
         log_event('customers', action='reservation_cancelled', customer_id=str(request.user.id),
                   reservation_id=str(reservation_id), store_id=str(reservation.store_id))
         return Response(ReservationSerializer(reservation).data)
+
+
+class ReservationCartView(APIView):
+    """POST /reservations/cart/ — create multiple reservations (cart checkout)."""
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        tags=[_TAG],
+        summary='Cart checkout — reserve multiple products',
+        description='Atomically creates one reservation per cart item. Partial failures are reported.',
+    )
+    def post(self, request):
+        items = request.data.get('items', [])
+        if not items or not isinstance(items, list):
+            return Response({'error': 'invalid_body', 'message': 'items must be a non-empty list.'}, status=400)
+        if len(items) > 10:
+            return Response({'error': 'too_many', 'message': 'Cart is limited to 10 items.'}, status=400)
+
+        created   = []
+        errors    = []
+
+        for idx, item in enumerate(items):
+            ser = ReservationCreateSerializer(data=item)
+            if not ser.is_valid():
+                errors.append({'index': idx, 'error': ser.errors})
+                continue
+
+            data = ser.validated_data
+            try:
+                store = Store.objects.get(id=data['store_id'], is_active=True)
+            except Store.DoesNotExist:
+                errors.append({'index': idx, 'error': 'Store not found.'}); continue
+            try:
+                product = Product.objects.get(id=data['product_id'], store=store, status='active', is_visible=True)
+            except Product.DoesNotExist:
+                errors.append({'index': idx, 'error': 'Product not found or unavailable.'}); continue
+
+            from apps.blacklist.services import BlacklistService
+            if BlacklistService.is_blocked(store, request.user):
+                errors.append({'index': idx, 'error': 'You are blocked from this store.'}); continue
+
+            variant = None
+            if data.get('variant_id'):
+                from apps.products.models import ProductVariant
+                try:
+                    variant = product.variants.get(id=data['variant_id'])
+                except ProductVariant.DoesNotExist:
+                    errors.append({'index': idx, 'error': 'Variant not found.'}); continue
+
+            try:
+                reservation = ReservationService.create(
+                    customer=request.user,
+                    store=store,
+                    product=product,
+                    variant=variant,
+                    quantity=data['quantity'],
+                    note=data.get('note', ''),
+                    hold_hours=data.get('hours', 2),
+                    pickup_time=data.get('pickup_time'),
+                )
+                created.append(ReservationSerializer(reservation).data)
+            except ValueError as e:
+                errors.append({'index': idx, 'error': str(e)})
+
+        status_code = 201 if created else 400
+        return Response({'created': created, 'errors': errors, 'count': len(created)}, status=status_code)
+
+
+class ReservationReceiptView(APIView):
+    """GET /reservations/<id>/receipt/ — structured receipt for completed reservations."""
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        tags=[_TAG],
+        summary='Download reservation receipt',
+        description='Returns structured receipt data. Available for completed/cancelled reservations.',
+    )
+    def get(self, request, reservation_id):
+        try:
+            reservation = Reservation.objects.select_related('store', 'product', 'customer', 'variant').get(
+                id=reservation_id
+            )
+        except Reservation.DoesNotExist:
+            return Response({'error': 'not_found', 'message': 'Reservation not found.'}, status=404)
+
+        if reservation.customer_id != request.user.id and request.user.role not in ('vendor', 'admin', 'master_admin'):
+            return Response({'error': 'forbidden'}, status=403)
+
+        product  = reservation.product
+        store    = reservation.store
+        customer = reservation.customer
+        base_price = float(product.base_price) if hasattr(product, 'base_price') else 0.0
+        quantity   = reservation.quantity
+        subtotal   = base_price * quantity
+        discount   = float(reservation.discount_amount or 0)
+        total      = subtotal - discount
+
+        receipt = {
+            'receipt_number': f'NRS-{str(reservation.id).upper()[:8]}',
+            'status':         reservation.status,
+            'created_at':     reservation.created_at.isoformat(),
+            'pickup_time':    reservation.pickup_time.isoformat() if reservation.pickup_time else None,
+            'store': {
+                'name':     store.name,
+                'address':  getattr(store, 'address', ''),
+                'locality': store.locality,
+                'phone':    store.phone,
+            },
+            'customer': {
+                'name':  customer.full_name or '',
+                'phone': customer.phone_number or '',
+            },
+            'items': [{
+                'name':       product.name,
+                'variant':    reservation.variant.name if reservation.variant_id else '',
+                'quantity':   quantity,
+                'unit_price': base_price,
+                'total':      base_price * quantity,
+            }],
+            'subtotal':       subtotal,
+            'discount':       discount,
+            'points_redeemed': reservation.points_redeemed,
+            'total':          total,
+            'note':           reservation.note,
+            'vendor_note':    reservation.vendor_note,
+        }
+        return Response(receipt)
+
+
+class ReservationWaitlistView(APIView):
+    """POST /reservations/waitlist/ — join stock watchlist when a product is out of stock."""
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        tags=[_TAG],
+        summary='Join out-of-stock waitlist',
+        description='Adds the product to the customer\'s stock watchlist so they are notified when it\'s back.',
+    )
+    def post(self, request):
+        product_id = request.data.get('product_id')
+        if not product_id:
+            return Response({'error': 'product_id required.'}, status=400)
+        try:
+            product = Product.objects.get(id=product_id)
+        except (Product.DoesNotExist, Exception):
+            return Response({'error': 'not_found', 'message': 'Product not found.'}, status=404)
+
+        try:
+            from apps.products.models import StockWatchlist
+            obj, created = StockWatchlist.objects.get_or_create(
+                user=request.user,
+                product=product,
+            )
+        except Exception as e:
+            return Response({'error': str(e)}, status=400)
+
+        return Response({
+            'joined':       created,
+            'product_name': product.name,
+            'message':      'You\'ll be notified when this product is back in stock.' if created else 'Already on waitlist.',
+        }, status=201 if created else 200)

@@ -11,6 +11,7 @@ from django.utils import timezone
 from apps.notifications.services import NotificationService
 from apps.products.inventory_service import InventoryService
 from .models import Reservation, ReservationStatus
+from . import sms_service
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +21,7 @@ class ReservationService:
     @staticmethod
     def create(customer, store, product, quantity: int, note: str = '',
                points_redeemed: int = 0, discount_amount=0, variant=None,
-               hold_hours: int = None) -> Reservation:
+               hold_hours: int = None, pickup_time=None) -> Reservation:
         hold_hours = hold_hours or getattr(settings, 'RESERVATION_HOLD_HOURS', 2)
         expires_at = timezone.now() + timedelta(hours=hold_hours)
 
@@ -40,6 +41,7 @@ class ReservationService:
             expires_at=expires_at,
             points_redeemed=points_redeemed,
             discount_amount=discount_amount,
+            pickup_time=pickup_time,
         )
         logger.info('[reservations] created %s — %s x%d', reservation.id, product.name, quantity)
         NotificationService.notify_reservation_created(
@@ -48,6 +50,13 @@ class ReservationService:
             str(reservation.id),
             product.name,
         )
+        try:
+            phone = getattr(customer, 'phone_number', '') or ''
+            if phone:
+                expires_str = reservation.expires_at.strftime('%I:%M %p')
+                sms_service.sms_reservation_created(phone, product.name, store.name, expires_str)
+        except Exception:
+            logger.exception('[reservations] sms_reservation_created failed')
         return reservation
 
     @staticmethod
@@ -61,6 +70,12 @@ class ReservationService:
             reservation.store.name,
             str(reservation.id),
         )
+        try:
+            phone = getattr(reservation.customer, 'phone_number', '') or ''
+            if phone:
+                sms_service.sms_reservation_confirmed(phone, reservation.store.name)
+        except Exception:
+            logger.exception('[reservations] sms_reservation_confirmed failed')
         return reservation
 
     @staticmethod
@@ -91,9 +106,13 @@ class ReservationService:
         return reservation
 
     @staticmethod
-    def complete(reservation: Reservation) -> Reservation:
+    def complete(reservation: Reservation, actual_selling_price=None) -> Reservation:
         reservation.status = ReservationStatus.COMPLETED
-        reservation.save(update_fields=['status', 'updated_at'])
+        update_fields = ['status', 'updated_at']
+        if actual_selling_price is not None:
+            reservation.actual_selling_price = actual_selling_price
+            update_fields.append('actual_selling_price')
+        reservation.save(update_fields=update_fields)
         logger.info('[reservations] completed %s', reservation.id)
         try:
             from apps.billing.services import ReferralService

@@ -37,11 +37,12 @@ class AdminStoreSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.IntegerField())
     def get_product_count(self, obj):
-        return obj.products.count()
+        # Use annotation from view when available (avoids N+1 queries)
+        return getattr(obj, 'product_count', None) if hasattr(obj, 'product_count') else obj.products.count()
 
     @extend_schema_field(serializers.IntegerField())
     def get_video_count(self, obj):
-        return obj.videos.count()
+        return getattr(obj, 'video_count', None) if hasattr(obj, 'video_count') else obj.videos.count()
 
 
 class AdminStoreUpdateSerializer(serializers.ModelSerializer):
@@ -66,10 +67,9 @@ class AdminUserSerializer(serializers.ModelSerializer):
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_store_name(self, obj):
         if obj.role == 'vendor':
-            try:
-                return obj.store.name
-            except Exception:
-                return None
+            # uses prefetched 'stores' cache — no extra query per user
+            store = next(iter(obj.stores.all()), None)
+            return store.name if store else None
         return None
 
 
@@ -91,11 +91,11 @@ class AdminProductSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.IntegerField())
     def get_image_count(self, obj):
-        return obj.images.count()
+        return getattr(obj, 'image_count', None) if hasattr(obj, 'image_count') else obj.images.count()
 
     @extend_schema_field(serializers.IntegerField())
     def get_variant_count(self, obj):
-        return obj.variants.count()
+        return getattr(obj, 'variant_count', None) if hasattr(obj, 'variant_count') else obj.variants.count()
 
 
 class AdminWebsiteRequestSerializer(serializers.ModelSerializer):

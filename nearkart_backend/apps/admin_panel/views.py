@@ -3,7 +3,8 @@ NearKart — Admin Panel Views
 """
 import logging
 from decimal import Decimal, InvalidOperation
-from django.db.models import Count, Sum, Q
+from django.db.models import Count, Sum, Q, OuterRef, Subquery
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 from rest_framework import status
@@ -20,7 +21,7 @@ from apps.stores.models import Store, WebsiteRequest
 from apps.auth_app.models import User, UserRole
 from .models import PromoBanner, AdminActivityLog, Category, OfferTemplate
 from apps.videos.models import Video
-from apps.products.models import Product
+from apps.products.models import Product, ProductImage, ProductVariant
 from apps.billing.models import Transaction
 from .serializers import (
     AdminStoreSerializer, AdminStoreUpdateSerializer, AdminUserSerializer,
@@ -113,11 +114,11 @@ class PlatformStatsView(APIView):
         ).count()
 
         revenue = Transaction.objects.filter(
-            type='subscription', store_id__in=store_ids
+            transaction_type='subscription', store_id__in=store_ids
         ).aggregate(total=Sum('amount'))['total'] or 0
 
         topup_total = Transaction.objects.filter(
-            type='topup', store_id__in=store_ids
+            transaction_type='topup', store_id__in=store_ids
         ).aggregate(total=Sum('amount'))['total'] or 0
 
         return Response({
@@ -167,7 +168,25 @@ class AdminStoreListView(APIView):
         responses={200: AdminStoreSerializer(many=True)},
     )
     def get(self, request):
-        qs = Store.objects.select_related('owner').order_by('-created_at')
+        # Correlated subqueries: run only for the 20 paginated rows, not all 33k.
+        # This keeps the pagination COUNT(*) cheap (no JOINs) and avoids N+1.
+        product_count_sq = (
+            Product.objects.filter(store=OuterRef('pk'))
+            .values('store').annotate(c=Count('id')).values('c')
+        )
+        video_count_sq = (
+            Video.objects.filter(store=OuterRef('pk'))
+            .values('store').annotate(c=Count('id')).values('c')
+        )
+        qs = (
+            Store.objects
+            .select_related('owner')
+            .annotate(
+                product_count=Coalesce(Subquery(product_count_sq), 0),
+                video_count=Coalesce(Subquery(video_count_sq), 0),
+            )
+            .order_by('-created_at')
+        )
 
         cities = _city_scope(request.user)
         if cities:
@@ -186,6 +205,10 @@ class AdminStoreListView(APIView):
         is_verified = request.query_params.get('is_verified')
         if is_verified is not None:
             qs = qs.filter(is_verified=is_verified.lower() == 'true')
+
+        store_type = request.query_params.get('store_type', '').strip()
+        if store_type:
+            qs = qs.filter(store_type=store_type)
 
         category = request.query_params.get('category', '').strip()
         if category:
@@ -245,7 +268,8 @@ class AdminUserListView(APIView):
         responses={200: AdminUserSerializer(many=True)},
     )
     def get(self, request):
-        qs = User.objects.order_by('-created_at')
+        # prefetch_related fetches all stores for the paginated users in 1 extra query
+        qs = User.objects.prefetch_related('stores').order_by('-created_at')
 
         cities = _city_scope(request.user)
         if cities:
@@ -268,6 +292,10 @@ class AdminUserListView(APIView):
         is_active = request.query_params.get('is_active')
         if is_active is not None:
             qs = qs.filter(is_active=is_active.lower() == 'true')
+
+        is_suspended = request.query_params.get('is_suspended')
+        if is_suspended is not None:
+            qs = qs.filter(is_suspended=is_suspended.lower() == 'true')
 
         paginator = StandardOffsetPagination()
         page = paginator.paginate_queryset(qs, request)
@@ -535,7 +563,24 @@ class AdminProductListView(APIView):
         responses={200: AdminProductSerializer(many=True)},
     )
     def get(self, request):
-        qs = Product.objects.select_related('store').prefetch_related('images', 'variants').order_by('-created_at')
+        # Correlated subqueries run only for the paginated rows — avoids N+1 and heavy prefetch
+        image_count_sq = (
+            ProductImage.objects.filter(product=OuterRef('pk'))
+            .values('product').annotate(c=Count('id')).values('c')
+        )
+        variant_count_sq = (
+            ProductVariant.objects.filter(product=OuterRef('pk'))
+            .values('product').annotate(c=Count('id')).values('c')
+        )
+        qs = (
+            Product.objects
+            .select_related('store')
+            .annotate(
+                image_count=Coalesce(Subquery(image_count_sq), 0),
+                variant_count=Coalesce(Subquery(variant_count_sq), 0),
+            )
+            .order_by('-created_at')
+        )
 
         cities = _city_scope(request.user)
         if cities:
@@ -548,6 +593,14 @@ class AdminProductListView(APIView):
         status_filter = request.query_params.get('status', '').strip()
         if status_filter:
             qs = qs.filter(status=status_filter)
+
+        is_visible = request.query_params.get('is_visible')
+        if is_visible is not None:
+            qs = qs.filter(is_visible=is_visible.lower() == 'true')
+
+        store_name = request.query_params.get('store_name', '').strip()
+        if store_name:
+            qs = qs.filter(store__name__icontains=store_name)
 
         store_id = request.query_params.get('store_id', '').strip()
         if store_id:
@@ -1860,3 +1913,417 @@ class AdminSubscriptionListView(APIView):
             for sub in results
         ]
         return page.get_paginated_response(data)
+
+
+class AdminStockLogsView(APIView):
+    """GET /admin-panel/stock-logs/ — platform-wide stock movement history (admin view)."""
+    permission_classes = [IsAuthenticated, IsAdmin | IsMasterAdmin]
+
+    @extend_schema(
+        tags=['Admin'],
+        summary='All stock movement logs (admin-wide)',
+        parameters=[
+            OpenApiParameter('store_id',   str, description='Filter by store UUID',   required=False),
+            OpenApiParameter('product_id', str, description='Filter by product UUID', required=False),
+            OpenApiParameter('reason',     str, description='Filter by reason',       required=False),
+            OpenApiParameter('search',     str, description='Search by product name or phone', required=False),
+        ],
+    )
+    def get(self, request):
+        from apps.products.models import StockMovementLog
+
+        qs = (
+            StockMovementLog.objects
+            .select_related('variant', 'variant__product', 'variant__product__store',
+                            'variant__product__store__owner', 'changed_by')
+            .order_by('-created_at')
+        )
+
+        # Scope to admin's city if not master_admin
+        if request.user.role != 'master_admin':
+            cities = _city_scope(request.user)
+            if cities:
+                qs = qs.filter(variant__product__store__city__in=cities)
+
+        store_id = request.query_params.get('store_id')
+        if store_id:
+            qs = qs.filter(variant__product__store__id=store_id)
+
+        product_id = request.query_params.get('product_id')
+        if product_id:
+            qs = qs.filter(variant__product__id=product_id)
+
+        reason = request.query_params.get('reason')
+        if reason:
+            qs = qs.filter(reason=reason)
+
+        search = request.query_params.get('search', '').strip()
+        if search:
+            qs = qs.filter(
+                Q(variant__product__name__icontains=search) |
+                Q(changed_by__phone_number__icontains=search)
+            )
+
+        paginator = StandardOffsetPagination()
+        paginator.page_size = 30
+        page = paginator.paginate_queryset(qs, request)
+
+        data = [
+            {
+                'id':           str(log.id),
+                'store_id':     str(log.variant.product.store.id),
+                'store_name':   log.variant.product.store.name,
+                'product_id':   str(log.variant.product.id),
+                'product_name': log.variant.product.name,
+                'variant_name': log.variant.name,
+                'sku':          log.variant.sku,
+                'old_qty':      log.old_qty,
+                'new_qty':      log.new_qty,
+                'delta':        log.delta,
+                'reason':       log.reason,
+                'note':         log.note,
+                'changed_by':   log.changed_by.phone_number if log.changed_by else 'system',
+                'created_at':   log.created_at.isoformat(),
+            }
+            for log in page
+        ]
+        return paginator.get_paginated_response(data)
+
+
+class AdminVendorActionLogsView(APIView):
+    """GET /admin-panel/vendor-action-logs/ — Vendor action audit trail."""
+    permission_classes = [IsAuthenticated, IsAdmin | IsMasterAdmin]
+
+    def get(self, request):
+        from apps.stores.models import VendorActionLog
+
+        qs = VendorActionLog.objects.select_related('user', 'store').order_by('-created_at')
+
+        cities = _city_scope(request.user)
+        if cities:
+            q = Q()
+            for city in cities:
+                q |= Q(store__locality__icontains=city)
+            qs = qs.filter(q)
+
+        store_id = request.query_params.get('store_id', '').strip()
+        if store_id:
+            qs = qs.filter(store__id=store_id)
+
+        action = request.query_params.get('action', '').strip()
+        if action:
+            qs = qs.filter(action=action)
+
+        entity_type = request.query_params.get('entity_type', '').strip()
+        if entity_type:
+            qs = qs.filter(entity_type=entity_type)
+
+        date_from = request.query_params.get('date_from', '').strip()
+        if date_from:
+            qs = qs.filter(created_at__date__gte=date_from)
+
+        date_to = request.query_params.get('date_to', '').strip()
+        if date_to:
+            qs = qs.filter(created_at__date__lte=date_to)
+
+        search = request.query_params.get('search', '').strip()
+        if search:
+            qs = qs.filter(
+                Q(entity_name__icontains=search) |
+                Q(user__phone_number__icontains=search) |
+                Q(store__name__icontains=search)
+            )
+
+        paginator = StandardOffsetPagination()
+        paginator.page_size = 50
+        page = paginator.paginate_queryset(qs, request)
+
+        data = [
+            {
+                'id':           str(log.id),
+                'store_id':     str(log.store_id) if log.store_id else '',
+                'store_name':   log.store.name if log.store else '',
+                'user_phone':   log.user.phone_number if log.user else '',
+                'action':       log.action,
+                'entity_type':  log.entity_type,
+                'entity_id':    log.entity_id,
+                'entity_name':  log.entity_name,
+                'meta':         log.meta,
+                'ip_address':   log.ip_address,
+                'created_at':   log.created_at.isoformat(),
+            }
+            for log in page
+        ]
+        return paginator.get_paginated_response(data)
+
+
+class AdminCustomerActivityView(APIView):
+    """GET /admin-panel/customer-activity/ — Customer behaviour audit trail."""
+    permission_classes = [IsAuthenticated, IsAdmin | IsMasterAdmin]
+
+    def get(self, request):
+        from apps.auth_app.models import CustomerActivityLog
+
+        qs = CustomerActivityLog.objects.select_related('user').order_by('-created_at')
+
+        # City scope for non-master admins
+        cities = _city_scope(request.user)
+        if cities:
+            q = Q()
+            for city in cities:
+                q |= Q(city__icontains=city)
+            qs = qs.filter(q)
+
+        phone = request.query_params.get('phone', '').strip()
+        if phone:
+            qs = qs.filter(phone__icontains=phone)
+
+        action = request.query_params.get('action', '').strip()
+        if action:
+            qs = qs.filter(action=action)
+
+        entity_type = request.query_params.get('entity_type', '').strip()
+        if entity_type:
+            qs = qs.filter(entity_type=entity_type)
+
+        date_from = request.query_params.get('date_from', '').strip()
+        if date_from:
+            qs = qs.filter(created_at__date__gte=date_from)
+
+        date_to = request.query_params.get('date_to', '').strip()
+        if date_to:
+            qs = qs.filter(created_at__date__lte=date_to)
+
+        search = request.query_params.get('search', '').strip()
+        if search:
+            qs = qs.filter(
+                Q(phone__icontains=search) |
+                Q(entity_name__icontains=search) |
+                Q(city__icontains=search)
+            )
+
+        paginator = StandardOffsetPagination()
+        paginator.page_size = 50
+        page = paginator.paginate_queryset(qs, request)
+
+        data = [
+            {
+                'id':          str(log.id),
+                'phone':       log.phone,
+                'action':      log.action,
+                'entity_type': log.entity_type,
+                'entity_id':   log.entity_id,
+                'entity_name': log.entity_name,
+                'meta':        log.meta,
+                'ip_address':  log.ip_address,
+                'city':        log.city,
+                'device_type': log.device_type,
+                'created_at':  log.created_at.isoformat(),
+            }
+            for log in page
+        ]
+        return paginator.get_paginated_response(data)
+
+
+class AdminLoginLogsView(APIView):
+    """GET /admin-panel/login-logs/ — Login audit trail for admin."""
+    permission_classes = [IsAuthenticated, IsAdmin | IsMasterAdmin]
+
+    def get(self, request):
+        from apps.auth_app.models import UserLoginLog
+
+        qs = UserLoginLog.objects.select_related('user').order_by('-created_at')
+
+        # City scope for non-master admins (filter by user's city)
+        cities = _city_scope(request.user)
+        if cities:
+            q = Q()
+            for city in cities:
+                q |= Q(city__icontains=city)
+            qs = qs.filter(q)
+
+        # Filters
+        phone = request.query_params.get('phone', '').strip()
+        if phone:
+            qs = qs.filter(phone__icontains=phone)
+
+        role = request.query_params.get('role', '').strip()
+        if role:
+            qs = qs.filter(role=role)
+
+        device_type = request.query_params.get('device_type', '').strip()
+        if device_type:
+            qs = qs.filter(device_type=device_type)
+
+        success = request.query_params.get('success', '').strip()
+        if success in ('true', 'false'):
+            qs = qs.filter(success=(success == 'true'))
+
+        date_from = request.query_params.get('date_from', '').strip()
+        if date_from:
+            qs = qs.filter(created_at__date__gte=date_from)
+
+        date_to = request.query_params.get('date_to', '').strip()
+        if date_to:
+            qs = qs.filter(created_at__date__lte=date_to)
+
+        search = request.query_params.get('search', '').strip()
+        if search:
+            qs = qs.filter(
+                Q(phone__icontains=search) |
+                Q(device_name__icontains=search) |
+                Q(ip_address__icontains=search) |
+                Q(city__icontains=search)
+            )
+
+        paginator = StandardOffsetPagination()
+        paginator.page_size = 50
+        page = paginator.paginate_queryset(qs, request)
+
+        data = [
+            {
+                'id':             str(log.id),
+                'phone':          log.phone,
+                'role':           log.role,
+                'success':        log.success,
+                'failure_reason': log.failure_reason,
+                'ip_address':     log.ip_address,
+                'city':           log.city,
+                'device_type':    log.device_type,
+                'device_name':    log.device_name,
+                'os':             log.os,
+                'os_version':     log.os_version,
+                'browser':        log.browser,
+                'app_version':    log.app_version,
+                'created_at':     log.created_at.isoformat(),
+            }
+            for log in page
+        ]
+        return paginator.get_paginated_response(data)
+
+
+class ContentModerationView(APIView):
+    """GET/PATCH /admin-panel/moderation/reviews/ — flagged review moderation queue."""
+    permission_classes = [IsAuthenticated, IsAdmin | IsMasterAdmin]
+
+    @extend_schema(tags=['Admin Panel'], summary='List flagged reviews', responses={200: OpenApiTypes.OBJECT})
+    def get(self, request):
+        from apps.stores.models import StoreReview
+        qs = StoreReview.objects.filter(is_flagged=True).select_related('store', 'user').order_by('-created_at')
+
+        search = request.query_params.get('search', '').strip()
+        if search:
+            from django.db.models import Q as DQ
+            qs = qs.filter(DQ(store__name__icontains=search) | DQ(comment__icontains=search))
+
+        paginator = StandardOffsetPagination()
+        paginator.page_size = 30
+        page = paginator.paginate_queryset(qs, request)
+        data = [
+            {
+                'id':          str(r.id),
+                'store_name':  r.store.name,
+                'store_id':    str(r.store.id),
+                'user_phone':  r.user.phone_number,
+                'rating':      r.rating,
+                'comment':     r.comment,
+                'flag_reason': r.flag_reason,
+                'is_verified': r.is_verified,
+                'created_at':  r.created_at.isoformat(),
+            }
+            for r in page
+        ]
+        return paginator.get_paginated_response(data)
+
+    @extend_schema(tags=['Admin Panel'], summary='Approve or delete a flagged review', responses={200: OpenApiTypes.OBJECT})
+    def patch(self, request, review_id):
+        from apps.stores.models import StoreReview
+        try:
+            review = StoreReview.objects.get(id=review_id)
+        except StoreReview.DoesNotExist:
+            return Response({'error': 'not_found'}, status=404)
+
+        action = request.data.get('action')  # 'approve' or 'delete'
+        if action == 'approve':
+            review.is_flagged = False
+            review.flag_reason = ''
+            review.save(update_fields=['is_flagged', 'flag_reason', 'updated_at'])
+            return Response({'message': 'Review approved and unflagged.'})
+        elif action == 'delete':
+            review.delete()
+            return Response({'message': 'Review deleted.'})
+        return Response({'error': 'invalid_action', 'message': 'action must be approve or delete.'}, status=400)
+
+
+class FlagReviewView(APIView):
+    """POST /admin-panel/reviews/<id>/flag/ — flag a review for moderation."""
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(tags=['Admin Panel'], summary='Flag a review', responses={200: OpenApiTypes.OBJECT})
+    def post(self, request, review_id):
+        from apps.stores.models import StoreReview
+        try:
+            review = StoreReview.objects.get(id=review_id)
+        except StoreReview.DoesNotExist:
+            return Response({'error': 'not_found'}, status=404)
+
+        reason = (request.data.get('reason') or 'Reported by user').strip()[:200]
+        review.is_flagged = True
+        review.flag_reason = reason
+        review.save(update_fields=['is_flagged', 'flag_reason', 'updated_at'])
+        return Response({'message': 'Review flagged for moderation.'})
+
+
+class BulkStoreActionView(APIView):
+    """POST /admin-panel/stores/bulk/ — bulk verify, suspend, or activate stores."""
+    permission_classes = [IsAuthenticated, IsMasterAdmin]
+
+    @extend_schema(tags=['Admin Panel'], summary='Bulk store action', responses={200: OpenApiTypes.OBJECT})
+    def post(self, request):
+        from apps.stores.models import Store
+        action   = request.data.get('action')   # 'verify', 'unverify', 'activate', 'deactivate'
+        store_ids = request.data.get('ids', [])
+
+        if action not in ('verify', 'unverify', 'activate', 'deactivate'):
+            return Response({'error': 'invalid_action'}, status=400)
+        if not store_ids:
+            return Response({'error': 'ids_required'}, status=400)
+
+        qs = Store.objects.filter(id__in=store_ids)
+        if action == 'verify':
+            updated = qs.update(is_verified=True)
+        elif action == 'unverify':
+            updated = qs.update(is_verified=False)
+        elif action == 'activate':
+            updated = qs.update(is_active=True)
+        elif action == 'deactivate':
+            updated = qs.update(is_active=False)
+        else:
+            updated = 0
+
+        return Response({'message': f'{updated} stores updated.', 'action': action, 'updated': updated})
+
+
+class BulkUserActionView(APIView):
+    """POST /admin-panel/users/bulk/ — bulk activate or deactivate users."""
+    permission_classes = [IsAuthenticated, IsMasterAdmin]
+
+    @extend_schema(tags=['Admin Panel'], summary='Bulk user action', responses={200: OpenApiTypes.OBJECT})
+    def post(self, request):
+        action   = request.data.get('action')  # 'activate', 'deactivate'
+        user_ids = request.data.get('ids', [])
+
+        if action not in ('activate', 'deactivate'):
+            return Response({'error': 'invalid_action'}, status=400)
+        if not user_ids:
+            return Response({'error': 'ids_required'}, status=400)
+
+        qs = User.objects.filter(id__in=user_ids)
+        if action == 'activate':
+            updated = qs.update(is_active=True)
+        elif action == 'deactivate':
+            updated = qs.update(is_active=False)
+        else:
+            updated = 0
+
+        return Response({'message': f'{updated} users updated.', 'action': action, 'updated': updated})

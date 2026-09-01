@@ -15,6 +15,7 @@ class ReservationCreateSerializer(serializers.Serializer):
     note             = serializers.CharField(max_length=500, allow_blank=True, default='')
     points_to_redeem = serializers.IntegerField(min_value=0, default=0, required=False)
     hours            = serializers.IntegerField(min_value=1, max_value=3, default=2, required=False)
+    pickup_time      = serializers.DateTimeField(required=False, allow_null=True, default=None)
 
 
 class ReservationStatusUpdateSerializer(serializers.Serializer):
@@ -23,8 +24,9 @@ class ReservationStatusUpdateSerializer(serializers.Serializer):
         ReservationStatus.CANCELLED,
         ReservationStatus.COMPLETED,
     ]
-    status      = serializers.ChoiceField(choices=STATUS_CHOICES)
-    vendor_note = serializers.CharField(max_length=500, allow_blank=True, default='')
+    status                = serializers.ChoiceField(choices=STATUS_CHOICES)
+    vendor_note           = serializers.CharField(max_length=500, allow_blank=True, default='')
+    actual_selling_price  = serializers.DecimalField(max_digits=10, decimal_places=2, required=False, allow_null=True, default=None)
 
 
 class ReservationProductSerializer(serializers.Serializer):
@@ -62,5 +64,6 @@ class ReservationSerializer(serializers.ModelSerializer):
             'quantity', 'note', 'vendor_note',
             'status', 'cancelled_by', 'expires_at', 'hours_left',
             'points_redeemed', 'discount_amount',
-            'created_at', 'updated_at',
+            'actual_selling_price',
+            'pickup_time', 'created_at', 'updated_at',
         ]

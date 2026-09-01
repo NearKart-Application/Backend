@@ -18,12 +18,13 @@ from .models import LoyaltyAccount, LoyaltyTransaction, Referral
 
 logger = logging.getLogger(__name__)
 
-REFERRAL_PTS_CUSTOMER  = 50
-REFERRAL_PTS_VENDOR    = 100
-PICKUP_BONUS_POINTS    = 20   # awarded when customer completes a reservation pickup
-POINTS_PER_RUPEE       = 10
-MIN_REDEEM             = 50
-MAX_REDEEM             = 500
+REFERRAL_PTS_CUSTOMER   = 50
+REFERRAL_PTS_VENDOR     = 100
+PICKUP_BONUS_POINTS     = 20   # awarded when customer completes a reservation pickup
+POINTS_PER_RUPEE        = 10
+EARN_PTS_PER_RUPEE_SPENT = 1  # 1 loyalty point per ₹1 spent on a reservation
+MIN_REDEEM              = 50
+MAX_REDEEM              = 500
 
 
 class LoyaltyService:
@@ -107,6 +108,42 @@ class LoyaltyService:
         discount_rupees = points // POINTS_PER_RUPEE
         logger.info('[loyalty] redeemed %d pts (₹%d) for %s', points, discount_rupees, user.phone_number)
         return discount_rupees
+
+    @classmethod
+    def award_purchase_points(cls, user, amount_rupees: float, store=None,
+                              description: str = 'Purchase reward') -> int:
+        """
+        Awards EARN_PTS_PER_RUPEE_SPENT × amount_rupees points, scaled by any active
+        PointMultiplierEvent for this store (or platform-wide).
+        Returns points awarded.
+        """
+        if amount_rupees <= 0:
+            return 0
+        base_pts = max(1, int(amount_rupees * EARN_PTS_PER_RUPEE_SPENT))
+
+        from decimal import Decimal
+        multiplier = Decimal('1.0')
+        try:
+            from .models import PointMultiplierEvent
+            from django.db.models import Q
+            now = timezone.now()
+            event = PointMultiplierEvent.objects.filter(
+                is_active=True,
+                starts_at__lte=now,
+                ends_at__gte=now,
+            ).filter(Q(store__isnull=True) | Q(store=store)).order_by('-multiplier').first()
+            if event:
+                multiplier = event.multiplier
+        except Exception:
+            pass
+
+        final_pts = max(1, int(base_pts * multiplier))
+        account = cls.get_account(user)
+        cls._add_points(account=account, points=final_pts,
+                        source=LoyaltyTransaction.SOURCE_PURCHASE,
+                        description=description)
+        logger.info('[loyalty] purchase reward %d pts (×%s) for %s', final_pts, multiplier, user.phone_number)
+        return final_pts
 
     @classmethod
     def award_pickup_bonus(cls, user, description: str = 'Reservation pickup bonus') -> int:

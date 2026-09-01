@@ -19,6 +19,12 @@ from .views import (
     AdminBlacklistListView,
     AdminLoyaltyListView, AdminLoyaltyAdjustView,
     AdminSubscriptionListView,
+    AdminStockLogsView,
+    AdminVendorActionLogsView,
+    AdminCustomerActivityView,
+    AdminLoginLogsView,
+    ContentModerationView, FlagReviewView,
+    BulkStoreActionView, BulkUserActionView,
 )
 
 urlpatterns = [
@@ -91,4 +97,25 @@ urlpatterns = [
 
     # Subscription management
     path('subscriptions/',                        AdminSubscriptionListView.as_view(),        name='admin-subscription-list'),
+
+    # Stock change log (cross-store)
+    path('stock-logs/',                           AdminStockLogsView.as_view(),               name='admin-stock-logs'),
+
+    # Vendor action audit log
+    path('vendor-action-logs/',                   AdminVendorActionLogsView.as_view(),        name='admin-vendor-action-logs'),
+
+    # Customer behaviour log
+    path('customer-activity/',                    AdminCustomerActivityView.as_view(),        name='admin-customer-activity'),
+
+    # Login audit log
+    path('login-logs/',                           AdminLoginLogsView.as_view(),               name='admin-login-logs'),
+
+    # Content moderation
+    path('moderation/reviews/',                   ContentModerationView.as_view(),            name='admin-moderation-reviews'),
+    path('moderation/reviews/<uuid:review_id>/',  ContentModerationView.as_view(),            name='admin-moderation-review-action'),
+    path('reviews/<uuid:review_id>/flag/',        FlagReviewView.as_view(),                   name='admin-flag-review'),
+
+    # Bulk actions
+    path('stores/bulk/',                          BulkStoreActionView.as_view(),              name='admin-stores-bulk'),
+    path('users/bulk/',                           BulkUserActionView.as_view(),               name='admin-users-bulk'),
 ]

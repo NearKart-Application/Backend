@@ -680,3 +680,76 @@ class VendorReferralView(APIView):
             'customer_reward':   str(config.customer_reward),
             'recent_rewards':    recent,
         })
+
+
+class SubscriptionRefundRequestView(APIView):
+    """POST /billing/subscription/refund/ — vendor requests a refund for their current plan."""
+    permission_classes = [IsAuthenticated, IsVendor]
+
+    @extend_schema(
+        tags=[_TAG],
+        summary='Request subscription refund',
+        description='Creates a refund request. Admin reviews and processes manually.',
+        responses={201: OpenApiTypes.OBJECT},
+    )
+    def post(self, request):
+        try:
+            store = request.user.store
+        except Exception:
+            return Response({'error': 'no_store'}, status=400)
+
+        reason = (request.data.get('reason') or '').strip()
+        if not reason:
+            return Response({'error': 'reason_required', 'message': 'Please provide a reason for the refund.'}, status=400)
+
+        sub = BillingService.get_subscription(store)
+        if not sub or not sub.is_active:
+            return Response({'error': 'no_active_subscription', 'message': 'No active subscription to refund.'}, status=400)
+
+        # Log the refund request as an admin activity note
+        from apps.admin_panel.models import AdminActivityLog
+        AdminActivityLog.objects.create(
+            admin=request.user,
+            action='subscription_refund_request',
+            target_type='store',
+            target_id=str(store.id),
+            notes=f'Refund requested: {reason}',
+        )
+
+        return Response({
+            'message': 'Refund request submitted. Our team will review within 2–3 business days.',
+            'plan':    sub.plan.display_name if hasattr(sub, 'plan') else '',
+        }, status=201)
+
+
+class SubscriptionInvoiceView(APIView):
+    """GET /billing/subscription/invoice/ — download latest subscription invoice."""
+    permission_classes = [IsAuthenticated, IsVendor]
+
+    @extend_schema(tags=[_TAG], summary='Get subscription invoice', responses={200: OpenApiTypes.OBJECT})
+    def get(self, request):
+        try:
+            store = request.user.store
+        except Exception:
+            return Response({'error': 'no_store'}, status=400)
+
+        sub  = BillingService.get_subscription(store)
+        plan = BillingService.get_active_plan(store)
+        if not sub or not plan:
+            return Response({'error': 'no_subscription', 'message': 'No active subscription found.'}, status=404)
+
+        # Latest billing transaction
+        txn = Transaction.objects.filter(store=store, type='subscription').order_by('-created_at').first()
+
+        return Response({
+            'invoice_number': f'NS-{str(sub.id)[:8].upper()}',
+            'store_name':     store.name,
+            'plan':           plan.display_name,
+            'amount':         str(txn.amount) if txn else str(plan.price),
+            'currency':       'INR',
+            'gst_rate':       18,
+            'gst_amount':     str(round(float(txn.amount if txn else plan.price) * 0.18, 2)),
+            'started_at':     sub.started_at.isoformat() if hasattr(sub, 'started_at') else '',
+            'expires_at':     sub.expires_at.isoformat() if sub.expires_at else '',
+            'generated_at':   timezone.now().isoformat(),
+        })

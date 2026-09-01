@@ -281,6 +281,10 @@ CELERY_BEAT_SCHEDULE = {
         'task':     'loyalty.expire_points',
         'schedule': crontab(hour=2, minute=0),  # Daily at 2 AM
     },
+    'analytics-snapshot-daily': {
+        'task':     'analytics.snapshot_daily_analytics',
+        'schedule': crontab(hour=1, minute=0),  # Daily at 1 AM
+    },
 }
 
 # ── AUTH ───────────────────────────────────────────────────────

@@ -1,7 +1,8 @@
 """
 NearKart — Analytics Celery Tasks
-aggregate_daily_stats:     runs 3am daily, computes performance_score for each store.
-send_weekly_digest_emails: runs Monday 9am IST, sends weekly in-app digest to vendors.
+aggregate_daily_stats:      runs 3am daily, computes performance_score for each store.
+send_weekly_digest_emails:  runs Monday 9am IST, sends weekly in-app digest to vendors.
+snapshot_daily_analytics:   runs 1am daily, writes DailyAnalyticsSnapshot rows for trend charts.
 """
 import logging
 from celery import shared_task
@@ -53,6 +54,67 @@ def aggregate_daily_stats(self):
         return {'stores_updated': updated}
     except Exception as exc:
         logger.error('[analytics] aggregate_daily_stats failed, retrying: %s', exc)
+        raise self.retry(exc=exc)
+
+
+@shared_task(bind=True, name='analytics.snapshot_daily_analytics', max_retries=2, default_retry_delay=120)
+def snapshot_daily_analytics(self):
+    """
+    Runs 1am daily. Writes one DailyAnalyticsSnapshot row per active store for yesterday.
+    Idempotent — uses update_or_create so re-runs don't duplicate.
+    """
+    try:
+        import datetime
+        from decimal import Decimal
+        from django.db.models import Count, Sum, Q
+        from django.utils import timezone
+        from apps.stores.models import Store
+        from apps.reservations.models import Reservation, ReservationStatus
+        from .models import DailyAnalyticsSnapshot
+
+        yesterday = (timezone.now() - datetime.timedelta(days=1)).date()
+        stores = Store.objects.filter(is_active=True)
+
+        updated = 0
+        for store in stores:
+            res_qs = Reservation.objects.filter(store=store, created_at__date=yesterday)
+            completed_qs = res_qs.filter(status=ReservationStatus.COMPLETED)
+            reservation_count = res_qs.count()
+            completed_count = completed_qs.count()
+            revenue = completed_qs.aggregate(
+                total=Sum('actual_selling_price')
+            )['total'] or Decimal('0')
+
+            follower_count = store.followers.count()
+            product_count = store.products.filter(status='active').count()
+            video_view_count = store.videos.aggregate(s=Sum('view_count'))['s'] or 0
+
+            # New customers: customers whose first-ever reservation with this store was yesterday
+            new_customer_count = completed_qs.exclude(
+                customer__in=Reservation.objects.filter(
+                    store=store, created_at__date__lt=yesterday
+                ).values('customer')
+            ).values('customer').distinct().count()
+
+            DailyAnalyticsSnapshot.objects.update_or_create(
+                store=store,
+                snapshot_date=yesterday,
+                defaults={
+                    'reservation_count': reservation_count,
+                    'completed_count': completed_count,
+                    'revenue': revenue,
+                    'follower_count': follower_count,
+                    'product_count': product_count,
+                    'video_view_count': video_view_count,
+                    'new_customer_count': new_customer_count,
+                },
+            )
+            updated += 1
+
+        logger.info('[analytics] snapshot_daily_analytics: %d stores snapshotted for %s', updated, yesterday)
+        return {'stores_snapshotted': updated, 'date': str(yesterday)}
+    except Exception as exc:
+        logger.error('[analytics] snapshot_daily_analytics failed: %s', exc)
         raise self.retry(exc=exc)
 
 
