@@ -75,5 +75,8 @@ urlpatterns = [
 
     # ── CUSTOMER CREDIT (Udhar) ───────────────────────────────────────
     path(API_V1 + 'credit/', include('apps.credit.urls')),
+
+    # ── EXPENSE TRACKING ─────────────────────────────────────────────────
+    path(API_V1 + 'expenses/', include('apps.expenses.urls')),
 ] + urlpatterns_media
 
