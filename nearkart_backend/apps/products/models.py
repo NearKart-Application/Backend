@@ -37,6 +37,7 @@ class Product(BaseModel):
     base_price     = models.DecimalField(max_digits=10, decimal_places=2)
     previous_price = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     festival_tag   = models.CharField(max_length=50, blank=True)
+    barcode        = models.CharField(max_length=100, blank=True, db_index=True)
     last_updated_at = models.DateTimeField(auto_now=True, db_index=True)
 
     class Meta:
@@ -77,6 +78,7 @@ class ProductVariant(BaseModel):
 
 class ProductImage(BaseModel):
     product    = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='images')
+    variant    = models.ForeignKey('ProductVariant', on_delete=models.SET_NULL, null=True, blank=True, related_name='images')
     image_url  = models.URLField()
     s3_key     = models.CharField(max_length=500, blank=True)
     is_primary = models.BooleanField(default=False)
@@ -101,11 +103,17 @@ class Wishlist(BaseModel):
 
 
 class StockMovementReason(models.TextChoices):
-    MANUAL      = 'manual',      'Manual Update'
-    RESERVATION = 'reservation', 'Reservation Deduction'
-    RESTORATION = 'restoration', 'Reservation Restore'
-    RESTOCK     = 'restock',     'Restock'
-    INVOICE     = 'invoice',     'Invoice Sale'
+    MANUAL               = 'manual',               'Manual Update'
+    RESERVATION          = 'reservation',          'Reservation Placed'
+    RESTORATION          = 'restoration',          'Reservation Cancelled/Expired'
+    RESTOCK              = 'restock',              'Restock'
+    INVOICE              = 'invoice',              'Invoice Sale'
+    PURCHASE             = 'purchase',             'Purchase Order Received'
+    RETURN               = 'return',               'Customer Return'
+    RETURN_FROM_CUSTOMER = 'return_from_customer', 'Customer Return (Invoice)'
+    DAMAGE               = 'damage',               'Damaged / Written Off'
+    CORRECTION           = 'correction',           'Stock Audit Correction'
+    AUDIT_ADJUSTMENT     = 'audit_adjustment',     'Stock Audit Adjustment'
 
 
 class StockMovementLog(BaseModel):
@@ -169,6 +177,35 @@ class ProductReview(BaseModel):
         return f'{self.product.name} — {self.rating}★ by {self.reviewer}'
 
 
+class ProductQA(BaseModel):
+    """Customer Q&A on a product — answer provided by the vendor."""
+    product     = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='qa_entries')
+    user        = models.ForeignKey(User, on_delete=models.CASCADE, related_name='product_questions')
+    question    = models.TextField()
+    answer      = models.TextField(blank=True)
+    answered_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'product_qa'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'Q on {self.product.name}: {self.question[:40]}'
+
+
+class ProductPriceHistory(BaseModel):
+    """One entry per price change — created by signal."""
+    product   = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='price_history')
+    price     = models.DecimalField(max_digits=10, decimal_places=2)
+
+    class Meta:
+        db_table = 'product_price_history'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'{self.product.name} — ₹{self.price}'
+
+
 # ── Signal: snapshot base_price into previous_price before every save ──────────
 from django.db.models.signals import pre_save
 from django.dispatch import receiver
@@ -181,5 +218,6 @@ def snapshot_product_price(sender, instance, **kwargs):
             old = Product.objects.only('base_price').get(pk=instance.pk)
             if old.base_price != instance.base_price:
                 instance.previous_price = old.base_price
+                ProductPriceHistory.objects.create(product_id=instance.pk, price=old.base_price)
         except Product.DoesNotExist:
             pass

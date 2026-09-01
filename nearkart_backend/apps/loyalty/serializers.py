@@ -7,15 +7,18 @@ from .services import POINTS_PER_RUPEE, MIN_REDEEM, MAX_REDEEM
 
 
 class LoyaltyBalanceSerializer(serializers.ModelSerializer):
-    referral_code       = serializers.SerializerMethodField()
-    points_value_rupees = serializers.SerializerMethodField()
-    referrals_count     = serializers.SerializerMethodField()
+    referral_code          = serializers.SerializerMethodField()
+    points_value_rupees    = serializers.SerializerMethodField()
+    referrals_count        = serializers.SerializerMethodField()
+    tier                   = serializers.SerializerMethodField()
+    next_tier_points_needed = serializers.SerializerMethodField()
 
     class Meta:
         model  = LoyaltyAccount
         fields = [
             'balance', 'total_earned', 'total_redeemed',
             'referral_code', 'points_value_rupees', 'referrals_count',
+            'tier', 'next_tier_points_needed',
         ]
 
     def get_referral_code(self, obj):
@@ -26,6 +29,12 @@ class LoyaltyBalanceSerializer(serializers.ModelSerializer):
 
     def get_referrals_count(self, obj):
         return obj.user.referrals_given.filter(status='completed').count()
+
+    def get_tier(self, obj):
+        return obj.tier
+
+    def get_next_tier_points_needed(self, obj):
+        return obj.next_tier_points_needed
 
 
 class LoyaltyTransactionSerializer(serializers.ModelSerializer):

@@ -22,11 +22,13 @@ class GroupMemberRole(models.TextChoices):
 
 
 class Group(BaseModel):
-    name        = models.CharField(max_length=200)
-    group_type  = models.CharField(max_length=10, choices=GroupType.choices, default=GroupType.CUSTOMER, db_index=True)
-    created_by  = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='created_groups')
-    store       = models.ForeignKey(Store, on_delete=models.CASCADE, related_name='vendor_groups', null=True, blank=True)
-    is_active   = models.BooleanField(default=True)
+    name         = models.CharField(max_length=200)
+    group_type   = models.CharField(max_length=10, choices=GroupType.choices, default=GroupType.CUSTOMER, db_index=True)
+    created_by   = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='created_groups')
+    store        = models.ForeignKey(Store, on_delete=models.CASCADE, related_name='vendor_groups', null=True, blank=True)
+    is_active    = models.BooleanField(default=True)
+    avatar_url   = models.URLField(max_length=500, blank=True)
+    invite_token = models.UUIDField(default=None, null=True, blank=True, unique=True, db_index=True)
 
     class Meta:
         db_table = 'groups'

@@ -277,6 +277,10 @@ CELERY_BEAT_SCHEDULE = {
         'task':     'notifications.send_weekly_digest',
         'schedule': crontab(hour=9, minute=30, day_of_week=1),  # Monday 9:30 AM
     },
+    'loyalty-expire-points': {
+        'task':     'loyalty.expire_points',
+        'schedule': crontab(hour=2, minute=0),  # Daily at 2 AM
+    },
 }
 
 # ── AUTH ───────────────────────────────────────────────────────

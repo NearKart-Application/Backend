@@ -108,6 +108,23 @@ class VideoLike(models.Model):
         return f'{self.user} likes {self.video}'
 
 
+class VideoComment(models.Model):
+    video      = models.ForeignKey(Video, on_delete=models.CASCADE, related_name='comments')
+    user       = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='video_comments')
+    content    = models.TextField()
+    is_deleted = models.BooleanField(default=False, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'video_comments'
+        ordering = ['created_at']
+        indexes  = [models.Index(fields=['video', 'created_at'], name='vidcomment_video_time_idx')]
+
+    def __str__(self):
+        return f'{self.user} on {self.video.title}: {self.content[:40]}'
+
+
 class VideoSave(models.Model):
     user       = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
                                    related_name='video_saves')

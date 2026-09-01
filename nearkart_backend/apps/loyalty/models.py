@@ -30,6 +30,29 @@ class LoyaltyAccount(BaseModel):
     def __str__(self):
         return f'{self.user.phone_number} — {self.balance} pts'
 
+    TIER_BRONZE = 'bronze'
+    TIER_SILVER = 'silver'
+    TIER_GOLD   = 'gold'
+    TIER_THRESHOLDS = {TIER_GOLD: 5000, TIER_SILVER: 1000, TIER_BRONZE: 0}
+
+    @property
+    def tier(self) -> str:
+        earned = self.total_earned
+        if earned >= 5000:
+            return self.TIER_GOLD
+        if earned >= 1000:
+            return self.TIER_SILVER
+        return self.TIER_BRONZE
+
+    @property
+    def next_tier_points_needed(self) -> int:
+        earned = self.total_earned
+        if earned >= 5000:
+            return 0
+        if earned >= 1000:
+            return 5000 - earned
+        return 1000 - earned
+
     @classmethod
     def get_or_create_for(cls, user) -> 'LoyaltyAccount':
         obj, _ = cls.objects.get_or_create(user=user)
@@ -58,6 +81,8 @@ class LoyaltyTransaction(BaseModel):
     points           = models.PositiveIntegerField()
     description      = models.CharField(max_length=200)
     balance_after    = models.PositiveIntegerField(default=0)
+    expires_at       = models.DateTimeField(null=True, blank=True, db_index=True)
+    is_expired       = models.BooleanField(default=False, db_index=True)
 
     class Meta:
         db_table = 'loyalty_transactions'

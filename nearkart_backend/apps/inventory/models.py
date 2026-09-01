@@ -6,42 +6,10 @@ StockAudit, CompositeProduct, SerialNumber
 from django.conf import settings
 from django.db import models
 from core.models import BaseModel
-from apps.products.models import Product, ProductVariant
-
-
-class StockMovementReason(models.TextChoices):
-    MANUAL               = 'manual',               'Manual Update'
-    RESERVATION          = 'reservation',          'Reservation Placed'
-    RESTORATION          = 'restoration',          'Reservation Cancelled/Expired'
-    INVOICE              = 'invoice',              'Invoice Sale'
-    PURCHASE             = 'purchase',             'Purchase Order Received'
-    RETURN               = 'return',               'Customer Return'
-    RETURN_FROM_CUSTOMER = 'return_from_customer', 'Customer Return (Invoice)'
-    DAMAGE               = 'damage',               'Damaged / Written Off'
-    CORRECTION           = 'correction',           'Stock Audit Correction'
-    AUDIT_ADJUSTMENT     = 'audit_adjustment',     'Stock Audit Adjustment'
-
-
-class StockMovementLog(BaseModel):
-    """Immutable audit trail of every stock change. Never delete rows."""
-    variant    = models.ForeignKey(ProductVariant, on_delete=models.SET_NULL, null=True, related_name='stock_movements')
-    changed_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
-    old_qty    = models.PositiveIntegerField()
-    new_qty    = models.PositiveIntegerField()
-    delta      = models.IntegerField(help_text='new_qty - old_qty; negative = stock reduced')
-    reason     = models.CharField(max_length=20, choices=StockMovementReason.choices)
-    note       = models.CharField(max_length=500, blank=True)
-
-    class Meta:
-        db_table = 'inv_stock_movement_logs'
-        ordering = ['-created_at']
-        indexes = [
-            models.Index(fields=['variant', '-created_at'], name='inv_sml_variant_date_idx'),
-            models.Index(fields=['changed_by', '-created_at'], name='inv_sml_user_date_idx'),
-        ]
-
-    def __str__(self):
-        return f'{self.reason} {self.delta:+d} → {self.new_qty} ({self.variant})'
+from apps.products.models import (
+    Product, ProductVariant,
+    StockMovementLog, StockMovementReason,  # canonical — do not redefine here
+)
 
 
 class StockWatchlist(BaseModel):

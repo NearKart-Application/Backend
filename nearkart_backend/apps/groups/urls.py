@@ -12,10 +12,14 @@ from .views import (
     GroupMessageListView,
     GroupProductListView,
     GroupFinalizeProductView,
+    GroupAvatarView,
+    GroupInviteView,
+    GroupJoinViaInviteView,
 )
 
 urlpatterns = [
     path('',                                                          GroupCreateListView.as_view(),    name='group-create-list'),
+    path('join/<uuid:token>/',                                        GroupJoinViaInviteView.as_view(), name='group-join-invite'),
     path('<uuid:group_id>/',                                          GroupDetailView.as_view(),        name='group-detail'),
     path('<uuid:group_id>/members/add/',                              GroupAddMemberView.as_view(),     name='group-add-member'),
     path('<uuid:group_id>/members/<uuid:user_id>/remove/',            GroupRemoveMemberView.as_view(),  name='group-remove-member'),
@@ -26,4 +30,6 @@ urlpatterns = [
     path('<uuid:group_id>/messages/',                                 GroupMessageListView.as_view(),   name='group-messages'),
     path('<uuid:group_id>/products/',                                 GroupProductListView.as_view(),   name='group-products'),
     path('<uuid:group_id>/products/<uuid:sp_id>/finalize/',           GroupFinalizeProductView.as_view(), name='group-finalize-product'),
+    path('<uuid:group_id>/avatar/',                                   GroupAvatarView.as_view(),        name='group-avatar'),
+    path('<uuid:group_id>/invite/',                                   GroupInviteView.as_view(),        name='group-invite'),
 ]

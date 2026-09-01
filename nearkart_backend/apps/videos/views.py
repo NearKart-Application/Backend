@@ -673,3 +673,68 @@ class VideoTagDeleteView(APIView):
         tag.delete()
         CacheService.invalidate_video_feeds()
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class VideoCommentView(APIView):
+    """GET/POST /videos/<id>/comments/ — list and create video comments."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, video_id):
+        from .models import VideoComment
+        try:
+            video = Video.objects.get(id=video_id, status=Video.STATUS_READY)
+        except Video.DoesNotExist:
+            return Response({'error': 'not_found'}, status=404)
+        qs = VideoComment.objects.filter(video=video, is_deleted=False).select_related('user').order_by('created_at')
+        page = int(request.query_params.get('page', 1))
+        page_size = 20
+        offset = (page - 1) * page_size
+        results = qs[offset: offset + page_size]
+        data = [
+            {
+                'id': c.id,
+                'user_name': c.user.full_name or c.user.phone_number,
+                'user_id': str(c.user.id),
+                'content': c.content,
+                'created_at': c.created_at,
+                'is_own': c.user_id == request.user.id,
+            }
+            for c in results
+        ]
+        return Response({'count': qs.count(), 'page': page, 'results': data})
+
+    def post(self, request, video_id):
+        from .models import VideoComment
+        try:
+            video = Video.objects.get(id=video_id, status=Video.STATUS_READY)
+        except Video.DoesNotExist:
+            return Response({'error': 'not_found'}, status=404)
+        content = (request.data.get('content') or '').strip()
+        if not content:
+            return Response({'error': 'validation_error', 'message': 'content is required.'}, status=400)
+        comment = VideoComment.objects.create(video=video, user=request.user, content=content)
+        return Response({
+            'id': comment.id,
+            'user_name': request.user.full_name or request.user.phone_number,
+            'user_id': str(request.user.id),
+            'content': comment.content,
+            'created_at': comment.created_at,
+            'is_own': True,
+        }, status=201)
+
+
+class VideoCommentDeleteView(APIView):
+    """DELETE /videos/<id>/comments/<comment_id>/ — soft-delete own comment."""
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request, video_id, comment_id):
+        from .models import VideoComment
+        try:
+            comment = VideoComment.objects.get(id=comment_id, video_id=video_id)
+        except VideoComment.DoesNotExist:
+            return Response({'error': 'not_found'}, status=404)
+        if comment.user_id != request.user.id:
+            return Response({'error': 'forbidden', 'message': 'Can only delete your own comments.'}, status=403)
+        comment.is_deleted = True
+        comment.save(update_fields=['is_deleted', 'updated_at'])
+        return Response(status=204)

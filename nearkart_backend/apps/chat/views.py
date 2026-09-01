@@ -287,3 +287,64 @@ class ChatMediaUploadView(APIView):
         saved_path = default_storage.save(filename, ContentFile(image.read()))
         url = default_storage.url(saved_path)
         return Response({'url': url, 'message_type': 'image'}, status=status.HTTP_201_CREATED)
+
+
+class MessageDeleteView(APIView):
+    """DELETE /conversations/<conv_id>/messages/<msg_id>/ — soft-delete own message."""
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request, conversation_id, message_id):
+        try:
+            conv = Conversation.objects.get(id=conversation_id)
+        except Conversation.DoesNotExist:
+            return Response({'error': 'not_found'}, status=404)
+        if not ConversationService.user_belongs_to_conversation(request.user, conv):
+            return Response({'error': 'permission_denied'}, status=403)
+        try:
+            msg = Message.objects.get(id=message_id, conversation=conv)
+        except Message.DoesNotExist:
+            return Response({'error': 'not_found'}, status=404)
+        if msg.sender_id != request.user.id:
+            return Response({'error': 'permission_denied', 'message': 'Can only delete your own messages.'}, status=403)
+        msg.is_deleted = True
+        msg.content = ''
+        msg.save(update_fields=['is_deleted', 'content', 'updated_at'])
+        return Response({'id': str(msg.id), 'is_deleted': True})
+
+
+class MessageReactionView(APIView):
+    """POST/DELETE /conversations/<conv_id>/messages/<msg_id>/react/ — toggle reaction."""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, conversation_id, message_id):
+        from .models import MessageReaction
+        emoji = (request.data.get('emoji') or '').strip()
+        if not emoji:
+            return Response({'error': 'validation_error', 'message': 'emoji required.'}, status=400)
+        try:
+            conv = Conversation.objects.get(id=conversation_id)
+        except Conversation.DoesNotExist:
+            return Response({'error': 'not_found'}, status=404)
+        if not ConversationService.user_belongs_to_conversation(request.user, conv):
+            return Response({'error': 'permission_denied'}, status=403)
+        try:
+            msg = Message.objects.get(id=message_id, conversation=conv)
+        except Message.DoesNotExist:
+            return Response({'error': 'not_found'}, status=404)
+        reaction, created = MessageReaction.objects.update_or_create(
+            message=msg, user=request.user,
+            defaults={'emoji': emoji},
+        )
+        return Response({'id': str(reaction.id), 'emoji': reaction.emoji, 'created': created},
+                        status=201 if created else 200)
+
+    def delete(self, request, conversation_id, message_id):
+        from .models import MessageReaction
+        try:
+            conv = Conversation.objects.get(id=conversation_id)
+        except Conversation.DoesNotExist:
+            return Response({'error': 'not_found'}, status=404)
+        if not ConversationService.user_belongs_to_conversation(request.user, conv):
+            return Response({'error': 'permission_denied'}, status=403)
+        MessageReaction.objects.filter(message_id=message_id, user=request.user).delete()
+        return Response(status=204)

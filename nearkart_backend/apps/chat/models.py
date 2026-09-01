@@ -59,6 +59,9 @@ class Message(BaseModel):
     media_url     = models.URLField(max_length=500, blank=True)
     ref_id        = models.UUIDField(null=True, blank=True)
     is_read       = models.BooleanField(default=False, db_index=True)
+    is_deleted    = models.BooleanField(default=False, db_index=True)
+    edited_at     = models.DateTimeField(null=True, blank=True)
+    edited_content = models.TextField(blank=True)
 
     class Meta:
         db_table = 'messages'
@@ -69,3 +72,18 @@ class Message(BaseModel):
 
     def __str__(self):
         return f'[{self.conversation_id}] {self.sender.phone_number}: {self.content[:40]}'
+
+
+class MessageReaction(BaseModel):
+    EMOJI_CHOICES = ['👍', '❤️', '😂', '😮', '😢', '🔥']
+
+    message  = models.ForeignKey(Message, on_delete=models.CASCADE, related_name='reactions')
+    user     = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='message_reactions')
+    emoji    = models.CharField(max_length=10)
+
+    class Meta:
+        db_table        = 'message_reactions'
+        unique_together = [('message', 'user')]
+
+    def __str__(self):
+        return f'{self.user} reacted {self.emoji} on message {self.message_id}'

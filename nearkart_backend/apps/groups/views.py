@@ -471,3 +471,78 @@ class GroupFinalizeProductView(APIView):
 
         shared = GroupService.finalize_product(shared, request.user)
         return Response(SharedProductSerializer(shared).data)
+
+
+class GroupAvatarView(APIView):
+    """POST /groups/<id>/avatar/ — upload group avatar. Admin only."""
+    permission_classes = [IsAuthenticated]
+    from rest_framework.parsers import MultiPartParser, FormParser
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request, group_id):
+        import uuid, os
+        from django.core.files.base import ContentFile
+        from django.core.files.storage import default_storage
+        try:
+            group = Group.objects.get(id=group_id, is_active=True)
+        except Group.DoesNotExist:
+            return Response({'error': 'not_found'}, status=404)
+        if not GroupService.is_admin(group, request.user):
+            return Response({'error': 'forbidden', 'message': 'Only group admin can change avatar.'}, status=403)
+        image = request.FILES.get('image')
+        if not image:
+            return Response({'error': 'no_image', 'message': 'image file required.'}, status=400)
+        ext = os.path.splitext(image.name)[1].lower()
+        if ext not in ('.jpg', '.jpeg', '.png', '.webp'):
+            return Response({'error': 'invalid_type', 'message': 'Only JPEG/PNG/WebP allowed.'}, status=400)
+        path = default_storage.save(f'groups/avatars/{uuid.uuid4()}{ext}', ContentFile(image.read()))
+        url = default_storage.url(path)
+        group.avatar_url = url
+        group.save(update_fields=['avatar_url'])
+        return Response({'avatar_url': url})
+
+
+class GroupInviteView(APIView):
+    """GET /groups/<id>/invite/ — get or generate invite link. Admin only."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, group_id):
+        import uuid as _uuid_mod
+        try:
+            group = Group.objects.get(id=group_id, is_active=True)
+        except Group.DoesNotExist:
+            return Response({'error': 'not_found'}, status=404)
+        if not GroupService.is_admin(group, request.user):
+            return Response({'error': 'forbidden', 'message': 'Only group admin can view invite link.'}, status=403)
+        if not group.invite_token:
+            group.invite_token = _uuid_mod.uuid4()
+            group.save(update_fields=['invite_token'])
+        return Response({'invite_token': str(group.invite_token), 'invite_url': f'/groups/join/{group.invite_token}/'})
+
+    def delete(self, request, group_id):
+        """Revoke the invite link."""
+        try:
+            group = Group.objects.get(id=group_id, is_active=True)
+        except Group.DoesNotExist:
+            return Response({'error': 'not_found'}, status=404)
+        if not GroupService.is_admin(group, request.user):
+            return Response({'error': 'forbidden'}, status=403)
+        group.invite_token = None
+        group.save(update_fields=['invite_token'])
+        return Response(status=204)
+
+
+class GroupJoinViaInviteView(APIView):
+    """POST /groups/join/<token>/ — join group by invite token."""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, token):
+        from .models import GroupMember, GroupMemberRole
+        try:
+            group = Group.objects.get(invite_token=token, is_active=True)
+        except Group.DoesNotExist:
+            return Response({'error': 'invalid_token', 'message': 'Invalid or expired invite link.'}, status=404)
+        if GroupMember.objects.filter(group=group, user=request.user).exists():
+            return Response({'error': 'already_member', 'message': 'You are already in this group.'}, status=400)
+        GroupMember.objects.create(group=group, user=request.user, role=GroupMemberRole.MEMBER)
+        return Response({'group_id': str(group.id), 'group_name': group.name})
