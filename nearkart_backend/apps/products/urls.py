@@ -13,6 +13,7 @@ from .views import (
     ProductPriceHistoryView,
     ProductBulkImportView,
     ProductBundleComponentsView, ProductBundleComponentDeleteView,
+    JewelryAttributesView, JewelryProductListView,
 )
 from apps.admin_panel.views import PublicCategoryListView
 
@@ -49,4 +50,7 @@ urlpatterns = [
     path('<uuid:product_id>/price-history/', ProductPriceHistoryView.as_view(), name='product-price-history'),
     path('<uuid:product_id>/bundle-components/', ProductBundleComponentsView.as_view(), name='product-bundle-components'),
     path('<uuid:product_id>/bundle-components/<uuid:comp_id>/', ProductBundleComponentDeleteView.as_view(), name='product-bundle-component-delete'),
+    # Jewelry attributes
+    path('jewelry/',                                                                JewelryProductListView.as_view(),  name='jewelry-list'),
+    path('<uuid:product_id>/variants/<uuid:variant_id>/jewelry/',                   JewelryAttributesView.as_view(),   name='jewelry-attributes'),
 ]

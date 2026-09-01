@@ -66,6 +66,13 @@ class ProductVariant(BaseModel):
     show_stock_count      = models.BooleanField(default=True, help_text='Vendor toggle — hide stock count from vendor website if False')
     unit                  = models.CharField(max_length=20, blank=True, default='piece', help_text='Unit of measure (piece, kg, gram, litre, dozen, metre, pair)')
 
+    # ── Jewelry attributes (#139–#142) ────────────────────────────────────────
+    weight_grams      = models.DecimalField(max_digits=10, decimal_places=3, null=True, blank=True, help_text='Net weight in grams (gold/silver/platinum)')
+    price_per_gram    = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True, help_text='Live metal rate in ₹/gram used to compute base price')
+    purity            = models.CharField(max_length=20, blank=True, help_text='e.g. 22K, 18K, 14K, 925 (sterling silver), 950 (platinum)')
+    making_charges    = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True, help_text='Labour / craftsmanship fee in ₹, separate from metal value')
+    hallmark_number   = models.CharField(max_length=50, blank=True, help_text='BIS Hallmark certification number (HUID)')
+
     class Meta:
         db_table = 'product_variants'
         ordering = ['name']

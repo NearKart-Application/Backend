@@ -1303,3 +1303,102 @@ class ProductBundleComponentDeleteView(APIView):
         if not deleted:
             return Response({'error': 'not_found'}, status=status.HTTP_404_NOT_FOUND)
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+# ── Jewelry Attributes (#139–#142) ────────────────────────────────────────────
+
+JEWELRY_FIELDS = {'weight_grams', 'price_per_gram', 'purity', 'making_charges', 'hallmark_number'}
+
+
+class JewelryAttributesView(APIView):
+    """
+    GET  /products/<product_id>/variants/<variant_id>/jewelry/
+    PATCH /products/<product_id>/variants/<variant_id>/jewelry/
+    Read or update jewelry-specific fields on a variant.
+    """
+    permission_classes = [IsAuthenticated, IsVendor]
+
+    def _get_variant(self, request, product_id, variant_id):
+        try:
+            product = Product.objects.get(id=product_id, store=request.user.store)
+        except Product.DoesNotExist:
+            return None, None
+        try:
+            return product, product.variants.get(id=variant_id)
+        except ProductVariant.DoesNotExist:
+            return None, None
+
+    def get(self, request, product_id, variant_id):
+        _, variant = self._get_variant(request, product_id, variant_id)
+        if not variant:
+            return Response({'error': 'not_found'}, status=404)
+        return Response({
+            'variant_id':      str(variant.id),
+            'variant_name':    variant.name,
+            'weight_grams':    str(variant.weight_grams) if variant.weight_grams is not None else None,
+            'price_per_gram':  str(variant.price_per_gram) if variant.price_per_gram is not None else None,
+            'purity':          variant.purity,
+            'making_charges':  str(variant.making_charges) if variant.making_charges is not None else None,
+            'hallmark_number': variant.hallmark_number,
+        })
+
+    def patch(self, request, product_id, variant_id):
+        _, variant = self._get_variant(request, product_id, variant_id)
+        if not variant:
+            return Response({'error': 'not_found'}, status=404)
+
+        data = {k: v for k, v in request.data.items() if k in JEWELRY_FIELDS}
+        if not data:
+            return Response({'error': 'No jewelry fields provided.'}, status=400)
+
+        for field, value in data.items():
+            setattr(variant, field, value if value not in ('', None) else None if field != 'purity' and field != 'hallmark_number' else '')
+        variant.save(update_fields=list(data.keys()))
+
+        return Response({
+            'variant_id':      str(variant.id),
+            'variant_name':    variant.name,
+            'weight_grams':    str(variant.weight_grams) if variant.weight_grams is not None else None,
+            'price_per_gram':  str(variant.price_per_gram) if variant.price_per_gram is not None else None,
+            'purity':          variant.purity,
+            'making_charges':  str(variant.making_charges) if variant.making_charges is not None else None,
+            'hallmark_number': variant.hallmark_number,
+        })
+
+
+class JewelryProductListView(APIView):
+    """
+    GET /products/jewelry/
+    Returns all variants with any jewelry attribute set, for the vendor's store.
+    Used by the Jewelry Inventory management UI.
+    """
+    permission_classes = [IsAuthenticated, IsVendor]
+
+    def get(self, request):
+        from django.db.models import Q
+        store = request.user.store
+        variants = ProductVariant.objects.filter(
+            product__store=store,
+        ).filter(
+            Q(weight_grams__isnull=False) |
+            Q(price_per_gram__isnull=False) |
+            Q(purity__gt='') |
+            Q(making_charges__isnull=False) |
+            Q(hallmark_number__gt=''),
+        ).select_related('product')
+        return Response([
+            {
+                'variant_id':      str(v.id),
+                'variant_name':    v.name,
+                'product_id':      str(v.product_id),
+                'product_name':    v.product.name,
+                'sku':             v.sku,
+                'price':           str(v.price),
+                'weight_grams':    str(v.weight_grams) if v.weight_grams is not None else None,
+                'price_per_gram':  str(v.price_per_gram) if v.price_per_gram is not None else None,
+                'purity':          v.purity,
+                'making_charges':  str(v.making_charges) if v.making_charges is not None else None,
+                'hallmark_number': v.hallmark_number,
+            }
+            for v in variants
+        ])
