@@ -78,5 +78,8 @@ urlpatterns = [
 
     # ── EXPENSE TRACKING ─────────────────────────────────────────────────
     path(API_V1 + 'expenses/', include('apps.expenses.urls')),
+
+    # ── FINANCIAL REPORTS ────────────────────────────────────────────────
+    path(API_V1 + 'reports/', include('apps.reports.urls')),
 ] + urlpatterns_media
 
