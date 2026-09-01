@@ -4,20 +4,22 @@ NearKart — Product Serializers
 from django.db import models
 from rest_framework import serializers
 from drf_spectacular.utils import extend_schema_field
-from .models import Product, ProductVariant, ProductImage, Wishlist, ProductReview
+from .models import Product, ProductVariant, ProductImage, Wishlist, ProductReview, ProductQA, ProductPriceHistory
 
 
 class ProductVariantSerializer(serializers.ModelSerializer):
     class Meta:
         model  = ProductVariant
-        fields = ['id', 'name', 'sku', 'price', 'stock_quantity']
+        fields = ['id', 'name', 'sku', 'price', 'stock_quantity', 'mrp', 'cost_price', 'reorder_point', 'low_stock_threshold']
         read_only_fields = ['id']
 
 
 class ProductImageSerializer(serializers.ModelSerializer):
+    variant_id = serializers.UUIDField(source='variant.id', allow_null=True, read_only=True)
+
     class Meta:
         model  = ProductImage
-        fields = ['id', 'image_url', 'is_primary', 'order']
+        fields = ['id', 'image_url', 'is_primary', 'order', 'variant_id']
         read_only_fields = ['id']
 
 
@@ -36,7 +38,7 @@ class ProductSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'store_id', 'store_name', 'product_code',
             'name', 'description', 'category', 'category_fk',
-            'status', 'is_visible', 'base_price',
+            'status', 'is_visible', 'base_price', 'barcode',
             'variants', 'images',
             'primary_image', 'stock_total',
             'distance_km', 'is_wishlisted',
@@ -193,8 +195,7 @@ class MobileProductDetailSerializer(serializers.ModelSerializer):
             'distance_km', 'sizes', 'colors',
             'stock_count', 'is_on_sale', 'festival_tag', 'is_wishlisted',
             # Vendor edit form fields
-            'status', 'is_visible', 'product_code',
-            'cost_price', 'hsn_code', 'gst_rate',
+            'status', 'is_visible', 'product_code', 'barcode',
         ]
 
     @extend_schema_field(serializers.FloatField(allow_null=True))
@@ -204,10 +205,12 @@ class MobileProductDetailSerializer(serializers.ModelSerializer):
             return float(variant.price)
         return None
 
-    @extend_schema_field(serializers.ListField(child=serializers.URLField()))
+    @extend_schema_field(serializers.ListField())
     def get_images(self, obj):
-        # Sort prefetched images in Python — avoids bypassing the prefetch cache
-        return [img.image_url for img in sorted(obj.images.all(), key=lambda i: i.order)]
+        return [
+            {'url': img.image_url, 'variant_id': str(img.variant_id) if img.variant_id else None}
+            for img in sorted(obj.images.all(), key=lambda i: i.order)
+        ]
 
     @extend_schema_field(serializers.DictField())
     def get_store(self, obj):
@@ -294,3 +297,31 @@ class ProductReviewListSerializer(serializers.ModelSerializer):
             return f'{parts[0]} {"*" * (len(parts[1]) if len(parts) > 1 else 0)}'.strip()
         phone = obj.reviewer.phone_number or ''
         return phone[:4] + '****' + phone[-2:] if len(phone) >= 6 else '****'
+
+
+class ProductQASerializer(serializers.ModelSerializer):
+    asker_name  = serializers.SerializerMethodField()
+    is_answered = serializers.SerializerMethodField()
+
+    class Meta:
+        model  = ProductQA
+        fields = ['id', 'question', 'answer', 'answered_at', 'asker_name', 'is_answered', 'created_at']
+        read_only_fields = ['id', 'answer', 'answered_at', 'created_at']
+
+    def get_asker_name(self, obj):
+        name = getattr(obj.user, 'full_name', '') or ''
+        if name:
+            parts = name.split()
+            return parts[0]
+        phone = obj.user.phone_number or ''
+        return phone[:4] + '****' if len(phone) >= 4 else '****'
+
+    def get_is_answered(self, obj):
+        return bool(obj.answer)
+
+
+class ProductPriceHistorySerializer(serializers.ModelSerializer):
+    class Meta:
+        model  = ProductPriceHistory
+        fields = ['id', 'price', 'created_at']
+        read_only_fields = ['id', 'price', 'created_at']

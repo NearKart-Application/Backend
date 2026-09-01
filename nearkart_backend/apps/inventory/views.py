@@ -109,6 +109,19 @@ class SupplierListView(APIView):
             store = _vendor_store(request)
         except Exception:
             return Response({'error': 'no_store', 'message': 'Create a store first.'}, status=400)
+        # Plan-gated: enforce supplier_limit
+        try:
+            plan = store.subscription.plan
+            if plan.supplier_limit > 0:
+                current_count = Supplier.objects.filter(store=store, is_active=True).count()
+                if current_count >= plan.supplier_limit:
+                    return Response({
+                        'error': 'plan_limit_reached',
+                        'message': f'Your plan allows up to {plan.supplier_limit} suppliers. Upgrade to add more.',
+                        'limit': plan.supplier_limit,
+                    }, status=403)
+        except Exception:
+            pass
         ser = SupplierSerializer(data=request.data)
         if not ser.is_valid():
             return Response(ser.errors, status=400)
@@ -189,6 +202,22 @@ class PurchaseOrderListView(APIView):
             store = _vendor_store(request)
         except Exception:
             return Response({'error': 'no_store', 'message': 'Create a store first.'}, status=400)
+        # Plan-gated: enforce po_limit_monthly
+        try:
+            plan = store.subscription.plan
+            if plan.po_limit_monthly > 0:
+                from django.utils.timezone import now
+                from django.db.models import Count
+                month_start = now().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+                monthly_count = PurchaseOrder.objects.filter(store=store, created_at__gte=month_start).count()
+                if monthly_count >= plan.po_limit_monthly:
+                    return Response({
+                        'error': 'plan_limit_reached',
+                        'message': f'Your plan allows {plan.po_limit_monthly} purchase orders per month. Upgrade to create more.',
+                        'limit': plan.po_limit_monthly,
+                    }, status=403)
+        except Exception:
+            pass
         ser = PurchaseOrderSerializer(data=request.data)
         if not ser.is_valid():
             return Response(ser.errors, status=400)
