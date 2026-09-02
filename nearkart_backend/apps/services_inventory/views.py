@@ -1,7 +1,7 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
-from apps.auth_app.permissions import IsVendor
+from core.permissions import IsVendor
 from .models import Consumable, ServiceConsumable, Equipment, MaintenanceRecord, Resource, ResourceAllocation
 from .serializers import (
     ConsumableSerializer, ServiceConsumableSerializer,
