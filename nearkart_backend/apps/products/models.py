@@ -73,6 +73,14 @@ class ProductVariant(BaseModel):
     making_charges    = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True, help_text='Labour / craftsmanship fee in ₹, separate from metal value')
     hallmark_number   = models.CharField(max_length=50, blank=True, help_text='BIS Hallmark certification number (HUID)')
 
+    # ── Home Decor attributes (#143–#146) ────────────────────────────────────
+    length_cm            = models.DecimalField(max_digits=8, decimal_places=2, null=True, blank=True, help_text='Product length in centimetres')
+    width_cm             = models.DecimalField(max_digits=8, decimal_places=2, null=True, blank=True, help_text='Product width in centimetres')
+    height_cm            = models.DecimalField(max_digits=8, decimal_places=2, null=True, blank=True, help_text='Product height in centimetres')
+    weight_kg            = models.DecimalField(max_digits=8, decimal_places=3, null=True, blank=True, help_text='Shipping / physical weight in kilograms')
+    is_assembly_required = models.BooleanField(default=False, help_text='True if the item ships unassembled and requires self-assembly')
+    is_display_unit      = models.BooleanField(default=False, help_text='True if this variant is a floor/display sample, not fresh stock')
+
     class Meta:
         db_table = 'product_variants'
         ordering = ['name']

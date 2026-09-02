@@ -14,6 +14,7 @@ class ProductVariantSerializer(serializers.ModelSerializer):
             'id', 'name', 'sku', 'price', 'stock_quantity', 'mrp', 'cost_price',
             'reorder_point', 'low_stock_threshold', 'unit',
             'weight_grams', 'price_per_gram', 'purity', 'making_charges', 'hallmark_number',
+            'length_cm', 'width_cm', 'height_cm', 'weight_kg', 'is_assembly_required', 'is_display_unit',
         ]
         read_only_fields = ['id']
 

@@ -14,6 +14,7 @@ from .views import (
     ProductBulkImportView,
     ProductBundleComponentsView, ProductBundleComponentDeleteView,
     JewelryAttributesView, JewelryProductListView,
+    HomeDecorAttributesView, HomeDecorProductListView,
 )
 from apps.admin_panel.views import PublicCategoryListView
 
@@ -53,4 +54,7 @@ urlpatterns = [
     # Jewelry attributes
     path('jewelry/',                                                                JewelryProductListView.as_view(),  name='jewelry-list'),
     path('<uuid:product_id>/variants/<uuid:variant_id>/jewelry/',                   JewelryAttributesView.as_view(),   name='jewelry-attributes'),
+    # Home Decor attributes
+    path('home-decor/',                                                             HomeDecorProductListView.as_view(), name='home-decor-list'),
+    path('<uuid:product_id>/variants/<uuid:variant_id>/home-decor/',                HomeDecorAttributesView.as_view(),  name='home-decor-attributes'),
 ]

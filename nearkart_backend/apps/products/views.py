@@ -1402,3 +1402,102 @@ class JewelryProductListView(APIView):
             }
             for v in variants
         ])
+
+# ── Home Decor Inventory (#143–#146) ─────────────────────────────────────────
+
+HOME_DECOR_FIELDS = {'length_cm', 'width_cm', 'height_cm', 'weight_kg', 'is_assembly_required', 'is_display_unit'}
+_BOOL_FIELDS = {'is_assembly_required', 'is_display_unit'}
+
+
+class HomeDecorAttributesView(APIView):
+    """
+    GET /products/<product_id>/variants/<variant_id>/home-decor/
+    PATCH /products/<product_id>/variants/<variant_id>/home-decor/
+    Read or update home-decor-specific fields on a variant.
+    """
+    permission_classes = [IsAuthenticated, IsVendor]
+
+    def _get_variant(self, request, product_id, variant_id):
+        try:
+            store = request.user.store
+            product = Product.objects.get(id=product_id, store=store)
+            variant = ProductVariant.objects.get(id=variant_id, product=product)
+            return product, variant
+        except (Product.DoesNotExist, ProductVariant.DoesNotExist):
+            return None, None
+
+    def get(self, request, product_id, variant_id):
+        _, variant = self._get_variant(request, product_id, variant_id)
+        if not variant:
+            return Response({'error': 'not_found'}, status=404)
+        return Response(self._serialize(variant))
+
+    def patch(self, request, product_id, variant_id):
+        _, variant = self._get_variant(request, product_id, variant_id)
+        if not variant:
+            return Response({'error': 'not_found'}, status=404)
+
+        data = {k: v for k, v in request.data.items() if k in HOME_DECOR_FIELDS}
+        if not data:
+            return Response({'error': 'No home decor fields provided.'}, status=400)
+
+        for field, value in data.items():
+            if field in _BOOL_FIELDS:
+                setattr(variant, field, bool(value) if not isinstance(value, bool) else value)
+            else:
+                setattr(variant, field, value if value not in ('', None) else None)
+        variant.save(update_fields=list(data.keys()))
+        return Response(self._serialize(variant))
+
+    @staticmethod
+    def _serialize(variant):
+        return {
+            'variant_id':          str(variant.id),
+            'variant_name':        variant.name,
+            'length_cm':           str(variant.length_cm) if variant.length_cm is not None else None,
+            'width_cm':            str(variant.width_cm) if variant.width_cm is not None else None,
+            'height_cm':           str(variant.height_cm) if variant.height_cm is not None else None,
+            'weight_kg':           str(variant.weight_kg) if variant.weight_kg is not None else None,
+            'is_assembly_required': variant.is_assembly_required,
+            'is_display_unit':     variant.is_display_unit,
+        }
+
+
+class HomeDecorProductListView(APIView):
+    """
+    GET /products/home-decor/
+    Returns all variants with any home-decor attribute set, for the vendor's store.
+    """
+    permission_classes = [IsAuthenticated, IsVendor]
+
+    def get(self, request):
+        from django.db.models import Q
+        store = request.user.store
+        variants = ProductVariant.objects.filter(
+            product__store=store,
+        ).filter(
+            Q(length_cm__isnull=False) |
+            Q(width_cm__isnull=False) |
+            Q(height_cm__isnull=False) |
+            Q(weight_kg__isnull=False) |
+            Q(is_assembly_required=True) |
+            Q(is_display_unit=True),
+        ).select_related('product')
+        return Response([
+            {
+                'variant_id':           str(v.id),
+                'variant_name':         v.name,
+                'product_id':           str(v.product_id),
+                'product_name':         v.product.name,
+                'sku':                  v.sku,
+                'price':                str(v.price),
+                'stock_quantity':       v.stock_quantity,
+                'length_cm':            str(v.length_cm) if v.length_cm is not None else None,
+                'width_cm':             str(v.width_cm) if v.width_cm is not None else None,
+                'height_cm':            str(v.height_cm) if v.height_cm is not None else None,
+                'weight_kg':            str(v.weight_kg) if v.weight_kg is not None else None,
+                'is_assembly_required': v.is_assembly_required,
+                'is_display_unit':      v.is_display_unit,
+            }
+            for v in variants
+        ])
