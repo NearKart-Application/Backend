@@ -160,11 +160,11 @@ class ReservationService:
     @staticmethod
     def get_for_customer(customer):
         return Reservation.objects.filter(customer=customer).select_related(
-            'store', 'product'
+            'store', 'product', 'variant', 'served_by', 'served_by__user'
         ).order_by('-created_at')
 
     @staticmethod
     def get_for_store(store):
         return Reservation.objects.filter(store=store).select_related(
-            'customer', 'product'
+            'customer', 'product', 'variant', 'served_by', 'served_by__user'
         ).order_by('-created_at')

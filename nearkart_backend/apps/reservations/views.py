@@ -165,7 +165,7 @@ class ReservationListView(APIView):
             qs = ReservationService.get_for_store(store)
         elif user.role in ('admin', 'master_admin'):
             # Admins see all reservations; location-scoped admins filtered by assigned city
-            qs = Reservation.objects.select_related('store', 'product', 'customer').all()
+            qs = Reservation.objects.select_related('store', 'product', 'customer', 'variant', 'served_by', 'served_by__user').all()
             assigned_city = (getattr(user, 'admin_assigned_city', '') or '').strip()
             if assigned_city:
                 cities = [c.strip() for c in assigned_city.split(',') if c.strip()]
@@ -222,7 +222,7 @@ class ReservationDetailView(APIView):
 
     def _get_reservation(self, user, reservation_id):
         try:
-            r = Reservation.objects.select_related('store', 'product', 'customer').get(id=reservation_id)
+            r = Reservation.objects.select_related('store', 'product', 'customer', 'variant', 'served_by', 'served_by__user').get(id=reservation_id)
         except Reservation.DoesNotExist:
             return None
         if user.role == 'vendor':
