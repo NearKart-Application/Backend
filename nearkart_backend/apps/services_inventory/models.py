@@ -10,7 +10,7 @@ ResourceAllocation: time-blocked allocation of a resource (linked to reservation
 """
 from datetime import date
 from django.db import models
-from apps.core.models import BaseModel
+from core.models import BaseModel
 
 
 class ConsumableUnit(models.TextChoices):
