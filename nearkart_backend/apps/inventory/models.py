@@ -217,3 +217,109 @@ class WastageRecord(BaseModel):
         batch = self.batch
         batch.remaining_qty = max(batch.quantity - used, 0)
         batch.save(update_fields=['remaining_qty'])
+
+
+# ── Unit of Measure (#56) ─────────────────────────────────────────────────────
+
+class UoMCategory(models.TextChoices):
+    WEIGHT = 'weight', 'Weight'
+    VOLUME = 'volume', 'Volume'
+    COUNT  = 'count',  'Count / Unit'
+    LENGTH = 'length', 'Length'
+
+
+class UnitOfMeasure(BaseModel):
+    """
+    Phase-1 UoM catalogue. Products and variants reference this to standardise
+    stock quantities across purchase orders, stock movements, and display.
+    """
+    name              = models.CharField(max_length=50, unique=True)
+    symbol            = models.CharField(max_length=10, unique=True)
+    category          = models.CharField(max_length=10, choices=UoMCategory.choices, default=UoMCategory.COUNT)
+    conversion_factor = models.DecimalField(
+        max_digits=15, decimal_places=6, default=1.0,
+        help_text='Multiply by this factor to convert to the base unit of the same category',
+    )
+    is_base_unit      = models.BooleanField(default=False, help_text='True for kg, litre, piece, metre')
+    notes             = models.CharField(max_length=200, blank=True)
+
+    class Meta:
+        db_table = 'inv_units_of_measure'
+        ordering = ['category', 'name']
+        indexes  = [models.Index(fields=['category', 'is_base_unit'], name='inv_uom_cat_base_idx')]
+
+    def __str__(self):
+        return f'{self.name} ({self.symbol})'
+
+
+# ── PurchaseSource — Informal Markets (#58) ───────────────────────────────────
+
+class MarketType(models.TextChoices):
+    INFORMAL   = 'informal',   'Informal / Street Market'
+    WHOLESALE  = 'wholesale',  'Wholesale Market'
+    MANDI      = 'mandi',      'Mandi / Agricultural Market'
+    DIRECT     = 'direct',     'Direct from Farmer / Producer'
+    ONLINE     = 'online',     'Online Supplier'
+    FORMAL     = 'formal',     'Formal Distributor'
+
+
+class PurchaseSource(BaseModel):
+    """
+    Tracks where vendors source their stock — including informal markets, mandis,
+    and street wholesalers that don't issue formal invoices (Supplier FK is optional).
+    """
+    store        = models.ForeignKey('stores.Store', on_delete=models.CASCADE, related_name='purchase_sources')
+    name         = models.CharField(max_length=200, help_text='e.g. Crawford Market, Azadpur Mandi')
+    market_type  = models.CharField(max_length=20, choices=MarketType.choices, default=MarketType.INFORMAL)
+    contact_name = models.CharField(max_length=200, blank=True)
+    phone        = models.CharField(max_length=15, blank=True)
+    address      = models.TextField(blank=True)
+    notes        = models.TextField(blank=True)
+    is_active    = models.BooleanField(default=True)
+
+    class Meta:
+        db_table = 'inv_purchase_sources'
+        ordering = ['name']
+        indexes  = [models.Index(fields=['store', 'market_type', 'is_active'], name='inv_ps_store_type_idx')]
+
+    def __str__(self):
+        return f'{self.name} ({self.get_market_type_display()}) — {self.store.name}'
+
+
+# ── StockLedger — Consolidated Daily Movements (#59) ─────────────────────────
+
+class StockLedger(BaseModel):
+    """
+    Daily consolidated ledger row per (store, variant). Aggregates all stock
+    movements for a period into a single opening/closing balance record, enabling
+    fast period-based queries without scanning StockMovementLog.
+    """
+    store       = models.ForeignKey('stores.Store', on_delete=models.CASCADE, related_name='stock_ledger_entries')
+    variant     = models.ForeignKey(ProductVariant, on_delete=models.CASCADE, related_name='ledger_entries')
+    period_date = models.DateField(help_text='Calendar date this entry summarises')
+    opening_qty = models.DecimalField(max_digits=12, decimal_places=3, default=0)
+    in_qty      = models.DecimalField(max_digits=12, decimal_places=3, default=0,
+                                      help_text='Total stock received (purchases + returns) this day')
+    out_qty     = models.DecimalField(max_digits=12, decimal_places=3, default=0,
+                                      help_text='Total stock dispatched (sales + wastage) this day')
+    closing_qty = models.DecimalField(max_digits=12, decimal_places=3, default=0)
+    notes       = models.TextField(blank=True)
+
+    class Meta:
+        db_table        = 'inv_stock_ledger'
+        unique_together = [('store', 'variant', 'period_date')]
+        ordering        = ['-period_date']
+        indexes         = [
+            models.Index(fields=['store', 'period_date'], name='inv_sl_store_date_idx'),
+            models.Index(fields=['variant', 'period_date'], name='inv_sl_variant_date_idx'),
+        ]
+
+    def __str__(self):
+        return (
+            f'{self.variant.name} @ {self.store.name} on {self.period_date}: '
+            f'open={self.opening_qty} in={self.in_qty} out={self.out_qty} close={self.closing_qty}'
+        )
+
+    @property
+    def net_movement(self):
+        return self.in_qty - self.out_qty
