@@ -1237,6 +1237,44 @@ class ProductBulkImportView(APIView):
                         status=status.HTTP_201_CREATED if created_count else status.HTTP_400_BAD_REQUEST)
 
 
+class ProductBulkActionView(APIView):
+    """
+    POST /products/vendor/bulk-action/
+    Body: { action: 'delete'|'activate'|'deactivate', product_ids: [uuid, ...] }
+    Max 50 products per call. Only acts on products owned by the requesting vendor.
+    """
+    permission_classes = [IsAuthenticated, IsVendor]
+
+    def post(self, request):
+        if not hasattr(request.user, 'store'):
+            return Response({'error': 'no_store'}, status=status.HTTP_400_BAD_REQUEST)
+
+        action      = request.data.get('action')
+        product_ids = request.data.get('product_ids', [])
+
+        if action not in ('delete', 'activate', 'deactivate'):
+            return Response({'error': 'invalid_action', 'message': "action must be 'delete', 'activate', or 'deactivate'."}, status=status.HTTP_400_BAD_REQUEST)
+        if not isinstance(product_ids, list) or not product_ids:
+            return Response({'error': 'product_ids required'}, status=status.HTTP_400_BAD_REQUEST)
+        if len(product_ids) > 50:
+            return Response({'error': 'too_many', 'message': 'Max 50 products per request.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        qs = Product.objects.filter(id__in=product_ids, store=request.user.store)
+        affected = qs.count()
+
+        if action == 'delete':
+            qs.delete()
+            log_vendor_action(request, 'bulk_delete', entity_type='product', detail=f'{affected} products deleted')
+        elif action == 'activate':
+            qs.update(is_visible=True, status='active')
+            log_vendor_action(request, 'bulk_activate', entity_type='product', detail=f'{affected} products activated')
+        elif action == 'deactivate':
+            qs.update(is_visible=False, status='draft')
+            log_vendor_action(request, 'bulk_deactivate', entity_type='product', detail=f'{affected} products deactivated')
+
+        return Response({'affected': affected})
+
+
 class ProductBundleComponentsView(APIView):
     """
     GET  /products/<id>/bundle-components/   — list bundle components
