@@ -31,6 +31,7 @@ class ReservationStatusUpdateSerializer(serializers.Serializer):
         choices=['', 'cash', 'upi', 'card', 'credit', 'other'],
         required=False, allow_blank=True, default='',
     )
+    served_by_id = serializers.UUIDField(required=False, allow_null=True, default=None)
 
 
 class ReservationProductSerializer(serializers.Serializer):
@@ -53,12 +54,20 @@ class ReservationCustomerSerializer(serializers.Serializer):
 
 
 class ReservationSerializer(serializers.ModelSerializer):
-    product      = ReservationProductSerializer(read_only=True)
-    store        = ReservationStoreSerializer(read_only=True)
-    customer     = ReservationCustomerSerializer(read_only=True)
-    hours_left   = serializers.FloatField(read_only=True)
-    variant_id   = serializers.UUIDField(source='variant.id',   read_only=True, allow_null=True)
-    variant_name = serializers.CharField(source='variant.name', read_only=True, allow_null=True)
+    product        = ReservationProductSerializer(read_only=True)
+    store          = ReservationStoreSerializer(read_only=True)
+    customer       = ReservationCustomerSerializer(read_only=True)
+    hours_left     = serializers.FloatField(read_only=True)
+    variant_id     = serializers.UUIDField(source='variant.id',   read_only=True, allow_null=True)
+    variant_name   = serializers.CharField(source='variant.name', read_only=True, allow_null=True)
+    served_by_id   = serializers.UUIDField(source='served_by.id', read_only=True, allow_null=True)
+    served_by_name = serializers.SerializerMethodField()
+
+    def get_served_by_name(self, obj):
+        if obj.served_by is None:
+            return None
+        user = obj.served_by.user
+        return user.get_full_name() or str(getattr(user, 'phone_number', ''))
 
     class Meta:
         model  = Reservation
@@ -69,5 +78,6 @@ class ReservationSerializer(serializers.ModelSerializer):
             'status', 'cancelled_by', 'expires_at', 'hours_left',
             'points_redeemed', 'discount_amount',
             'actual_selling_price', 'payment_method',
+            'served_by_id', 'served_by_name',
             'pickup_time', 'created_at', 'updated_at',
         ]

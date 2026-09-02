@@ -57,6 +57,12 @@ class Reservation(BaseModel):
         ],
         help_text='How the customer paid at pickup.',
     )
+    served_by = models.ForeignKey(
+        'stores.StaffMember',
+        on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='served_reservations',
+        help_text='Staff member who attended the customer at pickup.',
+    )
 
     class Meta:
         db_table = 'reservations'

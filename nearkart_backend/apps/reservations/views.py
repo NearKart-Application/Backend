@@ -313,10 +313,21 @@ class ReservationStatusView(APIView):
         elif new_status == ReservationStatus.COMPLETED:
             selling_price  = ser.validated_data.get('actual_selling_price')
             payment_method = ser.validated_data.get('payment_method', '')
+            served_by_id   = ser.validated_data.get('served_by_id')
             reservation = ReservationService.complete(reservation, actual_selling_price=selling_price)
+            update_fields = []
             if payment_method:
                 reservation.payment_method = payment_method
-                reservation.save(update_fields=['payment_method'])
+                update_fields.append('payment_method')
+            if served_by_id:
+                try:
+                    from apps.stores.models import StaffMember
+                    reservation.served_by = StaffMember.objects.get(id=served_by_id, store=store)
+                    update_fields.append('served_by')
+                except StaffMember.DoesNotExist:
+                    pass
+            if update_fields:
+                reservation.save(update_fields=update_fields)
             try:
                 from apps.loyalty.services import LoyaltyService
                 LoyaltyService.award_pickup_bonus(
