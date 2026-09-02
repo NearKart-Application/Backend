@@ -885,6 +885,7 @@ class StoreStatsView(APIView):
         return Response({
             'store_name':            store.name,
             'store_address':         store.address,
+            'store_slug':            store.slug or '',
             'active_reservations':   active_res,
             'total_products':        store.products.filter(status='active').count(),
             'follower_count':        store.followers.count(),
@@ -2387,3 +2388,77 @@ class ServiceCatalogueDetailView(APIView):
             return Response({'error': 'not_found', 'message': 'Service not found.'}, status=status.HTTP_404_NOT_FOUND)
         service.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+# ── Vendor Mini-Website (#Area32) ─────────────────────────────────────────────
+
+class StorePublicWebsiteView(APIView):
+    """GET /stores/s/<slug>/ — public vendor mini-website data (no auth required).
+    Returns store info, products, hours, active offers, and recent reviews."""
+    permission_classes = []  # public endpoint
+
+    def get(self, request, slug):
+        from apps.products.models import Product
+        from apps.products.serializers import ProductListSerializer
+
+        try:
+            store = (
+                Store.objects
+                .prefetch_related('hours', 'photos')
+                .get(slug=slug, is_active=True)
+            )
+        except Store.DoesNotExist:
+            return Response({'error': 'not_found'}, status=404)
+
+        # Base store data
+        from django.db.models import Avg, Count
+        store_agg = StoreReview.objects.filter(store=store).aggregate(
+            avg_rating=Avg('rating'),
+            review_count=Count('id'),
+        )
+
+        hours_data = StoreHoursSerializer(store.hours.all(), many=True).data
+        offers_data = StoreOfferSerializer(
+            StoreOffer.objects.filter(store=store, is_active=True)[:5],
+            many=True,
+        ).data
+        reviews_data = StoreReviewSerializer(
+            StoreReview.objects.filter(store=store, is_flagged=False)
+                .select_related('user')
+                .order_by('-created_at')[:5],
+            many=True,
+            context={'request': request},
+        ).data
+
+        products_qs = (
+            Product.objects
+            .filter(store=store, is_visible=True, status='active')
+            .prefetch_related('images', 'variants')
+            .order_by('-created_at')[:20]
+        )
+        products_data = ProductListSerializer(products_qs, many=True, context={'request': request}).data
+
+        return Response({
+            'id':          str(store.id),
+            'slug':        store.slug,
+            'name':        store.name,
+            'description': store.description,
+            'category':    store.category,
+            'logo_url':    store.logo_url,
+            'banner_url':  store.banner_url,
+            'phone':       store.phone,
+            'address':     store.address,
+            'locality':    store.locality,
+            'city':        store.city,
+            'state':       store.state,
+            'is_open':     store.is_open,
+            'is_verified': store.is_verified,
+            'is_women_owned': store.is_women_owned,
+            'is_home_based':  store.is_home_based,
+            'rating':       round(store_agg['avg_rating'] or 0, 1),
+            'review_count': store_agg['review_count'] or 0,
+            'hours':        hours_data,
+            'offers':       offers_data,
+            'products':     products_data,
+            'reviews':      reviews_data,
+        })

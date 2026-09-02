@@ -10,7 +10,7 @@ from core.permissions import IsVendor
 from .models import (
     Supplier, PurchaseOrder, StockAudit, StockAuditStatus,
     CompositeProduct, SerialNumber, SerialNumberStatus,
-    GroceryBatch, WastageRecord, PurchaseSource,
+    GroceryBatch, WastageRecord, PurchaseSource, UnitOfMeasure,
 )
 # StockMovementLog and StockWatchlist live in the products app (canonical tables)
 from apps.products.models import StockMovementLog, StockWatchlist
@@ -19,7 +19,7 @@ from .serializers import (
     SupplierSerializer, PurchaseOrderSerializer, StockAuditSerializer,
     CompositeProductSerializer, SerialNumberSerializer,
     GroceryBatchSerializer, WastageRecordSerializer,
-    PurchaseSourceSerializer,
+    PurchaseSourceSerializer, UnitOfMeasureSerializer,
 )
 
 logger = logging.getLogger(__name__)
@@ -880,4 +880,54 @@ class PurchaseSourceDetailView(APIView):
             return err
         ps.is_active = False
         ps.save(update_fields=['is_active'])
+        return Response(status=204)
+
+
+# ── Unit of Measure (#56) ─────────────────────────────────────────────────────
+
+class UomListView(APIView):
+    """GET /inventory/uom/    — list UoM catalog (public: returns all; vendor: scoped to vendor).
+    POST /inventory/uom/   — create a new unit (vendor only)."""
+    permission_classes = [IsAuthenticated, IsVendor]
+
+    def get(self, request):
+        qs = UnitOfMeasure.objects.all().order_by('category', 'name')
+        return Response(UnitOfMeasureSerializer(qs, many=True).data)
+
+    def post(self, request):
+        ser = UnitOfMeasureSerializer(data=request.data)
+        if not ser.is_valid():
+            return Response(ser.errors, status=400)
+        ser.save()
+        return Response(ser.data, status=201)
+
+
+class UomDetailView(APIView):
+    """PATCH /inventory/uom/<uom_id>/  — update a unit.
+    DELETE /inventory/uom/<uom_id>/ — hard-delete (only non-base units)."""
+    permission_classes = [IsAuthenticated, IsVendor]
+
+    def _get_uom(self, uom_id):
+        try:
+            return UnitOfMeasure.objects.get(pk=uom_id), None
+        except UnitOfMeasure.DoesNotExist:
+            return None, Response({'error': 'not_found'}, status=404)
+
+    def patch(self, request, uom_id):
+        uom, err = self._get_uom(uom_id)
+        if err:
+            return err
+        ser = UnitOfMeasureSerializer(uom, data=request.data, partial=True)
+        if not ser.is_valid():
+            return Response(ser.errors, status=400)
+        ser.save()
+        return Response(ser.data)
+
+    def delete(self, request, uom_id):
+        uom, err = self._get_uom(uom_id)
+        if err:
+            return err
+        if uom.is_base_unit:
+            return Response({'error': 'cannot_delete_base_unit'}, status=400)
+        uom.delete()
         return Response(status=204)

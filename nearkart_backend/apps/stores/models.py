@@ -71,6 +71,10 @@ class Store(BaseModel):
         default=False,
         help_text='If True: address hidden publicly, shown only after accepted visit reservation.'
     )
+    slug = models.SlugField(
+        max_length=120, unique=True, blank=True,
+        help_text='Auto-generated URL slug for vendor mini-website (/s/<slug>).',
+    )
 
     class Meta:
         db_table = 'stores'
@@ -80,6 +84,18 @@ class Store(BaseModel):
             models.Index(fields=['category'], name='store_category_idx'),
             GinIndex(fields=['name'], opclasses=['gin_trgm_ops'], name='store_name_gin_idx'),
         ]
+
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            from django.utils.text import slugify
+            base = slugify(self.name)[:100] or 'store'
+            slug = base
+            n = 1
+            while Store.objects.filter(slug=slug).exclude(pk=self.pk).exists():
+                slug = f'{base}-{n}'
+                n += 1
+            self.slug = slug
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return self.name

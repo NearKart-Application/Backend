@@ -1,6 +1,6 @@
 """Nearspot — Inventory Serializers"""
 from rest_framework import serializers
-from .models import Supplier, PurchaseOrder, StockAudit, CompositeProduct, SerialNumber, GroceryBatch, WastageRecord, PurchaseSource
+from .models import Supplier, PurchaseOrder, StockAudit, CompositeProduct, SerialNumber, GroceryBatch, WastageRecord, PurchaseSource, UnitOfMeasure
 # StockMovementLog and StockWatchlist live in the products app (canonical tables);
 # the inventory.models duplicates are empty shadow tables.
 from apps.products.models import StockMovementLog, StockWatchlist
@@ -129,3 +129,13 @@ class PurchaseSourceSerializer(serializers.ModelSerializer):
             'phone', 'address', 'notes', 'is_active', 'created_at',
         ]
         read_only_fields = ['id', 'store', 'created_at']
+
+
+class UnitOfMeasureSerializer(serializers.ModelSerializer):
+    class Meta:
+        model  = UnitOfMeasure
+        fields = [
+            'id', 'name', 'symbol', 'category', 'conversion_factor',
+            'is_base_unit', 'notes', 'created_at',
+        ]
+        read_only_fields = ['id', 'created_at']

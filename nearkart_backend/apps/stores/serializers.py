@@ -78,11 +78,11 @@ class StoreSerializer(serializers.ModelSerializer):
             'is_active', 'is_verified', 'is_open', 'is_women_owned',
             'privacy_mode', 'holiday_mode',
             'performance_score', 'follower_count',
-            'hours', 'distance_km', 'created_at',
+            'hours', 'distance_km', 'slug', 'created_at',
         ]
         read_only_fields = [
             'id', 'owner_phone', 'is_verified', 'performance_score',
-            'qr_code_url', 'locality', 'created_at',
+            'qr_code_url', 'locality', 'slug', 'created_at',
         ]
 
     def get_fields(self):
