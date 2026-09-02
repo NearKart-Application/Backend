@@ -46,6 +46,8 @@ class Reservation(BaseModel):
     pickup_time           = models.DateTimeField(null=True, blank=True)
     actual_selling_price  = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True,
                                                 help_text='Price vendor charged at completion. Used for revenue reports.')
+    cost_price_at_sale    = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True,
+                                                help_text='Snapshot of variant.cost_price at reservation creation. Enables gross margin = (actual_selling_price - cost_price_at_sale) × quantity.')
     payment_method        = models.CharField(
         max_length=20, blank=True, default='',
         choices=[

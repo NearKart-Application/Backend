@@ -31,6 +31,10 @@ class ReservationService:
             if not ok:
                 raise ValueError('insufficient_stock')
 
+        cost_snapshot = None
+        if variant is not None and variant.cost_price is not None:
+            cost_snapshot = variant.cost_price
+
         reservation = Reservation.objects.create(
             customer=customer,
             store=store,
@@ -42,6 +46,7 @@ class ReservationService:
             points_redeemed=points_redeemed,
             discount_amount=discount_amount,
             pickup_time=pickup_time,
+            cost_price_at_sale=cost_snapshot,
         )
         logger.info('[reservations] created %s — %s x%d', reservation.id, product.name, quantity)
         NotificationService.notify_reservation_created(

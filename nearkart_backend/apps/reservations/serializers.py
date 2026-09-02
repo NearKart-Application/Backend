@@ -77,7 +77,7 @@ class ReservationSerializer(serializers.ModelSerializer):
             'quantity', 'note', 'vendor_note',
             'status', 'cancelled_by', 'expires_at', 'hours_left',
             'points_redeemed', 'discount_amount',
-            'actual_selling_price', 'payment_method',
+            'actual_selling_price', 'cost_price_at_sale', 'payment_method',
             'served_by_id', 'served_by_name',
             'pickup_time', 'created_at', 'updated_at',
         ]
