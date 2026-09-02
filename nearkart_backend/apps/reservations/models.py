@@ -46,6 +46,17 @@ class Reservation(BaseModel):
     pickup_time           = models.DateTimeField(null=True, blank=True)
     actual_selling_price  = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True,
                                                 help_text='Price vendor charged at completion. Used for revenue reports.')
+    payment_method        = models.CharField(
+        max_length=20, blank=True, default='',
+        choices=[
+            ('cash',   'Cash'),
+            ('upi',    'UPI'),
+            ('card',   'Card'),
+            ('credit', 'Credit (Udhar)'),
+            ('other',  'Other'),
+        ],
+        help_text='How the customer paid at pickup.',
+    )
 
     class Meta:
         db_table = 'reservations'

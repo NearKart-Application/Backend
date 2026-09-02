@@ -27,6 +27,10 @@ class ReservationStatusUpdateSerializer(serializers.Serializer):
     status                = serializers.ChoiceField(choices=STATUS_CHOICES)
     vendor_note           = serializers.CharField(max_length=500, allow_blank=True, default='')
     actual_selling_price  = serializers.DecimalField(max_digits=10, decimal_places=2, required=False, allow_null=True, default=None)
+    payment_method        = serializers.ChoiceField(
+        choices=['', 'cash', 'upi', 'card', 'credit', 'other'],
+        required=False, allow_blank=True, default='',
+    )
 
 
 class ReservationProductSerializer(serializers.Serializer):
@@ -64,6 +68,6 @@ class ReservationSerializer(serializers.ModelSerializer):
             'quantity', 'note', 'vendor_note',
             'status', 'cancelled_by', 'expires_at', 'hours_left',
             'points_redeemed', 'discount_amount',
-            'actual_selling_price',
+            'actual_selling_price', 'payment_method',
             'pickup_time', 'created_at', 'updated_at',
         ]

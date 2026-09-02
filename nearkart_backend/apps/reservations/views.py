@@ -311,8 +311,12 @@ class ReservationStatusView(APIView):
         elif new_status == ReservationStatus.CANCELLED:
             reservation = ReservationService.cancel(reservation, note=vendor_note, cancelled_by='vendor')
         elif new_status == ReservationStatus.COMPLETED:
-            selling_price = ser.validated_data.get('actual_selling_price')
+            selling_price  = ser.validated_data.get('actual_selling_price')
+            payment_method = ser.validated_data.get('payment_method', '')
             reservation = ReservationService.complete(reservation, actual_selling_price=selling_price)
+            if payment_method:
+                reservation.payment_method = payment_method
+                reservation.save(update_fields=['payment_method'])
             try:
                 from apps.loyalty.services import LoyaltyService
                 LoyaltyService.award_pickup_bonus(
