@@ -106,6 +106,8 @@ class GroupService:
     @staticmethod
     def get_eligible_members(group: Group):
         """Returns store followers who are not yet group members (vendor groups only)."""
+        if not group.store_id:
+            return []
         existing_ids = GroupMember.objects.filter(group=group).values_list('user_id', flat=True)
         followers = StoreFollow.objects.filter(
             store=group.store

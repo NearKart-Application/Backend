@@ -704,7 +704,7 @@ class DeadStockView(APIView):
 # ── Grocery / Perishable Inventory ────────────────────────────────────────────
 
 class GroceryBatchListView(APIView):
-    permission_classes = [IsVendor]
+    permission_classes = [IsAuthenticated, IsVendor]
 
     def get(self, request):
         store = _vendor_store(request)
@@ -740,7 +740,7 @@ class GroceryBatchListView(APIView):
 
 
 class GroceryBatchDetailView(APIView):
-    permission_classes = [IsVendor]
+    permission_classes = [IsAuthenticated, IsVendor]
 
     def _get_batch(self, request, batch_id):
         store = _vendor_store(request)
@@ -764,7 +764,7 @@ class GroceryBatchDetailView(APIView):
         ser = GroceryBatchSerializer(batch, data=request.data, partial=True)
         if not ser.is_valid():
             return Response(ser.errors, status=400)
-        ser.save()
+        batch = ser.save()
         return Response(GroceryBatchSerializer(batch).data)
 
     def delete(self, request, batch_id):
@@ -776,7 +776,7 @@ class GroceryBatchDetailView(APIView):
 
 
 class WastageRecordView(APIView):
-    permission_classes = [IsVendor]
+    permission_classes = [IsAuthenticated, IsVendor]
 
     def post(self, request, batch_id):
         store = _vendor_store(request)
@@ -798,7 +798,7 @@ class WastageRecordView(APIView):
 
 
 class NearExpiryAlertView(APIView):
-    permission_classes = [IsVendor]
+    permission_classes = [IsAuthenticated, IsVendor]
 
     def get(self, request):
         from datetime import date, timedelta

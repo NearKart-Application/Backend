@@ -139,14 +139,15 @@ class ReservationService:
     @staticmethod
     def expire_pending() -> int:
         now = timezone.now()
+        expirable_statuses = [ReservationStatus.PENDING, ReservationStatus.CONFIRMED]
         to_expire = list(
             Reservation.objects.filter(
-                status=ReservationStatus.PENDING,
+                status__in=expirable_statuses,
                 expires_at__lt=now,
-            ).select_related('customer', 'store')
+            ).select_related('customer', 'store', 'variant')
         )
         count = Reservation.objects.filter(
-            status=ReservationStatus.PENDING,
+            status__in=expirable_statuses,
             expires_at__lt=now,
         ).update(status=ReservationStatus.EXPIRED)
         if count:

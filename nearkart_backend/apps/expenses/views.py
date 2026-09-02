@@ -261,15 +261,14 @@ class PnLView(APIView):
             store=store, date__gte=month_start, date__lt=month_end
         ).aggregate(t=Sum('gst_amount'))['t'] or 0
 
-        # Revenue from invoices for the same period (if billing app exists)
+        # Revenue from invoices for the same period
         revenue = 0
         try:
-            from apps.billing.models import Invoice
+            from apps.stores.models import Invoice
             revenue = Invoice.objects.filter(
                 store=store,
-                issued_date__gte=month_start,
-                issued_date__lt=month_end,
-                status__in=['paid', 'partial'],
+                created_at__date__gte=month_start,
+                created_at__date__lt=month_end,
             ).aggregate(t=Sum('total'))['t'] or 0
         except Exception:
             pass

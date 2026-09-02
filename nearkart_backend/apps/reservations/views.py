@@ -504,7 +504,16 @@ class ReservationReceiptView(APIView):
         except Reservation.DoesNotExist:
             return Response({'error': 'not_found', 'message': 'Reservation not found.'}, status=404)
 
-        if reservation.customer_id != request.user.id and request.user.role not in ('vendor', 'admin', 'master_admin'):
+        user = request.user
+        if user.role in ('admin', 'master_admin'):
+            pass
+        elif user.role == 'vendor':
+            try:
+                if reservation.store.owner_id != user.id:
+                    return Response({'error': 'forbidden'}, status=403)
+            except Exception:
+                return Response({'error': 'forbidden'}, status=403)
+        elif reservation.customer_id != user.id:
             return Response({'error': 'forbidden'}, status=403)
 
         product  = reservation.product
