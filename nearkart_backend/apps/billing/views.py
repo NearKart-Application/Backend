@@ -9,6 +9,8 @@ GET  /api/v1/billing/transactions/           → wallet transaction history
 POST /api/v1/billing/payment/initiate/       → create Razorpay order for a plan
 POST /api/v1/billing/payment/verify/         → verify payment + fund wallet + subscribe
 POST /api/v1/billing/payment/webhook/        → Razorpay webhook (payment.captured backup)
+POST /api/v1/billing/wallet/topup/initiate/  → create Razorpay order for wallet top-up
+POST /api/v1/billing/wallet/topup/verify/    → verify payment + credit wallet balance
 """
 import json
 import logging
@@ -752,4 +754,120 @@ class SubscriptionInvoiceView(APIView):
             'started_at':     sub.started_at.isoformat() if hasattr(sub, 'started_at') else '',
             'expires_at':     sub.expires_at.isoformat() if sub.expires_at else '',
             'generated_at':   timezone.now().isoformat(),
+        })
+
+
+# ── Wallet Top-up via Razorpay ─────────────────────────────────────────────────
+
+_TOPUP_MIN = Decimal('100')
+_TOPUP_MAX = Decimal('10000')
+
+
+class WalletTopupInitiateView(APIView):
+    permission_classes = [IsAuthenticated, IsVendor]
+
+    @extend_schema(
+        tags=[_TAG],
+        summary='Initiate Razorpay order for wallet top-up (vendor only)',
+        request=inline_serializer('WalletTopupInitiateRequest', fields={
+            'amount': s.DecimalField(max_digits=10, decimal_places=2,
+                                     help_text='Amount to add in ₹ (100–10000)'),
+        }),
+        responses={
+            200: OpenApiResponse(
+                response=inline_serializer('WalletTopupInitiateResponse', fields={
+                    'order_id':        s.CharField(),
+                    'amount':          s.IntegerField(help_text='Amount in paise'),
+                    'currency':        s.CharField(),
+                    'razorpay_key_id': s.CharField(),
+                })
+            ),
+            400: OpenApiResponse(description='Invalid amount'),
+        },
+    )
+    def post(self, request):
+        if not hasattr(request.user, 'store'):
+            return Response({'error': 'no_store', 'message': 'You do not have a store yet.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        try:
+            amount = Decimal(str(request.data.get('amount', ''))).quantize(Decimal('0.01'))
+            if amount < _TOPUP_MIN or amount > _TOPUP_MAX:
+                raise ValueError()
+        except (InvalidOperation, ValueError):
+            return Response(
+                {'error': 'validation_error',
+                 'message': f'amount must be between ₹{_TOPUP_MIN} and ₹{_TOPUP_MAX}.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        store = request.user.store
+        receipt = f'topup_{str(store.id)[:8]}_{int(timezone.now().timestamp())}'
+        order = RazorpayService.create_order(
+            amount_inr=amount,
+            receipt=receipt,
+            notes={'store_id': str(store.id), 'purpose': 'wallet_topup', 'amount': str(amount)},
+        )
+        return Response({
+            'order_id':        order['id'],
+            'amount':          order['amount'],
+            'currency':        order['currency'],
+            'razorpay_key_id': settings.RAZORPAY_KEY_ID,
+        })
+
+
+class WalletTopupVerifyView(APIView):
+    permission_classes = [IsAuthenticated, IsVendor]
+
+    @extend_schema(
+        tags=[_TAG],
+        summary='Verify Razorpay payment and credit wallet (vendor only)',
+        request=inline_serializer('WalletTopupVerifyRequest', fields={
+            'razorpay_order_id':   s.CharField(),
+            'razorpay_payment_id': s.CharField(),
+            'razorpay_signature':  s.CharField(),
+            'amount':              s.DecimalField(max_digits=10, decimal_places=2),
+        }),
+        responses={
+            200: OpenApiResponse(
+                response=inline_serializer('WalletTopupVerifyResponse', fields={
+                    'message':        s.CharField(),
+                    'amount_added':   s.CharField(),
+                    'wallet_balance': s.CharField(),
+                    'transaction_id': s.UUIDField(),
+                })
+            ),
+            400: OpenApiResponse(description='Invalid signature or amount'),
+        },
+    )
+    def post(self, request):
+        if not hasattr(request.user, 'store'):
+            return Response({'error': 'no_store', 'message': 'You do not have a store yet.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        order_id   = request.data.get('razorpay_order_id', '')
+        payment_id = request.data.get('razorpay_payment_id', '')
+        signature  = request.data.get('razorpay_signature', '')
+
+        if not RazorpayService.verify_payment_signature(order_id, payment_id, signature):
+            return Response({'error': 'invalid_signature', 'message': 'Payment verification failed.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            amount = Decimal(str(request.data.get('amount', ''))).quantize(Decimal('0.01'))
+            if amount < _TOPUP_MIN or amount > _TOPUP_MAX:
+                raise ValueError()
+        except (InvalidOperation, ValueError):
+            return Response({'error': 'validation_error', 'message': 'Invalid amount.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        store = request.user.store
+        with transaction.atomic():
+            txn = BillingService.topup(store, amount, reference_id=payment_id)
+        log_event('billing', action='wallet_topup_razorpay', store_id=str(store.id),
+                  user_id=str(request.user.id), amount=str(amount),
+                  payment_id=payment_id, new_balance=str(store.wallet_balance))
+        return Response({
+            'message':        f'₹{amount} added to wallet.',
+            'amount_added':   str(amount),
+            'wallet_balance': str(store.wallet_balance),
+            'transaction_id': txn.id,
         })
