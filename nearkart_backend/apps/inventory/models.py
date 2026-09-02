@@ -210,13 +210,16 @@ class WastageRecord(BaseModel):
         ordering = ['-created_at']
 
     def save(self, *args, **kwargs):
-        super().save(*args, **kwargs)
-        # Keep remaining_qty in sync
+        from django.db import transaction as db_transaction
         from django.db.models import Sum
-        used = WastageRecord.objects.filter(batch=self.batch).aggregate(t=Sum('quantity'))['t'] or 0
-        batch = self.batch
-        batch.remaining_qty = max(batch.quantity - used, 0)
-        batch.save(update_fields=['remaining_qty'])
+        with db_transaction.atomic():
+            # Lock batch row before saving to prevent concurrent over-deduction
+            batch = GroceryBatch.objects.select_for_update().get(pk=self.batch_id)
+            super().save(*args, **kwargs)
+            # Keep remaining_qty in sync
+            used = WastageRecord.objects.filter(batch=batch).aggregate(t=Sum('quantity'))['t'] or 0
+            batch.remaining_qty = max(batch.quantity - used, 0)
+            batch.save(update_fields=['remaining_qty'])
 
 
 # ── Unit of Measure (#56) ─────────────────────────────────────────────────────

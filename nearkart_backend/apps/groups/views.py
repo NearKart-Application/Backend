@@ -495,8 +495,12 @@ class GroupAvatarView(APIView):
         ext = os.path.splitext(image.name)[1].lower()
         if ext not in ('.jpg', '.jpeg', '.png', '.webp'):
             return Response({'error': 'invalid_type', 'message': 'Only JPEG/PNG/WebP allowed.'}, status=400)
-        path = default_storage.save(f'groups/avatars/{uuid.uuid4()}{ext}', ContentFile(image.read()))
-        url = default_storage.url(path)
+        try:
+            path = default_storage.save(f'groups/avatars/{uuid.uuid4()}{ext}', ContentFile(image.read()))
+            url = default_storage.url(path)
+        except Exception:
+            logger.exception('[GroupAvatarView] storage save failed for group %s', group_id)
+            return Response({'error': 'upload_failed', 'message': 'Failed to upload image.'}, status=500)
         group.avatar_url = url
         group.save(update_fields=['avatar_url'])
         return Response({'avatar_url': url})

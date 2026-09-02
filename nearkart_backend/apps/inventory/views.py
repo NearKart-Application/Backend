@@ -709,6 +709,8 @@ class GroceryBatchListView(APIView):
 
     def get(self, request):
         store = _vendor_store(request)
+        if not store:
+            return Response({'detail': 'No active store.'}, status=404)
         qs = GroceryBatch.objects.filter(
             variant__product__store=store,
         ).select_related('variant__product').prefetch_related('wastage_records')
@@ -729,6 +731,8 @@ class GroceryBatchListView(APIView):
 
     def post(self, request):
         store = _vendor_store(request)
+        if not store:
+            return Response({'detail': 'No active store.'}, status=404)
         ser = GroceryBatchSerializer(data=request.data)
         if not ser.is_valid():
             return Response(ser.errors, status=400)
@@ -804,6 +808,8 @@ class NearExpiryAlertView(APIView):
     def get(self, request):
         from datetime import date, timedelta
         store = _vendor_store(request)
+        if not store:
+            return Response({'detail': 'No active store.'}, status=404)
         days = int(request.query_params.get('days', 7))
         threshold = date.today() + timedelta(days=days)
 

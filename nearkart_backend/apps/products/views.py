@@ -1391,7 +1391,7 @@ class JewelryAttributesView(APIView):
 
         for field, value in data.items():
             setattr(variant, field, value if value not in ('', None) else None if field != 'purity' and field != 'hallmark_number' else '')
-        variant.save(update_fields=list(data.keys()))
+        variant.save(update_fields=[*data.keys(), 'updated_at'])
 
         return Response({
             'variant_id':      str(variant.id),

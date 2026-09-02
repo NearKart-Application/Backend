@@ -31,10 +31,10 @@ def send_weekly_digest():
             total_reservations = reservations.count()
             completed = reservations.filter(status='completed').count()
 
-            invoice_total = sum(
-                float(inv.total or 0)
-                for inv in Invoice.objects.filter(store=store, created_at__gte=week_start)
-            )
+            from django.db.models import Sum as _Sum
+            invoice_total = float(Invoice.objects.filter(
+                store=store, created_at__gte=week_start,
+            ).aggregate(t=_Sum('total'))['t'] or 0)
 
             new_followers = store.followers.filter(created_at__gte=week_start).count() if hasattr(store, 'followers') else 0
 

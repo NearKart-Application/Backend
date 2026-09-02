@@ -272,7 +272,7 @@ class PnLView(APIView):
                 created_at__date__lt=month_end,
             ).aggregate(t=Sum('total'))['t'] or 0
         except Exception:
-            pass
+            logger.exception('[PnLView] revenue query failed for store %s', store.id)
 
         gross_profit = float(revenue) - float(total_expenses)
 
