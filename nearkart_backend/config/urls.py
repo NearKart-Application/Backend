@@ -84,5 +84,8 @@ urlpatterns = [
 
     # ── RESTAURANT INVENTORY ─────────────────────────────────────────────
     path(API_V1 + 'restaurant/', include('apps.restaurant.urls')),
+
+    # ── SERVICES INVENTORY ───────────────────────────────────────────────
+    path(API_V1 + 'services/', include('apps.services_inventory.urls')),
 ] + urlpatterns_media
 
