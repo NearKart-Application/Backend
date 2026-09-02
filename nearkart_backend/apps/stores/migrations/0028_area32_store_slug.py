@@ -4,7 +4,7 @@ from django.db import migrations, models
 # Raw SQL backfill — handles both NULL and empty-string slugs.
 # Appends the first 8 chars of UUID to guarantee uniqueness even with duplicate names.
 BACKFILL_SQL = """
-UPDATE stores_store
+UPDATE stores
 SET slug = LOWER(
     TRIM(BOTH '-' FROM
         REGEXP_REPLACE(
