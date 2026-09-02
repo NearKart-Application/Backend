@@ -10,7 +10,7 @@ from core.permissions import IsVendor
 from .models import (
     Supplier, PurchaseOrder, StockAudit, StockAuditStatus,
     CompositeProduct, SerialNumber, SerialNumberStatus,
-    GroceryBatch, WastageRecord,
+    GroceryBatch, WastageRecord, PurchaseSource,
 )
 # StockMovementLog and StockWatchlist live in the products app (canonical tables)
 from apps.products.models import StockMovementLog, StockWatchlist
@@ -19,6 +19,7 @@ from .serializers import (
     SupplierSerializer, PurchaseOrderSerializer, StockAuditSerializer,
     CompositeProductSerializer, SerialNumberSerializer,
     GroceryBatchSerializer, WastageRecordSerializer,
+    PurchaseSourceSerializer,
 )
 
 logger = logging.getLogger(__name__)
@@ -818,4 +819,65 @@ class NearExpiryAlertView(APIView):
             'count': batches.count(),
             'batches': GroceryBatchSerializer(batches, many=True).data,
         })
-        return Response(SerialNumberSerializer(sn).data)
+
+
+# ── Purchase Sources (#58) ────────────────────────────────────────────────────
+
+class PurchaseSourceListView(APIView):
+    """GET /inventory/purchase-sources/  — list active sources for vendor's store.
+    POST /inventory/purchase-sources/    — create a new purchase source."""
+    permission_classes = [IsAuthenticated, IsVendor]
+
+    def get(self, request):
+        try:
+            store = _vendor_store(request)
+        except Exception:
+            return Response({'error': 'no_store'}, status=400)
+        qs = PurchaseSource.objects.filter(store=store, is_active=True).order_by('name')
+        return Response(PurchaseSourceSerializer(qs, many=True).data)
+
+    def post(self, request):
+        try:
+            store = _vendor_store(request)
+        except Exception:
+            return Response({'error': 'no_store'}, status=400)
+        ser = PurchaseSourceSerializer(data=request.data)
+        if not ser.is_valid():
+            return Response(ser.errors, status=400)
+        ser.save(store=store)
+        return Response(ser.data, status=201)
+
+
+class PurchaseSourceDetailView(APIView):
+    """PATCH /inventory/purchase-sources/<ps_id>/  — update fields.
+    DELETE /inventory/purchase-sources/<ps_id>/   — soft-delete (is_active=False)."""
+    permission_classes = [IsAuthenticated, IsVendor]
+
+    def _get_ps(self, request, ps_id):
+        try:
+            store = _vendor_store(request)
+        except Exception:
+            return None, Response({'error': 'no_store'}, status=400)
+        try:
+            ps = PurchaseSource.objects.get(pk=ps_id, store=store)
+        except PurchaseSource.DoesNotExist:
+            return None, Response({'error': 'not_found'}, status=404)
+        return ps, None
+
+    def patch(self, request, ps_id):
+        ps, err = self._get_ps(request, ps_id)
+        if err:
+            return err
+        ser = PurchaseSourceSerializer(ps, data=request.data, partial=True)
+        if not ser.is_valid():
+            return Response(ser.errors, status=400)
+        ser.save()
+        return Response(ser.data)
+
+    def delete(self, request, ps_id):
+        ps, err = self._get_ps(request, ps_id)
+        if err:
+            return err
+        ps.is_active = False
+        ps.save(update_fields=['is_active'])
+        return Response(status=204)

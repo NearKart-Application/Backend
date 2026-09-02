@@ -9,6 +9,7 @@ from .views import (
     SerialNumberListView, SerialNumberDetailView,
     BulkStockAdjustView, StockValuationView, InventoryExportView, DeadStockView,
     GroceryBatchListView, GroceryBatchDetailView, WastageRecordView, NearExpiryAlertView,
+    PurchaseSourceListView, PurchaseSourceDetailView,
 )
 
 app_name = 'inventory'
@@ -30,6 +31,9 @@ urlpatterns = [
     path('valuation/',    StockValuationView.as_view(),   name='valuation'),
     path('export/',       InventoryExportView.as_view(),  name='export'),
     path('dead-stock/',   DeadStockView.as_view(),        name='dead-stock'),
+    # Purchase Sources (informal / mandi markets)
+    path('purchase-sources/',              PurchaseSourceListView.as_view(),   name='purchase-source-list'),
+    path('purchase-sources/<uuid:ps_id>/', PurchaseSourceDetailView.as_view(), name='purchase-source-detail'),
     # Grocery / Perishable
     path('grocery-batches/',                                  GroceryBatchListView.as_view(),  name='grocery-batch-list'),
     path('grocery-batches/<uuid:batch_id>/',                  GroceryBatchDetailView.as_view(), name='grocery-batch-detail'),

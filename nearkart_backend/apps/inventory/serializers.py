@@ -1,6 +1,6 @@
 """Nearspot — Inventory Serializers"""
 from rest_framework import serializers
-from .models import Supplier, PurchaseOrder, StockAudit, CompositeProduct, SerialNumber, GroceryBatch, WastageRecord
+from .models import Supplier, PurchaseOrder, StockAudit, CompositeProduct, SerialNumber, GroceryBatch, WastageRecord, PurchaseSource
 # StockMovementLog and StockWatchlist live in the products app (canonical tables);
 # the inventory.models duplicates are empty shadow tables.
 from apps.products.models import StockMovementLog, StockWatchlist
@@ -119,3 +119,13 @@ class GroceryBatchSerializer(serializers.ModelSerializer):
 
     def get_total_wastage(self, obj):
         return str(sum(w.quantity for w in obj.wastage_records.all()))
+
+
+class PurchaseSourceSerializer(serializers.ModelSerializer):
+    class Meta:
+        model  = PurchaseSource
+        fields = [
+            'id', 'store', 'name', 'market_type', 'contact_name',
+            'phone', 'address', 'notes', 'is_active', 'created_at',
+        ]
+        read_only_fields = ['id', 'store', 'created_at']
