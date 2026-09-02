@@ -6,6 +6,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 
+from rest_framework.permissions import IsAuthenticated
 from core.permissions import IsVendor
 from apps.stores.models import Store
 from .models import Expense, ExpenseCategory, PREDEFINED_CATEGORIES
@@ -17,7 +18,7 @@ def _vendor_store(request):
 
 
 class CategoryListView(APIView):
-    permission_classes = [IsVendor]
+    permission_classes = [IsAuthenticated, IsVendor]
 
     def get(self, request):
         store = _vendor_store(request)
@@ -38,7 +39,7 @@ class CategoryListView(APIView):
 
 
 class CategoryDetailView(APIView):
-    permission_classes = [IsVendor]
+    permission_classes = [IsAuthenticated, IsVendor]
 
     def delete(self, request, category_id):
         store = _vendor_store(request)
@@ -51,7 +52,7 @@ class CategoryDetailView(APIView):
 
 
 class EnsureSystemCategoriesView(APIView):
-    permission_classes = [IsVendor]
+    permission_classes = [IsAuthenticated, IsVendor]
 
     def post(self, request):
         store = _vendor_store(request)
@@ -66,7 +67,7 @@ class EnsureSystemCategoriesView(APIView):
 
 
 class ExpenseListView(APIView):
-    permission_classes = [IsVendor]
+    permission_classes = [IsAuthenticated, IsVendor]
 
     def get(self, request):
         store = _vendor_store(request)
@@ -120,7 +121,7 @@ class ExpenseListView(APIView):
 
 
 class ExpenseDetailView(APIView):
-    permission_classes = [IsVendor]
+    permission_classes = [IsAuthenticated, IsVendor]
     parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     def _get(self, request, expense_id):
@@ -155,7 +156,7 @@ class ExpenseDetailView(APIView):
 
 
 class ReceiptUploadView(APIView):
-    permission_classes = [IsVendor]
+    permission_classes = [IsAuthenticated, IsVendor]
     parser_classes = [MultiPartParser]
 
     def post(self, request, expense_id):
@@ -175,7 +176,7 @@ class ReceiptUploadView(APIView):
 
 
 class ExpenseSummaryView(APIView):
-    permission_classes = [IsVendor]
+    permission_classes = [IsAuthenticated, IsVendor]
 
     def get(self, request):
         store = _vendor_store(request)
@@ -228,7 +229,7 @@ class ExpenseSummaryView(APIView):
 
 
 class PnLView(APIView):
-    permission_classes = [IsVendor]
+    permission_classes = [IsAuthenticated, IsVendor]
 
     def get(self, request):
         store = _vendor_store(request)

@@ -94,6 +94,11 @@ class BillingService:
         final_price = max(after_coupon - wallet_discount, Decimal('0'))
 
         with db_transaction.atomic():
+            # Re-read and lock store row to prevent concurrent double-spend
+            store = store.__class__.objects.select_for_update().get(pk=store.pk)
+            max_wallet = BillingService.calc_wallet_max(plan.price)
+            wallet_discount = max(Decimal('0'), min(wallet_discount, max_wallet, store.wallet_balance))
+
             now     = timezone.now()
             expires = now + timedelta(days=plan.duration_days)
 

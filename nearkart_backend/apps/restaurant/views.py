@@ -5,6 +5,7 @@ from datetime import date
 from rest_framework.views import APIView
 from rest_framework.response import Response
 
+from rest_framework.permissions import IsAuthenticated
 from core.permissions import IsVendor
 from .models import Ingredient, Recipe, RecipeIngredient, RestaurantWastage, DailyStock
 from .serializers import (
@@ -22,7 +23,7 @@ def _vendor_store(request):
 # ── Ingredients (#133) ────────────────────────────────────────────────────────
 
 class IngredientListView(APIView):
-    permission_classes = [IsVendor]
+    permission_classes = [IsAuthenticated, IsVendor]
 
     def get(self, request):
         store = _vendor_store(request)
@@ -44,7 +45,7 @@ class IngredientListView(APIView):
 
 
 class IngredientDetailView(APIView):
-    permission_classes = [IsVendor]
+    permission_classes = [IsAuthenticated, IsVendor]
 
     def _get(self, request, ingredient_id):
         store = _vendor_store(request)
@@ -80,7 +81,7 @@ class IngredientDetailView(APIView):
 # ── Recipes / BOM (#134) ──────────────────────────────────────────────────────
 
 class RecipeListView(APIView):
-    permission_classes = [IsVendor]
+    permission_classes = [IsAuthenticated, IsVendor]
 
     def get(self, request):
         store = _vendor_store(request)
@@ -97,7 +98,7 @@ class RecipeListView(APIView):
 
 
 class RecipeDetailView(APIView):
-    permission_classes = [IsVendor]
+    permission_classes = [IsAuthenticated, IsVendor]
 
     def _get(self, request, recipe_id):
         store = _vendor_store(request)
@@ -132,7 +133,7 @@ class RecipeDetailView(APIView):
 
 class RecipeIngredientView(APIView):
     """Add / remove ingredients from a recipe."""
-    permission_classes = [IsVendor]
+    permission_classes = [IsAuthenticated, IsVendor]
 
     def post(self, request, recipe_id):
         store = _vendor_store(request)
@@ -173,7 +174,7 @@ class RecipeDeductView(APIView):
     POST /restaurant/recipes/<recipe_id>/deduct/?servings=N
     Deducts ingredient stock for N servings of this recipe.
     """
-    permission_classes = [IsVendor]
+    permission_classes = [IsAuthenticated, IsVendor]
 
     def post(self, request, recipe_id):
         store = _vendor_store(request)
@@ -205,7 +206,7 @@ class RecipeDeductView(APIView):
 # ── Wastage (#137) ────────────────────────────────────────────────────────────
 
 class RestaurantWastageListView(APIView):
-    permission_classes = [IsVendor]
+    permission_classes = [IsAuthenticated, IsVendor]
 
     def get(self, request):
         store = _vendor_store(request)
@@ -234,7 +235,7 @@ class RestaurantWastageListView(APIView):
 # ── Daily Stock (#136, #138) ──────────────────────────────────────────────────
 
 class DailyStockListView(APIView):
-    permission_classes = [IsVendor]
+    permission_classes = [IsAuthenticated, IsVendor]
 
     def get(self, request):
         store = _vendor_store(request)
@@ -271,7 +272,7 @@ class DailyStockListView(APIView):
 
 
 class DailyStockDetailView(APIView):
-    permission_classes = [IsVendor]
+    permission_classes = [IsAuthenticated, IsVendor]
 
     def _get(self, request, ds_id):
         store = _vendor_store(request)
@@ -294,7 +295,7 @@ class DailyStockDetailView(APIView):
 
 class DailyConsumptionSummaryView(APIView):
     """GET /restaurant/daily-consumption/?date=YYYY-MM-DD — summary across all ingredients."""
-    permission_classes = [IsVendor]
+    permission_classes = [IsAuthenticated, IsVendor]
 
     def get(self, request):
         store = _vendor_store(request)

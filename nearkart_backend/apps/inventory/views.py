@@ -258,9 +258,10 @@ class PurchaseOrderDetailView(APIView):
             return Response(ser.errors, status=400)
         po = ser.save()
         if po.status == 'received' and not po.received_at:
-            po.received_at = timezone.now()
-            po.save(update_fields=['received_at', 'updated_at'])
-            _apply_po_stock(po, request.user)
+            with db_transaction.atomic():
+                po.received_at = timezone.now()
+                po.save(update_fields=['received_at', 'updated_at'])
+                _apply_po_stock(po, request.user)
         return Response(PurchaseOrderSerializer(po).data)
 
 

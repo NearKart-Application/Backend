@@ -19,6 +19,7 @@ from decimal import Decimal, InvalidOperation
 from django.conf import settings
 from django.db import models, transaction
 from django.utils import timezone
+from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiExample, OpenApiResponse, extend_schema, inline_serializer
 from rest_framework import serializers as s
 from rest_framework import status
@@ -741,7 +742,7 @@ class SubscriptionInvoiceView(APIView):
             return Response({'error': 'no_subscription', 'message': 'No active subscription found.'}, status=404)
 
         # Latest billing transaction
-        txn = Transaction.objects.filter(store=store, type='subscription').order_by('-created_at').first()
+        txn = Transaction.objects.filter(store=store, transaction_type='subscription').order_by('-created_at').first()
 
         return Response({
             'invoice_number': f'NS-{str(sub.id)[:8].upper()}',

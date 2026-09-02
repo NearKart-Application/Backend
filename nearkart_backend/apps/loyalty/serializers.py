@@ -40,7 +40,7 @@ class LoyaltyBalanceSerializer(serializers.ModelSerializer):
 class LoyaltyTransactionSerializer(serializers.ModelSerializer):
     class Meta:
         model  = LoyaltyTransaction
-        fields = ['id', 'transaction_type', 'source', 'points', 'description', 'balance_after', 'created_at']
+        fields = ['id', 'transaction_type', 'source', 'points', 'description', 'balance_after', 'expires_at', 'is_expired', 'created_at']
 
 
 class ApplyReferralSerializer(serializers.Serializer):

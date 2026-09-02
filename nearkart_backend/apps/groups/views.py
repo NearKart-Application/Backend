@@ -544,5 +544,9 @@ class GroupJoinViaInviteView(APIView):
             return Response({'error': 'invalid_token', 'message': 'Invalid or expired invite link.'}, status=404)
         if GroupMember.objects.filter(group=group, user=request.user).exists():
             return Response({'error': 'already_member', 'message': 'You are already in this group.'}, status=400)
+        if group.group_type == GroupType.VENDOR and group.store_id:
+            from apps.stores.models import StoreFollow
+            if not StoreFollow.objects.filter(user=request.user, store_id=group.store_id).exists():
+                return Response({'error': 'not_follower', 'message': 'You must follow this store to join.'}, status=403)
         GroupMember.objects.create(group=group, user=request.user, role=GroupMemberRole.MEMBER)
         return Response({'group_id': str(group.id), 'group_name': group.name})

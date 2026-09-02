@@ -178,20 +178,21 @@ class LoyaltyService:
 
     @classmethod
     def _add_points(cls, account: LoyaltyAccount, points: int, source: str, description: str):
-        LoyaltyAccount.objects.filter(pk=account.pk).update(
-            balance=F('balance') + points,
-            total_earned=F('total_earned') + points,
-            updated_at=timezone.now(),
-        )
-        account.refresh_from_db(fields=['balance', 'total_earned'])
-        LoyaltyTransaction.objects.create(
-            account=account,
-            transaction_type=LoyaltyTransaction.EARN,
-            source=source,
-            points=points,
-            description=description,
-            balance_after=account.balance,
-        )
+        with transaction.atomic():
+            LoyaltyAccount.objects.filter(pk=account.pk).update(
+                balance=F('balance') + points,
+                total_earned=F('total_earned') + points,
+                updated_at=timezone.now(),
+            )
+            account.refresh_from_db(fields=['balance', 'total_earned'])
+            LoyaltyTransaction.objects.create(
+                account=account,
+                transaction_type=LoyaltyTransaction.EARN,
+                source=source,
+                points=points,
+                description=description,
+                balance_after=account.balance,
+            )
 
     @classmethod
     def _deduct_points(cls, account: LoyaltyAccount, points: int, source: str, description: str):

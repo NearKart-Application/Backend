@@ -17,6 +17,7 @@ from django.http import HttpResponse
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from rest_framework.permissions import IsAuthenticated
 from core.permissions import IsVendor
 from apps.stores.models import Store, Invoice
 from apps.products.models import ProductVariant
@@ -66,7 +67,7 @@ def _gst_amount(invoice):
 # ── Day Book ──────────────────────────────────────────────────────────────────
 
 class DayBookView(APIView):
-    permission_classes = [IsVendor]
+    permission_classes = [IsAuthenticated, IsVendor]
 
     def get(self, request):
         store = _store(request)
@@ -108,7 +109,7 @@ class DayBookView(APIView):
 # ── P&L (Monthly) ────────────────────────────────────────────────────────────
 
 class PnLView(APIView):
-    permission_classes = [IsVendor]
+    permission_classes = [IsAuthenticated, IsVendor]
 
     def get(self, request):
         store = _store(request)
@@ -157,7 +158,7 @@ class PnLView(APIView):
 # ── Cash Flow ─────────────────────────────────────────────────────────────────
 
 class CashFlowView(APIView):
-    permission_classes = [IsVendor]
+    permission_classes = [IsAuthenticated, IsVendor]
 
     def get(self, request):
         store = _store(request)
@@ -209,7 +210,7 @@ class CashFlowView(APIView):
 # ── Top Products ──────────────────────────────────────────────────────────────
 
 class TopProductsView(APIView):
-    permission_classes = [IsVendor]
+    permission_classes = [IsAuthenticated, IsVendor]
 
     def get(self, request):
         store = _store(request)
@@ -247,7 +248,7 @@ class TopProductsView(APIView):
 # ── ABC Analysis ──────────────────────────────────────────────────────────────
 
 class ABCAnalysisView(APIView):
-    permission_classes = [IsVendor]
+    permission_classes = [IsAuthenticated, IsVendor]
 
     def get(self, request):
         store = _store(request)
@@ -287,7 +288,7 @@ class ABCAnalysisView(APIView):
 # ── Gross Margin per Product ──────────────────────────────────────────────────
 
 class GrossMarginView(APIView):
-    permission_classes = [IsVendor]
+    permission_classes = [IsAuthenticated, IsVendor]
 
     def get(self, request):
         store = _store(request)
@@ -332,7 +333,7 @@ class GrossMarginView(APIView):
 # ── GST Report ────────────────────────────────────────────────────────────────
 
 class GSTReportView(APIView):
-    permission_classes = [IsVendor]
+    permission_classes = [IsAuthenticated, IsVendor]
 
     def get(self, request):
         store = _store(request)
@@ -386,7 +387,7 @@ class GSTReportView(APIView):
 # ── CSV Export ────────────────────────────────────────────────────────────────
 
 class ExportCSVView(APIView):
-    permission_classes = [IsVendor]
+    permission_classes = [IsAuthenticated, IsVendor]
 
     def get(self, request):
         store = _store(request)

@@ -138,18 +138,20 @@ class ReservationService:
 
     @staticmethod
     def expire_pending() -> int:
+        from django.db import transaction as db_transaction
         now = timezone.now()
         expirable_statuses = [ReservationStatus.PENDING, ReservationStatus.CONFIRMED]
-        to_expire = list(
-            Reservation.objects.filter(
-                status__in=expirable_statuses,
-                expires_at__lt=now,
-            ).select_related('customer', 'store', 'variant')
-        )
-        count = Reservation.objects.filter(
-            status__in=expirable_statuses,
-            expires_at__lt=now,
-        ).update(status=ReservationStatus.EXPIRED)
+        with db_transaction.atomic():
+            to_expire = list(
+                Reservation.objects.select_for_update(skip_locked=True).filter(
+                    status__in=expirable_statuses,
+                    expires_at__lt=now,
+                ).select_related('customer', 'store', 'variant')
+            )
+            if not to_expire:
+                return 0
+            ids = [r.id for r in to_expire]
+            count = Reservation.objects.filter(id__in=ids).update(status=ReservationStatus.EXPIRED)
         if count:
             logger.info('[reservations] expired %d reservation(s)', count)
             for r in to_expire:
