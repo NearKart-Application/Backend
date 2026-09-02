@@ -1,20 +1,20 @@
 from django.db import migrations, models
-from django.utils.text import slugify
 
 
-def generate_slugs(apps, schema_editor):
-    Store = apps.get_model('stores', 'Store')
-    used = set()
-    for store in Store.objects.filter(slug__isnull=True).order_by('created_at'):
-        base = slugify(store.name or '')[:80] or f'store-{str(store.id)[:8]}'
-        candidate = base
-        counter = 1
-        while candidate in used:
-            candidate = f'{base}-{counter}'
-            counter += 1
-        # Use .update() — reliable in migrations, bypasses save() hooks
-        Store.objects.filter(pk=store.pk).update(slug=candidate)
-        used.add(candidate)
+# Raw SQL backfill — handles both NULL and empty-string slugs.
+# Appends the first 8 chars of UUID to guarantee uniqueness even with duplicate names.
+BACKFILL_SQL = """
+UPDATE stores_store
+SET slug = LOWER(
+    TRIM(BOTH '-' FROM
+        REGEXP_REPLACE(
+            REGEXP_REPLACE(COALESCE(NULLIF(TRIM(name), ''), 'store'), '[^a-zA-Z0-9]+', '-', 'g'),
+            '-{2,}', '-', 'g'
+        )
+    )
+) || '-' || LEFT(id::text, 8)
+WHERE slug IS NULL OR slug = '';
+"""
 
 
 class Migration(migrations.Migration):
@@ -23,7 +23,7 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        # Step 1: add as nullable so existing rows are NULL (not empty string)
+        # Step 1: add nullable, no constraint yet
         migrations.AddField(
             model_name='store',
             name='slug',
@@ -34,16 +34,15 @@ class Migration(migrations.Migration):
                 help_text='Auto-generated URL slug for vendor mini-website (/s/<slug>).',
             ),
         ),
-        # Step 2: backfill — every row gets a unique slug via .update() (no save() hooks)
-        migrations.RunPython(generate_slugs, migrations.RunPython.noop),
-        # Step 3: tighten to unique; default='' so new rows without a slug get empty str,
-        #         but the save() on Store.save() always sets one before insert.
+        # Step 2: backfill — raw SQL so it runs inside the same transaction
+        migrations.RunSQL(BACKFILL_SQL, migrations.RunSQL.noop),
+        # Step 3: add unique constraint (null=True so PG allows multiple future NULLs)
         migrations.AlterField(
             model_name='store',
             name='slug',
             field=models.SlugField(
                 blank=True,
-                null=True,          # keep nullable — unique index allows multiple NULLs in PG
+                null=True,
                 max_length=120,
                 unique=True,
                 help_text='Auto-generated URL slug for vendor mini-website (/s/<slug>).',
