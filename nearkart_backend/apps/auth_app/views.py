@@ -119,8 +119,9 @@ class OTPSendView(APIView):
 
         is_signup       = serializer.validated_data.get('is_signup', False)
         delivery_method = serializer.validated_data.get('delivery_method', 'sms')
-        if not is_signup:
+        if not is_signup and not getattr(_s, 'DEBUG', False):
             # Login flow — reject unknown phone numbers instead of silently creating an account
+            # Skipped in DEBUG so any test phone auto-creates an account without needing signup first
             from .models import User as _User
             if not _User.objects.filter(phone_number=phone_number).exists():
                 return Response(
