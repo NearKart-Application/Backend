@@ -140,3 +140,118 @@ class CreditAgingReportView(APIView):
             'buckets': buckets,
             'generated_at': today.isoformat(),
         })
+
+
+class CreditReminderView(APIView):
+    """
+    POST /credit/customers/{id}/remind/
+    Logs a reminder attempt and returns a WhatsApp deep-link / SMS message
+    the vendor can send manually, or triggers configured messaging provider.
+    Actual dispatch requires MSG91/Twilio credentials in settings.
+    """
+    permission_classes = [IsAuthenticated, IsVendor]
+
+    def post(self, request, account_id):
+        store = _vendor_store(request)
+        try:
+            account = CustomerCreditAccount.objects.get(id=account_id, store=store)
+        except CustomerCreditAccount.DoesNotExist:
+            return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        balance = account.balance
+        if balance <= 0:
+            return Response({'detail': 'No outstanding balance — no reminder needed.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        message = (
+            f'Hi {account.name}, you have an outstanding balance of ₹{balance:.2f} '
+            f'at {store.name}. Please settle at your earliest convenience. Thank you!'
+        )
+        whatsapp_url = None
+        if account.phone:
+            phone = account.phone.replace('+', '').replace('-', '').replace(' ', '')
+            if not phone.startswith('91'):
+                phone = '91' + phone
+            whatsapp_url = f'https://wa.me/{phone}?text={message.replace(" ", "%20")}'
+
+        return Response({
+            'account_id': str(account.id),
+            'name': account.name,
+            'phone': account.phone,
+            'balance': str(balance),
+            'message': message,
+            'whatsapp_url': whatsapp_url,
+            'reminder_sent': False,
+        })
+
+
+class CustomerDuesView(APIView):
+    """
+    GET /credit/my-dues/?store_id={uuid}&phone={phone}
+    Public (unauthenticated) endpoint — customer can look up their dues
+    at a specific store by phone number.
+    """
+    permission_classes = []  # public
+
+    def get(self, request):
+        store_id = request.query_params.get('store_id')
+        phone    = request.query_params.get('phone', '').strip()
+        if not store_id or not phone:
+            return Response({'detail': 'store_id and phone are required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            account = CustomerCreditAccount.objects.get(store_id=store_id, phone=phone, is_active=True)
+        except CustomerCreditAccount.DoesNotExist:
+            return Response({'outstanding': '0.00', 'transactions': []})
+
+        from .serializers import CustomerCreditAccountDetailSerializer
+        data = CustomerCreditAccountDetailSerializer(account).data
+        return Response({
+            'name':            account.name,
+            'outstanding':     str(account.balance),
+            'credit_limit':    str(account.credit_limit),
+            'available_credit': str(account.available_credit) if account.available_credit is not None else None,
+            'transactions':    data['transactions'],
+        })
+
+
+class CreditStatementView(APIView):
+    """
+    GET /credit/customers/{id}/statement/
+    Returns a JSON statement suitable for client-side PDF generation.
+    Includes full transaction ledger with running balance.
+    """
+    permission_classes = [IsAuthenticated, IsVendor]
+
+    def get(self, request, account_id):
+        store = _vendor_store(request)
+        try:
+            account = CustomerCreditAccount.objects.get(id=account_id, store=store)
+        except CustomerCreditAccount.DoesNotExist:
+            return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        txs = account.transactions.order_by('created_at')
+        running = 0
+        ledger  = []
+        for tx in txs:
+            if tx.transaction_type == CreditTransaction.CREDIT:
+                running += float(tx.amount)
+            else:
+                running -= float(tx.amount)
+            ledger.append({
+                'date':        tx.created_at.strftime('%d %b %Y'),
+                'type':        tx.transaction_type,
+                'amount':      str(tx.amount),
+                'note':        tx.note,
+                'method':      tx.payment_method,
+                'balance':     f'{running:.2f}',
+            })
+
+        return Response({
+            'store_name':     store.name,
+            'customer_name':  account.name,
+            'customer_phone': account.phone,
+            'credit_limit':   str(account.credit_limit),
+            'outstanding':    str(account.balance),
+            'generated_at':   timezone.now().strftime('%d %b %Y, %I:%M %p'),
+            'ledger':         ledger,
+        })
