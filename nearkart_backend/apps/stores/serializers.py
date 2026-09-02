@@ -78,7 +78,7 @@ class StoreSerializer(serializers.ModelSerializer):
             'is_active', 'is_verified', 'is_open', 'is_women_owned',
             'privacy_mode', 'holiday_mode',
             'performance_score', 'follower_count',
-            'hours', 'distance_km', 'slug', 'created_at',
+            'hours', 'distance_km', 'slug', 'gst_mode', 'created_at',
         ]
         read_only_fields = [
             'id', 'owner_phone', 'is_verified', 'performance_score',

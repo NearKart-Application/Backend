@@ -34,6 +34,12 @@ class VendorType(models.TextChoices):
     SERVICE = 'service', 'Service Vendor'
 
 
+class GstMode(models.TextChoices):
+    UNREGISTERED = 'unregistered', 'Unregistered (No GST)'
+    COMPOSITION  = 'composition',  'Composition Scheme (1–5% flat turnover tax)'
+    REGULAR      = 'regular',      'Regular GST (18% + ITC eligible)'
+
+
 class Store(BaseModel):
     owner       = models.ForeignKey(User, on_delete=models.CASCADE, related_name='stores')
     name        = models.CharField(max_length=200)
@@ -74,6 +80,10 @@ class Store(BaseModel):
     slug = models.SlugField(
         max_length=120, unique=True, blank=True,
         help_text='Auto-generated URL slug for vendor mini-website (/s/<slug>).',
+    )
+    gst_mode = models.CharField(
+        max_length=15, choices=GstMode.choices, default=GstMode.UNREGISTERED,
+        help_text='GST registration mode — controls invoice GST logic.',
     )
 
     class Meta:
