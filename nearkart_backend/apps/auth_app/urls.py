@@ -13,6 +13,7 @@ from .views import (
     SessionListView,
     AccountDeleteView,
     SocialGoogleView,
+    ConsentView,
 )
 
 urlpatterns = [
@@ -29,4 +30,5 @@ urlpatterns = [
     path('users/search/',  UserSearchView.as_view(),    name='user-search'),
     path('client-logs/',   ClientLogsView.as_view(),    name='client-logs'),
     path('social/google/', SocialGoogleView.as_view(),  name='social-google'),
+    path('consent/',       ConsentView.as_view(),        name='consent'),
 ]

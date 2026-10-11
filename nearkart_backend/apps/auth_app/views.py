@@ -798,3 +798,21 @@ class ClientLogsView(APIView):
             written += 1
 
         return Response({'written': written}, status=status.HTTP_200_OK)
+
+
+class ConsentView(APIView):
+    """Record DPDP Act 2023 consent for the authenticated user."""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        from django.utils import timezone
+        consent      = request.data.get('consent_given', False)
+        is_adult     = request.data.get('is_adult_confirmed', False)
+        if not consent or not is_adult:
+            return Response({'error': 'Both consent and age confirmation are required.'}, status=status.HTTP_400_BAD_REQUEST)
+        user = request.user
+        user.consent_given      = True
+        user.consent_at         = timezone.now()
+        user.is_adult_confirmed = True
+        user.save(update_fields=['consent_given', 'consent_at', 'is_adult_confirmed'])
+        return Response({'consent_given': True}, status=status.HTTP_200_OK)

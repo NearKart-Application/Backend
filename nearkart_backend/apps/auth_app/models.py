@@ -69,6 +69,9 @@ class User(AbstractBaseUser, PermissionsMixin, BaseModel):
     registered_location = gis_models.PointField(
         srid=4326, null=True, blank=True, spatial_index=True
     )
+    consent_given      = models.BooleanField(default=False)
+    consent_at         = models.DateTimeField(null=True, blank=True)
+    is_adult_confirmed = models.BooleanField(default=False)
 
     USERNAME_FIELD = 'phone_number'
     REQUIRED_FIELDS = []
