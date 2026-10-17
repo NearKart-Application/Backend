@@ -37,6 +37,7 @@ ALLOWED_HOSTS = env.list('ALLOWED_HOSTS', default=['localhost', '127.0.0.1'])
 
 # ── APPS ───────────────────────────────────────────────────────
 DJANGO_APPS = [
+    'jazzmin',                   # must be before django.contrib.admin
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -44,6 +45,7 @@ DJANGO_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'django.contrib.gis',          # PostGIS
+    'django.contrib.postgres',     # GinIndex, ArrayField, JSONField
 ]
 
 THIRD_PARTY_APPS = [
@@ -72,6 +74,13 @@ LOCAL_APPS = [
     'apps.groups',
     'apps.admin_panel',
     'apps.loyalty',
+    'apps.inventory',
+    'apps.locations',
+    'apps.credit',
+    'apps.expenses',
+    'apps.reports',
+    'apps.restaurant',
+    'apps.services_inventory',
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -87,6 +96,7 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'core.middleware.RequestLoggingMiddleware',
+    'core.middleware.NoCachePersonalizedDataMiddleware',
 ]
 
 ROOT_URLCONF = 'config.urls'
@@ -182,7 +192,12 @@ CELERY_WORKER_PREFETCH_MULTIPLIER = 1
 # reservation expiry tasks, and vice-versa.
 CELERY_TASK_DEFAULT_QUEUE = 'default'
 CELERY_TASK_ROUTES = {
-    'apps.videos.tasks.transcode_video': {'queue': 'transcoding'},
+    'apps.videos.tasks.transcode_video':           {'queue': 'transcoding'},
+    'inventory.check_low_stock_all':               {'queue': 'inventory'},
+    'inventory.weekly_stock_summary':              {'queue': 'inventory'},
+    'inventory.check_po_due_dates':                {'queue': 'inventory'},
+    'inventory.reset_watchlist_notifications':     {'queue': 'inventory'},
+    'inventory.detect_dead_stock':                 {'queue': 'inventory'},
 }
 
 # ── CELERY BEAT SCHEDULE ───────────────────────────────────────
@@ -196,10 +211,8 @@ CELERY_BEAT_SCHEDULE = {
         'task':     'reservations.expire_reservations',
         'schedule': crontab(minute=0),           # top of every hour
     },
-    'notify-expiring-subscriptions-daily': {
-        'task':     'notifications.notify_expiring_subscriptions',
-        'schedule': crontab(hour=9, minute=0),   # 9 AM daily
-    },
+    # Subscription expiry notifications handled by billing.notify_expiring_subscriptions
+    # (covers both 7-day and 3-day windows in one task — no duplicate needed here)
     'notify-expired-subscriptions-daily': {
         'task':     'notifications.notify_expired_subscriptions',
         'schedule': crontab(hour=9, minute=5),   # 9:05 AM daily
@@ -212,6 +225,70 @@ CELERY_BEAT_SCHEDULE = {
     'delete-expired-videos-daily': {
         'task':     'videos.delete_expired_videos',
         'schedule': crontab(hour=0, minute=30),  # 12:30 AM daily
+    },
+    'notify-1day-reservation-expiry-daily': {
+        'task':     'reservations.notify_1day_expiry',
+        'schedule': crontab(hour=8, minute=0),   # 8 AM daily
+    },
+    'notify-30min-reservation-expiry': {
+        'task':     'reservations.notify_30min_expiry',
+        'schedule': crontab(minute='*/15'),       # every 15 minutes
+    },
+    # Analytics aggregation — 3 AM daily
+    'aggregate-daily-analytics': {
+        'task':     'analytics.aggregate_daily_stats',
+        'schedule': crontab(hour=3, minute=0),
+    },
+    # Weekly analytics digest — Monday 9 AM IST
+    'send-weekly-digest': {
+        'task':     'analytics.send_weekly_digest_emails',
+        'schedule': crontab(hour=9, minute=0, day_of_week=1),
+    },
+    # Blacklist engine — check inactive products at midnight
+    'check-inactive-products': {
+        'task':     'blacklist.check_inactive_products',
+        'schedule': crontab(hour=0, minute=0),
+    },
+    # Store open/close status — every 30 minutes
+    'update-store-open-status': {
+        'task':     'stores.update_all_store_statuses',
+        'schedule': crontab(minute='*/30'),
+    },
+    'notify-price-drops-6h': {
+        'task':     'products.notify_price_drops',
+        'schedule': crontab(minute=0, hour='*/6'),  # every 6 hours
+    },
+    'inventory-check-low-stock': {
+        'task': 'inventory.check_low_stock_all',
+        'schedule': crontab(minute=0, hour='*/6'),
+    },
+    'inventory-weekly-summary': {
+        'task': 'inventory.weekly_stock_summary',
+        'schedule': crontab(minute=0, hour=9, day_of_week=1),
+    },
+    'inventory-check-po-dates': {
+        'task': 'inventory.check_po_due_dates',
+        'schedule': crontab(minute=0, hour=8),
+    },
+    'inventory-reset-watchlist': {
+        'task': 'inventory.reset_watchlist_notifications',
+        'schedule': crontab(minute=0, hour=0),
+    },
+    'inventory-detect-dead-stock': {
+        'task': 'inventory.detect_dead_stock',
+        'schedule': crontab(minute=0, hour=0, day_of_week=0),
+    },
+    'notifications-weekly-digest': {
+        'task':     'notifications.send_weekly_digest',
+        'schedule': crontab(hour=9, minute=30, day_of_week=1),  # Monday 9:30 AM
+    },
+    'loyalty-expire-points': {
+        'task':     'loyalty.expire_points',
+        'schedule': crontab(hour=2, minute=0),  # Daily at 2 AM
+    },
+    'analytics-snapshot-daily': {
+        'task':     'analytics.snapshot_daily_analytics',
+        'schedule': crontab(hour=1, minute=0),  # Daily at 1 AM
     },
 }
 
@@ -233,7 +310,7 @@ SIMPLE_JWT = {
         days=env.int('JWT_REFRESH_TOKEN_LIFETIME_DAYS', default=30)
     ),
     'ROTATE_REFRESH_TOKENS': False,
-    'BLACKLIST_AFTER_ROTATION': True,
+    'BLACKLIST_AFTER_ROTATION': False,
     'ALGORITHM': 'HS256',
     'SIGNING_KEY': env('JWT_SECRET_KEY', default=SECRET_KEY),
     'AUTH_HEADER_TYPES': ('Bearer',),
@@ -273,15 +350,17 @@ CORS_ALLOWED_ORIGINS = env.list(
     default=['http://localhost:3000', 'http://localhost:19006']
 )
 CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOW_ALL_ORIGINS = True
 CORS_ALLOW_HEADERS = [
     'accept', 'accept-encoding', 'authorization',
     'content-type', 'dnt', 'origin', 'user-agent',
     'x-csrftoken', 'x-requested-with',
+    'ngrok-skip-browser-warning',
 ]
 
 # ── API DOCS (Spectacular) ─────────────────────────────────────
 SPECTACULAR_SETTINGS = {
-    'TITLE': 'NearKart API',
+    'TITLE': 'NearSpot API',
     'DESCRIPTION': (
         "India's first hyperlocal video commerce platform.\n\n"
         "## How to Authenticate\n"
@@ -351,8 +430,8 @@ FIREBASE_CREDENTIALS_JSON = env('FIREBASE_CREDENTIALS_JSON', default='')
 
 # ── SENDGRID ───────────────────────────────────────────────────
 SENDGRID_API_KEY = env('SENDGRID_API_KEY', default='')
-DEFAULT_FROM_EMAIL = env('DEFAULT_FROM_EMAIL', default='hello@nearkart.in')
-DEFAULT_FROM_NAME = env('DEFAULT_FROM_NAME', default='NearKart')
+DEFAULT_FROM_EMAIL = env('DEFAULT_FROM_EMAIL', default='hello@nearspot.in')
+DEFAULT_FROM_NAME = env('DEFAULT_FROM_NAME', default='NearSpot')
 
 # ── GOOGLE MAPS ────────────────────────────────────────────────
 GOOGLE_MAPS_API_KEY = env('GOOGLE_MAPS_API_KEY', default='')
@@ -381,10 +460,7 @@ BLACKLIST_WARNING_DAY = env.int('BLACKLIST_WARNING_DAY', default=20)
 BLACKLIST_FINAL_WARNING_DAY = env.int('BLACKLIST_FINAL_WARNING_DAY', default=27)
 RESERVATION_HOLD_HOURS = env.int('RESERVATION_HOLD_HOURS', default=2)
 VIDEO_MAX_DURATION_SECONDS = env.int('VIDEO_MAX_DURATION_SECONDS', default=60)
-STORY_MAX_DURATION_SECONDS = env.int('STORY_MAX_DURATION_SECONDS', default=30)
 VIDEO_MAX_SIZE_MB = env.int('VIDEO_MAX_SIZE_MB', default=100)
-STORY_MAX_SIZE_MB = env.int('STORY_MAX_SIZE_MB', default=50)
-STORY_EXPIRY_HOURS = env.int('STORY_EXPIRY_HOURS', default=24)
 VIDEO_EXPIRY_DAYS = env.int('VIDEO_EXPIRY_DAYS', default=30)
 
 # ── STATIC / MEDIA ─────────────────────────────────────────────
@@ -392,6 +468,11 @@ STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
+
+# Public-facing base URL — used to build absolute media URLs in dev (when S3 is not configured).
+# Set to your machine's local IP in .env: SITE_URL=http://192.168.29.165
+# In production this should be your domain: SITE_URL=https://api.nearspot.in
+SITE_URL = env('SITE_URL', default='http://localhost')
 
 # ── INTERNATIONALISATION ───────────────────────────────────────
 LANGUAGE_CODE = 'en-us'
@@ -457,6 +538,10 @@ LOGGING = {
         'videos_file':       {**_rotating('videos.log')},
         'billing_file':      {**_rotating('billing.log')},
         'requests_file':     {**_rotating('requests.log')},
+        # ── Security & Performance (always WARNING+) ──────────────
+        'security_file':       {**_rotating('security.log'),       **{'level': 'WARNING'}},
+        'performance_file':    {**_rotating('performance.log'),    **{'level': 'WARNING'}},
+        'client_events_file':  {**_rotating('client_events.log'),  **{'level': 'WARNING'}},
     },
     'root': {
         'handlers': ['console', 'error_file'],
@@ -525,6 +610,151 @@ LOGGING = {
             'level':     'DEBUG',
             'propagate': False,
         },
+        # ── Security: failed auth, 4xx anomalies, brute-force signals ─
+        'nearkart.security': {
+            'handlers':  ['security_file', 'error_file'],
+            'level':     'WARNING',
+            'propagate': False,
+        },
+        # ── Performance: slow requests, slow DB queries ───────────────
+        'nearkart.performance': {
+            'handlers':  ['performance_file'],
+            'level':     'WARNING',
+            'propagate': False,
+        },
+        # ── Client events: security events shipped from mobile app ────
+        'nearkart.client_events': {
+            'handlers':  ['client_events_file', 'security_file'],
+            'level':     'WARNING',
+            'propagate': False,
+        },
+    },
+}
+
+# ── JAZZMIN — Professional Admin Theme ─────────────────────────
+JAZZMIN_SETTINGS = {
+    'site_title':        'Nearspot Admin',
+    'site_header':       'Nearspot',
+    'site_brand':        'Nearspot',
+    'site_logo':         'admin_panel/img/nearspot_logo.png',
+    'site_logo_classes': 'img-fluid',
+    'site_icon':         'admin_panel/img/nearspot_logo.png',
+    'welcome_sign':      'Welcome to Nearspot Admin Panel',
+    'copyright':         'Nearspot Technologies',
+    'search_model':      ['auth_app.User', 'stores.Store', 'products.Product'],
+
+    'topmenu_links': [
+        {'name': 'Home',         'url': 'admin:index',              'permissions': ['auth.view_user']},
+        {'name': 'API Docs',     'url': '/api/docs/',               'new_window': True},
+        {'name': 'Health Check', 'url': '/api/v1/health/',          'new_window': True},
+    ],
+
+    'usermenu_links': [
+        {'name': 'API Docs', 'url': '/api/docs/', 'new_window': True, 'icon': 'fas fa-book'},
+    ],
+
+    'show_sidebar':              True,
+    'navigation_expanded':       True,
+    'hide_apps':                 [],
+    'hide_models':               [],
+
+    'order_with_respect_to': [
+        'auth_app', 'stores', 'products', 'inventory',
+        'billing', 'notifications', 'admin_panel',
+        'chat', 'groups', 'loyalty', 'reservations',
+        'videos', 'blacklist', 'analytics',
+    ],
+
+    'icons': {
+        'auth_app.User':                      'fas fa-users',
+        'stores.Store':                       'fas fa-store',
+        'stores.ServiceCatalogue':            'fas fa-concierge-bell',
+        'products.Product':                   'fas fa-box',
+        'products.ProductVariant':            'fas fa-boxes',
+        'inventory.StockMovementLog':         'fas fa-exchange-alt',
+        'inventory.Supplier':                 'fas fa-truck',
+        'inventory.PurchaseOrder':            'fas fa-file-invoice',
+        'inventory.StockAudit':               'fas fa-clipboard-check',
+        'inventory.StockWatchlist':           'fas fa-bell',
+        'inventory.SerialNumber':             'fas fa-barcode',
+        'billing.Plan':                       'fas fa-credit-card',
+        'billing.Subscription':               'fas fa-star',
+        'notifications.Notification':         'fas fa-bell',
+        'admin_panel.AdminProfile':           'fas fa-user-shield',
+        'admin_panel.PromoBanner':            'fas fa-image',
+        'admin_panel.Category':               'fas fa-tags',
+        'admin_panel.AdminActivityLog':       'fas fa-history',
+        'chat.Conversation':                  'fas fa-comments',
+        'reservations.Reservation':           'fas fa-calendar-check',
+        'videos.Video':                       'fas fa-video',
+        'blacklist.Blacklist':                'fas fa-ban',
+        'loyalty.LoyaltyAccount':             'fas fa-award',
+        'loyalty.LoyaltyTransaction':         'fas fa-coins',
+        'loyalty.Referral':                   'fas fa-user-plus',
+        'admin_panel.PromoBanner':            'fas fa-bullhorn',
+        'admin_panel.Category':               'fas fa-tags',
+        'admin_panel.OfferTemplate':          'fas fa-percent',
+        'admin_panel.AdminActivityLog':       'fas fa-history',
+        'billing.Transaction':                'fas fa-receipt',
+        'billing.Subscription':               'fas fa-crown',
+        'billing.Plan':                       'fas fa-layer-group',
+        'inventory.CompositeProduct':         'fas fa-cubes',
+        'groups.Group':                       'fas fa-users-cog',
+        'groups.GroupSharedProduct':          'fas fa-share-alt',
+        'chat.Conversation':                  'fas fa-comments',
+        'chat.Message':                       'fas fa-comment-dots',
+        'videos.Video':                       'fas fa-film',
+        'videos.VideoLike':                   'fas fa-heart',
+        'reservations.Reservation':           'fas fa-calendar-check',
+        'blacklist.Blacklist':                'fas fa-user-slash',
+        'notifications.Notification':         'fas fa-bell',
+        'auth_app.OTPToken':                  'fas fa-key',
+        'auth_app.DeviceToken':               'fas fa-mobile-alt',
+        'stores.StoreReview':                 'fas fa-star',
+        'stores.StoreFollow':                 'fas fa-heart',
+    },
+
+    'default_icon_parents': 'fas fa-folder',
+    'default_icon_children': 'fas fa-circle',
+
+    'related_modal_active': True,
+    'custom_css':           'admin_panel/css/nearspot_admin.css',
+    'custom_js':            None,
+    'use_google_fonts_cdn': True,
+    'show_ui_builder':      False,
+    'changeform_format':    'horizontal_tabs',
+    'list_per_page':        25,
+}
+
+JAZZMIN_UI_TWEAKS = {
+    'navbar_small_text':         False,
+    'footer_small_text':         False,
+    'body_small_text':           False,
+    'brand_small_text':          False,
+    'brand_colour':              'navbar-dark',
+    'accent':                    'accent-warning',
+    'navbar':                    'navbar-dark',
+    'no_navbar_border':          True,
+    'navbar_fixed':              True,
+    'layout_boxed':              False,
+    'footer_fixed':              False,
+    'sidebar_fixed':             True,
+    'sidebar':                   'sidebar-dark-primary',
+    'sidebar_nav_small_text':    False,
+    'sidebar_disable_expand':    False,
+    'sidebar_nav_child_indent':  True,
+    'sidebar_nav_compact_style': False,
+    'sidebar_nav_legacy_style':  False,
+    'sidebar_nav_flat_style':    False,
+    'theme':                     'default',
+    'dark_mode_theme':           None,
+    'button_classes': {
+        'primary':   'btn-primary',
+        'secondary': 'btn-outline-secondary',
+        'info':      'btn-outline-info',
+        'warning':   'btn-warning',
+        'danger':    'btn-danger',
+        'success':   'btn-success',
     },
 }
 

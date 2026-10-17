@@ -49,6 +49,43 @@ def JWTAuthMiddlewareStack(inner):
     return JWTAuthMiddleware(inner)
 
 
+# Paths that contain user-specific data and must never be cached by the client.
+# Pattern is matched as a substring of the request path.
+_NO_CACHE_API_PATHS = (
+    '/auth/me',
+    '/stores/mine',
+    '/products/vendor',
+    '/profile/wishlist',
+    '/stores/mine/staff',
+    '/stores/mine/invoices',
+    '/loyalty/',
+    '/wallet/',
+    '/reservations/',
+    '/notifications/',
+)
+
+
+class NoCachePersonalizedDataMiddleware:
+    """
+    Sets Cache-Control: no-store on API responses that contain user-specific data.
+    This is a server-side safety net — the mobile OkHttp interceptor also excludes
+    these paths from caching, but belt-and-suspenders here prevents stale reads from
+    any client (web, other mobile versions, etc.) that might cache these responses.
+    """
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        response = self.get_response(request)
+        if (request.method == 'GET' and
+                request.path.startswith('/api/') and
+                any(segment in request.path for segment in _NO_CACHE_API_PATHS) and
+                'Cache-Control' not in response):
+            response['Cache-Control'] = 'no-store'
+        return response
+
+
 class RequestLoggingMiddleware:
     """
     Logs every HTTP request to requests.log (human-readable) and app.log (JSON).
@@ -77,7 +114,7 @@ class RequestLoggingMiddleware:
         elif response.status_code >= 400:
             level = 'warning'
 
-        from core.logging import log_event
+        from core.logging import log_event, SLOW_REQUEST_MS
         log_event(
             'requests',
             level       = level,
@@ -89,4 +126,36 @@ class RequestLoggingMiddleware:
             user_id     = str(user.id)   if authed else None,
             role        = user.role      if authed else None,
         )
+
+        # ── Security channel: 401 / 403 / 429 are threat signals ─────────
+        if response.status_code in (401, 403, 429):
+            security_action = {
+                401: 'unauthorized_access',
+                403: 'forbidden_access',
+                429: 'rate_limit_exceeded',
+            }[response.status_code]
+            log_event(
+                'security',
+                level   = 'warning',
+                action  = security_action,
+                method  = request.method,
+                path    = request.path,
+                status  = response.status_code,
+                ip      = request.META.get('HTTP_X_FORWARDED_FOR', request.META.get('REMOTE_ADDR', '')),
+                user_id = str(user.id) if authed else None,
+            )
+
+        # ── Performance channel: flag slow responses ──────────────────────
+        if duration >= SLOW_REQUEST_MS:
+            log_event(
+                'performance',
+                level       = 'warning',
+                action      = 'slow_request',
+                method      = request.method,
+                path        = request.path,
+                status      = response.status_code,
+                duration_ms = duration,
+                threshold_ms= SLOW_REQUEST_MS,
+            )
+
         return response

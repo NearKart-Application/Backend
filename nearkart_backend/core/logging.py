@@ -64,8 +64,18 @@ _ENTITY_LOGGERS: dict[str, logging.Logger] = {
     'videos':       logging.getLogger('nearkart.videos'),
     'billing':      logging.getLogger('nearkart.billing'),
     'requests':     logging.getLogger('nearkart.requests'),
+    # ── New channels ─────────────────────────────────────────────
+    # security: failed auth, 401/403/429, brute-force patterns, suspicious activity
+    'security':      logging.getLogger('nearkart.security'),
+    # performance: slow API responses (>2 s), worker timing, DB query time
+    'performance':   logging.getLogger('nearkart.performance'),
+    # client_events: security events shipped from the mobile app with device context
+    'client_events': logging.getLogger('nearkart.client_events'),
 }
 _app_logger = logging.getLogger('nearkart.app')
+
+# Slow-request threshold — anything above this is also written to performance.log
+SLOW_REQUEST_MS = 2_000
 
 
 def log_event(entity: str, level: str = 'info', **kwargs) -> None:
@@ -73,12 +83,12 @@ def log_event(entity: str, level: str = 'info', **kwargs) -> None:
     Write one structured event to both the entity log file and the global app.log.
 
     Args:
-        entity : 'stores' | 'products' | 'customers' | 'reservations' |
-                 'videos'  | 'billing'  | 'auth'      | 'requests'
+        entity : 'auth' | 'stores' | 'products' | 'customers' | 'reservations'
+                 'videos' | 'billing' | 'requests' | 'security' | 'performance'
         level  : 'debug' | 'info' | 'warning' | 'error'
         **kwargs: action (strongly recommended), plus any context fields:
                   store_id, user_id, product_id, reservation_id,
-                  amount, plan, query, status, duration, etc.
+                  amount, plan, query, status, duration_ms, ip, etc.
     """
     payload: dict = {'entity': entity}
     payload.update({k: v for k, v in kwargs.items() if v not in (None, '', [])})

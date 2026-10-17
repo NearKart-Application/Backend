@@ -9,12 +9,13 @@ Algorithms implemented:
 """
 import logging
 import requests
+from datetime import date
 from django.conf import settings
 from django.contrib.gis.geos import Point
 from django.contrib.gis.db.models.functions import Distance
 from django.contrib.gis.measure import D
 from django.db.models import (
-    Count, Avg, Prefetch, Exists, OuterRef,
+    Count, Avg, Prefetch, Exists, OuterRef, Q,
     ExpressionWrapper, FloatField, Case, When, F, Value,
 )
 from django.db.models.functions import Coalesce
@@ -29,6 +30,7 @@ def build_point(lat: float, lng: float) -> Point:
 
 def get_nearby_stores(lat: float, lng: float,
                       radius_km: int = 2, category: str = None,
+                      store_type: str = None,
                       limit: int = 50) -> list:
     """
     Find stores within radius using PostGIS ST_DWithin (GIST index).
@@ -45,7 +47,7 @@ def get_nearby_stores(lat: float, lng: float,
     from apps.stores.models import Store, StoreHours, StoreOffer
     from core.utils.cache import CacheService
 
-    cache_key = CacheService.nearby_stores_key(lat, lng, radius_km, category or 'all')
+    cache_key = CacheService.nearby_stores_key(lat, lng, radius_km, category or 'all', store_type or 'all')
 
     def _fetch():
         user_point = build_point(lat, lng)
@@ -55,6 +57,7 @@ def get_nearby_stores(lat: float, lng: float,
         qs = Store.objects.filter(
             is_active=True,
             is_verified=True,
+            privacy_mode=False,
             location__dwithin=(user_point, D(km=radius_km)),
         ).annotate(
             distance=Distance('location', user_point),
@@ -90,11 +93,17 @@ def get_nearby_stores(lat: float, lng: float,
         ).prefetch_related(
             Prefetch('hours', queryset=StoreHours.objects.filter(is_closed=False)),
             Prefetch('offers', queryset=StoreOffer.objects.filter(
-                is_active=True).order_by('-created_at')),
+                is_active=True
+            ).filter(
+                Q(valid_till__isnull=True) | Q(valid_till__gte=date.today())
+            ).order_by('-created_at')),
         ).order_by('-relevance_score')
 
         if category and category != 'all':
             qs = qs.filter(category=category)
+
+        if store_type and store_type in ('product', 'service', 'home'):
+            qs = qs.filter(store_type=store_type)
 
         return list(qs[:limit])
 
@@ -124,7 +133,7 @@ def get_nearby_products(lat: float, lng: float,
     )
     cached = CacheService.get(cache_key)
     if cached is not None:
-        return cached
+        return cached[:limit]
 
     user_point  = build_point(lat, lng)
     has_stock   = Exists(
@@ -150,9 +159,10 @@ def get_nearby_products(lat: float, lng: float,
     if category:
         qs = qs.filter(category=category)
 
-    result = list(qs[:limit])
+    # Cache up to 200 items so paginated views can slice without a cache miss
+    result = list(qs[:200])
     CacheService.set(cache_key, result, timeout=CacheService.TTL_PRODUCT_SEARCH)
-    return result
+    return result[:limit]
 
 
 def reverse_geocode(lat: float, lng: float) -> str:

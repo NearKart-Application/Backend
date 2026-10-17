@@ -9,12 +9,17 @@ from .views import (
     GroupMakeAdminView,
     GroupRemoveAdminView,
     GroupEligibleMembersView,
+    GroupMessageListView,
     GroupProductListView,
     GroupFinalizeProductView,
+    GroupAvatarView,
+    GroupInviteView,
+    GroupJoinViaInviteView,
 )
 
 urlpatterns = [
     path('',                                                          GroupCreateListView.as_view(),    name='group-create-list'),
+    path('join/<uuid:token>/',                                        GroupJoinViaInviteView.as_view(), name='group-join-invite'),
     path('<uuid:group_id>/',                                          GroupDetailView.as_view(),        name='group-detail'),
     path('<uuid:group_id>/members/add/',                              GroupAddMemberView.as_view(),     name='group-add-member'),
     path('<uuid:group_id>/members/<uuid:user_id>/remove/',            GroupRemoveMemberView.as_view(),  name='group-remove-member'),
@@ -22,6 +27,9 @@ urlpatterns = [
     path('<uuid:group_id>/members/<uuid:user_id>/remove-admin/',      GroupRemoveAdminView.as_view(),   name='group-remove-admin'),
     path('<uuid:group_id>/leave/',                                    GroupLeaveView.as_view(),         name='group-leave'),
     path('<uuid:group_id>/eligible-members/',                         GroupEligibleMembersView.as_view(), name='group-eligible-members'),
+    path('<uuid:group_id>/messages/',                                 GroupMessageListView.as_view(),   name='group-messages'),
     path('<uuid:group_id>/products/',                                 GroupProductListView.as_view(),   name='group-products'),
     path('<uuid:group_id>/products/<uuid:sp_id>/finalize/',           GroupFinalizeProductView.as_view(), name='group-finalize-product'),
+    path('<uuid:group_id>/avatar/',                                   GroupAvatarView.as_view(),        name='group-avatar'),
+    path('<uuid:group_id>/invite/',                                   GroupInviteView.as_view(),        name='group-invite'),
 ]

@@ -163,10 +163,14 @@ def notify_expiring_videos():
     return count
 
 
-@shared_task(name='videos.delete_expired_videos')
-def delete_expired_videos():
+@shared_task(bind=True, name='videos.delete_expired_videos', max_retries=2, default_retry_delay=60)
+def delete_expired_videos(self):
     """Daily Celery Beat task — expire videos past their expiry date."""
-    from .services import VideoService
-    count = VideoService.expire_old_videos()
-    logger.info('delete_expired_videos: %d videos expired', count)
-    return count
+    try:
+        from .services import VideoService
+        count = VideoService.expire_old_videos()
+        logger.info('delete_expired_videos: %d videos expired', count)
+        return count
+    except Exception as exc:
+        logger.error('delete_expired_videos: failed, retrying: %s', exc)
+        raise self.retry(exc=exc)

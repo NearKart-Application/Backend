@@ -55,6 +55,7 @@ htmlcov/
 nosetests.xml
 coverage.xml
 *.cover
+test-results/
 
 # IDE
 .vscode/

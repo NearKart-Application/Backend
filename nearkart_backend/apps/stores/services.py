@@ -44,8 +44,8 @@ class StoreService:
         return store
 
     @staticmethod
-    def get_nearby(lat: float, lng: float, radius_km: int = 2, category: str = None):
-        return get_nearby_stores(lat, lng, radius_km, category)
+    def get_nearby(lat: float, lng: float, radius_km: int = 2, category: str = None, store_type: str = None):
+        return get_nearby_stores(lat, lng, radius_km, category, store_type=store_type)
 
     @staticmethod
     def toggle_follow(user, store):
@@ -62,12 +62,12 @@ class StoreService:
         return True  # followed
 
     @staticmethod
-    def add_review(user, store, rating: int, comment: str = ''):
+    def add_review(user, store, rating: int, comment: str = '', is_verified: bool = False):
         from .models import StoreReview
         from apps.notifications.services import NotificationService
         review, created = StoreReview.objects.update_or_create(
             user=user, store=store,
-            defaults={'rating': rating, 'comment': comment},
+            defaults={'rating': rating, 'comment': comment, 'is_verified': is_verified},
         )
         # Recalculate store performance score
         avg = store.reviews.aggregate(
@@ -77,9 +77,9 @@ class StoreService:
         store.save(update_fields=['performance_score'])
         NotificationService.notify_new_review(
             store.owner,
-            user.full_name or user.phone_number,
-            rating,
             store.name,
+            rating,
+            str(store.id),
         )
         return review
 
@@ -97,7 +97,7 @@ class QRService:
             from core.utils.s3 import get_s3_client, get_cdn_url
             from django.conf import settings
 
-            store_url = f'https://nearkart.in/stores/{store.id}'
+            store_url = f'https://nearspot.in/stores/{store.id}'
             qr = qrcode.QRCode(version=1, box_size=10, border=4)
             qr.add_data(store_url)
             qr.make(fit=True)

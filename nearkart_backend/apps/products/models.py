@@ -1,7 +1,8 @@
 """
 NearKart — Product Models
-Product, ProductVariant, ProductImage, Wishlist
+Product, ProductVariant, ProductImage, Wishlist, StockMovementLog, StockWatchlist, ProductReview
 """
+from django.conf import settings
 from django.db import models
 from django.contrib.postgres.indexes import GinIndex
 
@@ -15,17 +16,28 @@ class ProductStatus(models.TextChoices):
     ACTIVE       = 'active',       'Active'
     INACTIVE     = 'inactive',     'Inactive'
     OUT_OF_STOCK = 'out_of_stock', 'Out of Stock'
+    BLACKLISTED  = 'blacklisted',  'Blacklisted'
 
 
 class Product(BaseModel):
     store          = models.ForeignKey(Store, on_delete=models.CASCADE, related_name='products')
+    product_code   = models.CharField(max_length=20, unique=True, blank=True, db_index=True)
     name           = models.CharField(max_length=200)
     description    = models.TextField(blank=True)
-    category       = models.CharField(max_length=50, blank=True)
+    category     = models.CharField(max_length=50, blank=True)
+    category_fk  = models.ForeignKey(
+        'admin_panel.Category',
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name='products',
+    )
     subcategory    = models.CharField(max_length=100, blank=True)
     status         = models.CharField(max_length=20, choices=ProductStatus.choices, default=ProductStatus.DRAFT)
     is_visible     = models.BooleanField(default=True, db_index=True)
     base_price     = models.DecimalField(max_digits=10, decimal_places=2)
+    previous_price = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    festival_tag   = models.CharField(max_length=50, blank=True)
+    barcode        = models.CharField(max_length=100, blank=True, db_index=True)
     last_updated_at = models.DateTimeField(auto_now=True, db_index=True)
 
     class Meta:
@@ -46,10 +58,35 @@ class ProductVariant(BaseModel):
     sku            = models.CharField(max_length=100, unique=True)
     price          = models.DecimalField(max_digits=10, decimal_places=2)
     stock_quantity = models.PositiveIntegerField(default=0, db_index=True)
+    low_stock_threshold   = models.PositiveIntegerField(default=5, help_text='Alert vendor when stock drops to or below this number')
+    reorder_point         = models.PositiveIntegerField(null=True, blank=True, help_text='Separate reorder alert threshold')
+    accepts_custom_orders = models.BooleanField(default=False, help_text='Artisan/made-to-order toggle — disables stock tracking for this variant')
+    mrp                   = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True, help_text='Maximum Retail Price — shown to customers as crossed-out price')
+    cost_price            = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True, help_text='What vendor paid — used in stock value reports, never shown to customers')
+    show_stock_count      = models.BooleanField(default=True, help_text='Vendor toggle — hide stock count from vendor website if False')
+    unit                  = models.CharField(max_length=20, blank=True, default='piece', help_text='Unit of measure (piece, kg, gram, litre, dozen, metre, pair)')
+
+    # ── Jewelry attributes (#139–#142) ────────────────────────────────────────
+    weight_grams      = models.DecimalField(max_digits=10, decimal_places=3, null=True, blank=True, help_text='Net weight in grams (gold/silver/platinum)')
+    price_per_gram    = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True, help_text='Live metal rate in ₹/gram used to compute base price')
+    purity            = models.CharField(max_length=20, blank=True, help_text='e.g. 22K, 18K, 14K, 925 (sterling silver), 950 (platinum)')
+    making_charges    = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True, help_text='Labour / craftsmanship fee in ₹, separate from metal value')
+    hallmark_number   = models.CharField(max_length=50, blank=True, help_text='BIS Hallmark certification number (HUID)')
+
+    # ── Home Decor attributes (#143–#146) ────────────────────────────────────
+    length_cm            = models.DecimalField(max_digits=8, decimal_places=2, null=True, blank=True, help_text='Product length in centimetres')
+    width_cm             = models.DecimalField(max_digits=8, decimal_places=2, null=True, blank=True, help_text='Product width in centimetres')
+    height_cm            = models.DecimalField(max_digits=8, decimal_places=2, null=True, blank=True, help_text='Product height in centimetres')
+    weight_kg            = models.DecimalField(max_digits=8, decimal_places=3, null=True, blank=True, help_text='Shipping / physical weight in kilograms')
+    is_assembly_required = models.BooleanField(default=False, help_text='True if the item ships unassembled and requires self-assembly')
+    is_display_unit      = models.BooleanField(default=False, help_text='True if this variant is a floor/display sample, not fresh stock')
 
     class Meta:
         db_table = 'product_variants'
         ordering = ['name']
+        indexes = [
+            models.Index(fields=['product', 'stock_quantity'], name='variant_product_stock_idx'),
+        ]
 
     def __str__(self):
         return f'{self.product.name} — {self.name}'
@@ -57,8 +94,9 @@ class ProductVariant(BaseModel):
 
 class ProductImage(BaseModel):
     product    = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='images')
+    variant    = models.ForeignKey('ProductVariant', on_delete=models.SET_NULL, null=True, blank=True, related_name='images')
     image_url  = models.URLField()
-    s3_key     = models.CharField(max_length=500)
+    s3_key     = models.CharField(max_length=500, blank=True)
     is_primary = models.BooleanField(default=False)
     order      = models.PositiveSmallIntegerField(default=0)
 
@@ -78,3 +116,124 @@ class Wishlist(BaseModel):
         db_table        = 'wishlists'
         unique_together = [('user', 'product')]
         ordering        = ['-created_at']
+
+
+class StockMovementReason(models.TextChoices):
+    MANUAL               = 'manual',               'Manual Update'
+    RESERVATION          = 'reservation',          'Reservation Placed'
+    RESTORATION          = 'restoration',          'Reservation Cancelled/Expired'
+    RESTOCK              = 'restock',              'Restock'
+    INVOICE              = 'invoice',              'Invoice Sale'
+    PURCHASE             = 'purchase',             'Purchase Order Received'
+    RETURN               = 'return',               'Customer Return'
+    RETURN_FROM_CUSTOMER = 'return_from_customer', 'Customer Return (Invoice)'
+    DAMAGE               = 'damage',               'Damaged / Written Off'
+    CORRECTION           = 'correction',           'Stock Audit Correction'
+    AUDIT_ADJUSTMENT     = 'audit_adjustment',     'Stock Audit Adjustment'
+
+
+class StockMovementLog(BaseModel):
+    variant    = models.ForeignKey(ProductVariant, on_delete=models.CASCADE, related_name='stock_logs')
+    changed_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+                                   null=True, blank=True, related_name='stock_changes')
+    old_qty    = models.IntegerField()
+    new_qty    = models.IntegerField()
+    delta      = models.IntegerField()
+    reason     = models.CharField(max_length=20, choices=StockMovementReason.choices,
+                                  default=StockMovementReason.MANUAL)
+    note       = models.CharField(max_length=200, blank=True)
+
+    class Meta:
+        db_table = 'stock_movement_logs'
+        ordering = ['-created_at']
+        indexes  = [models.Index(fields=['variant', 'created_at'], name='stock_log_variant_idx')]
+
+    def __str__(self):
+        return f'{self.variant} {self.old_qty}→{self.new_qty} ({self.reason})'
+
+
+class StockWatchlist(BaseModel):
+    """Customer subscribes to back-in-stock notification for a product."""
+    customer     = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+                                     related_name='stock_watches')
+    product      = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='stock_watchers')
+    notified_at  = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table        = 'stock_watchlist'
+        unique_together = [('customer', 'product')]
+        ordering        = ['-created_at']
+
+    def __str__(self):
+        return f'{self.customer} watching {self.product.name}'
+
+
+class ProductReview(BaseModel):
+    """
+    Verified-purchase product review.
+    A customer can only review a product if their NS code (profile_id) appears
+    in an invoice from the product's store that contains this product's ID.
+    One review per customer per product.
+    """
+    product  = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='reviews')
+    invoice  = models.ForeignKey(
+        'stores.Invoice', on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='product_reviews',
+    )
+    reviewer = models.ForeignKey(User, on_delete=models.CASCADE, related_name='product_reviews')
+    rating   = models.PositiveSmallIntegerField()   # 1–5
+    content  = models.TextField(blank=True)
+
+    class Meta:
+        db_table        = 'product_reviews'
+        unique_together = [('product', 'reviewer')]
+        ordering        = ['-created_at']
+
+    def __str__(self):
+        return f'{self.product.name} — {self.rating}★ by {self.reviewer}'
+
+
+class ProductQA(BaseModel):
+    """Customer Q&A on a product — answer provided by the vendor."""
+    product     = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='qa_entries')
+    user        = models.ForeignKey(User, on_delete=models.CASCADE, related_name='product_questions')
+    question    = models.TextField()
+    answer      = models.TextField(blank=True)
+    answered_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'product_qa'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'Q on {self.product.name}: {self.question[:40]}'
+
+
+class ProductPriceHistory(BaseModel):
+    """One entry per price change — created by signal."""
+    product   = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='price_history')
+    price     = models.DecimalField(max_digits=10, decimal_places=2)
+
+    class Meta:
+        db_table = 'product_price_history'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'{self.product.name} — ₹{self.price}'
+
+
+# ── Signal: snapshot base_price into previous_price before every save ──────────
+from django.db.models.signals import pre_save
+from django.dispatch import receiver
+
+
+@receiver(pre_save, sender=Product)
+def snapshot_product_price(sender, instance, **kwargs):
+    if instance.pk:
+        try:
+            old = Product.objects.only('base_price').get(pk=instance.pk)
+            if old.base_price != instance.base_price:
+                instance.previous_price = old.base_price
+                ProductPriceHistory.objects.create(product_id=instance.pk, price=old.base_price)
+        except Product.DoesNotExist:
+            pass

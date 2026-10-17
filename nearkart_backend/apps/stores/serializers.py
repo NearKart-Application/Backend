@@ -4,7 +4,48 @@ NearKart — Store Serializers
 from django.db import models
 from rest_framework import serializers
 from drf_spectacular.utils import extend_schema_field
-from .models import Store, StoreHours, StoreFollow, StoreReview, StoreOffer, Invoice
+from .models import Store, StoreHours, StoreFollow, StoreReview, StoreOffer, OfferDiscountType, Invoice, StaffMember, ServiceCatalogue, StorePhoto, StoreQuestion
+
+
+def _offer_label(offer) -> str:
+    """Build a human-readable label for a StoreOffer, supporting both percent and flat discount."""
+    label = offer.title
+    if offer.discount_type == OfferDiscountType.PERCENT and offer.discount_value:
+        label += f' · {offer.discount_value:.0f}% off'
+    elif offer.discount_type == OfferDiscountType.FLAT and offer.discount_value:
+        label += f' · ₹{offer.discount_value:.0f} off'
+    elif offer.discount_pct:
+        label += f' · {offer.discount_pct}% off'
+    return label
+
+
+def annotate_stores_with_subcategories(stores):
+    """
+    Batch-fetch top subcategories for a list/queryset of stores in ONE query.
+    Sets store._top_subcategories so StoreListSerializer skips per-store DB hits.
+    """
+    from apps.products.models import Product
+    store_list = list(stores)
+    if not store_list:
+        return store_list
+    store_ids = [s.id for s in store_list]
+    rows = (
+        Product.objects
+        .filter(store_id__in=store_ids, status='active', is_visible=True)
+        .exclude(subcategory='')
+        .values('store_id', 'subcategory')
+        .distinct()
+    )
+    subcat_map: dict = {}
+    for row in rows:
+        sid = row['store_id']
+        if sid not in subcat_map:
+            subcat_map[sid] = []
+        if len(subcat_map[sid]) < 4:
+            subcat_map[sid].append(row['subcategory'])
+    for store in store_list:
+        store._top_subcategories = subcat_map.get(store.id, [])
+    return store_list
 
 
 class StoreHoursSerializer(serializers.ModelSerializer):
@@ -28,18 +69,28 @@ class StoreSerializer(serializers.ModelSerializer):
     class Meta:
         model  = Store
         fields = [
-            'id', 'owner_phone', 'name', 'description', 'category',
+            'id', 'owner_phone', 'name', 'description', 'category', 'store_type',
+            'vendor_type', 'is_home_based',
             'phone', 'address', 'locality',
+            'area', 'city', 'district', 'state', 'country',
             'latitude', 'longitude', 'lat', 'lng',
             'logo_url', 'banner_url', 'qr_code_url',
-            'is_active', 'is_verified', 'is_open',
+            'is_active', 'is_verified', 'is_open', 'is_women_owned',
+            'privacy_mode', 'holiday_mode',
             'performance_score', 'follower_count',
-            'hours', 'distance_km', 'created_at',
+            'hours', 'distance_km', 'slug', 'gst_mode', 'created_at',
         ]
         read_only_fields = [
             'id', 'owner_phone', 'is_verified', 'performance_score',
-            'qr_code_url', 'locality', 'created_at',
+            'qr_code_url', 'locality', 'slug', 'created_at',
         ]
+
+    def get_fields(self):
+        fields = super().get_fields()
+        # store_type may be set on create but cannot be changed once set
+        if self.instance is not None:
+            fields['store_type'].read_only = True
+        return fields
 
     @extend_schema_field(serializers.FloatField(allow_null=True))
     def get_lat(self, obj):
@@ -71,20 +122,23 @@ class StoreListSerializer(serializers.ModelSerializer):
     rating            = serializers.SerializerMethodField()
     review_count      = serializers.SerializerMethodField()
     follower_count    = serializers.SerializerMethodField()
-    has_offer         = serializers.SerializerMethodField()
-    top_offer_label   = serializers.SerializerMethodField()
-    open_status_label = serializers.SerializerMethodField()
+    has_offer           = serializers.SerializerMethodField()
+    top_offer_label     = serializers.SerializerMethodField()
+    active_offer_labels = serializers.SerializerMethodField()
+    open_status_label   = serializers.SerializerMethodField()
     todays_hours      = serializers.SerializerMethodField()
     top_subcategories = serializers.SerializerMethodField()
 
     class Meta:
         model  = Store
         fields = [
-            'id', 'name', 'category', 'locality', 'location',
+            'id', 'name', 'category', 'store_type', 'vendor_type', 'is_home_based',
+            'locality', 'location',
             'avatar', 'cover_image', 'is_open', 'is_verified',
+            'holiday_mode',
             'performance_score', 'lat', 'lng', 'distance_km',
             'rating', 'review_count', 'follower_count',
-            'has_offer', 'top_offer_label', 'open_status_label', 'todays_hours',
+            'has_offer', 'top_offer_label', 'active_offer_labels', 'open_status_label', 'todays_hours',
             'top_subcategories',
         ]
 
@@ -123,14 +177,19 @@ class StoreListSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_top_offer_label(self, obj):
-        # Uses prefetched active offers sorted by -created_at — zero DB hit
         offer = next(iter(obj.offers.all()), None)
         if not offer:
             return None
-        label = offer.title
-        if offer.discount_pct:
-            label += f' · {offer.discount_pct}% off'
-        return label
+        return _offer_label(offer)
+
+    @extend_schema_field(serializers.ListField(child=serializers.CharField()))
+    def get_active_offer_labels(self, obj):
+        labels = []
+        for offer in obj.offers.all():
+            if len(labels) >= 5:
+                break
+            labels.append(_offer_label(offer))
+        return labels
 
     @extend_schema_field(serializers.CharField())
     def get_open_status_label(self, obj):
@@ -156,6 +215,8 @@ class StoreListSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.ListField(child=serializers.CharField()))
     def get_top_subcategories(self, obj):
+        if hasattr(obj, '_top_subcategories'):
+            return obj._top_subcategories
         return list(
             obj.products.filter(status='active', is_visible=True)
             .exclude(subcategory='')
@@ -169,8 +230,8 @@ class StoreReviewSerializer(serializers.ModelSerializer):
 
     class Meta:
         model  = StoreReview
-        fields = ['id', 'user_phone', 'rating', 'comment', 'vendor_reply', 'vendor_reply_at', 'created_at']
-        read_only_fields = ['id', 'user_phone', 'vendor_reply', 'vendor_reply_at', 'created_at']
+        fields = ['id', 'user_phone', 'rating', 'comment', 'is_verified', 'vendor_reply', 'vendor_reply_at', 'created_at']
+        read_only_fields = ['id', 'user_phone', 'is_verified', 'vendor_reply', 'vendor_reply_at', 'created_at']
 
     def validate_rating(self, value):
         if not 1 <= value <= 5:
@@ -184,7 +245,7 @@ class StoreReviewListSerializer(serializers.ModelSerializer):
 
     class Meta:
         model  = StoreReview
-        fields = ['id', 'user_name', 'rating', 'comment', 'vendor_reply', 'vendor_reply_at', 'created_at']
+        fields = ['id', 'user_name', 'rating', 'comment', 'is_verified', 'vendor_reply', 'vendor_reply_at', 'created_at']
 
     @extend_schema_field(serializers.CharField())
     def get_user_name(self, obj):
@@ -203,7 +264,12 @@ class VendorReplySerializer(serializers.Serializer):
 class StoreOfferSerializer(serializers.ModelSerializer):
     class Meta:
         model  = StoreOffer
-        fields = ['id', 'title', 'description', 'discount_pct', 'valid_till', 'image_url', 'is_active', 'created_at']
+        fields = [
+            'id', 'title', 'description',
+            'discount_type', 'discount_value',
+            'discount_pct',
+            'valid_till', 'image_url', 'is_active', 'created_at',
+        ]
         read_only_fields = ['id', 'created_at']
 
 
@@ -221,14 +287,22 @@ class StoreMobileDetailSerializer(serializers.ModelSerializer):
     todays_hours     = serializers.SerializerMethodField()
     closes_at        = serializers.SerializerMethodField()
     next_open        = serializers.SerializerMethodField()
+    weekly_hours     = StoreHoursSerializer(source='hours', many=True, read_only=True)
+    live_is_open     = serializers.SerializerMethodField()
+    photos           = serializers.SerializerMethodField()
 
     class Meta:
         model  = Store
         fields = [
-            'id', 'name', 'avatar', 'cover_image', 'category',
+            'id', 'name', 'description', 'phone', 'address',
+            'avatar', 'cover_image', 'logo_url', 'banner_url', 'qr_code_url',
+            'category', 'store_type', 'vendor_type', 'is_home_based',
             'location', 'distance_km',
-            'is_open', 'open_status_label', 'todays_hours', 'closes_at', 'next_open',
+            'is_open', 'live_is_open', 'is_verified', 'is_women_owned', 'privacy_mode', 'holiday_mode',
+            'open_status_label', 'todays_hours', 'closes_at', 'next_open',
+            'weekly_hours',
             'rating', 'review_count', 'follower_count', 'is_followed',
+            'photos',
         ]
 
     @extend_schema_field(serializers.FloatField(allow_null=True))
@@ -289,9 +363,130 @@ class StoreMobileDetailSerializer(serializers.ModelSerializer):
     def get_next_open(self, obj):
         return None
 
+    @extend_schema_field(serializers.BooleanField())
+    def get_live_is_open(self, obj):
+        """Compute open status from StoreHours + current IST time; falls back to is_open."""
+        if obj.holiday_mode:
+            return False
+        try:
+            from datetime import datetime
+            import pytz
+            ist = pytz.timezone('Asia/Kolkata')
+            now = datetime.now(ist)
+            current_time = now.time()
+            day = now.weekday()
+            hours = next((h for h in obj.hours.all() if h.day == day and not h.is_closed), None)
+            if hours:
+                return hours.open_time <= current_time <= hours.close_time
+        except Exception:
+            pass
+        return obj.is_open
+
+    @extend_schema_field(serializers.ListField(child=serializers.DictField()))
+    def get_photos(self, obj):
+        return [{'id': str(p.id), 'image_url': p.image_url, 'caption': p.caption} for p in obj.photos.all()[:12]]
+
+
+class StorePhotoSerializer(serializers.ModelSerializer):
+    class Meta:
+        model  = StorePhoto
+        fields = ['id', 'image_url', 'caption', 'order']
+        read_only_fields = ['id']
+
+
+class StoreQuestionSerializer(serializers.ModelSerializer):
+    user_name = serializers.CharField(source='user.full_name', read_only=True, default='Customer')
+
+    class Meta:
+        model  = StoreQuestion
+        fields = ['id', 'question', 'answer', 'answered_at', 'user_name', 'created_at']
+        read_only_fields = ['id', 'answer', 'answered_at', 'user_name', 'created_at']
+
 
 class InvoiceSerializer(serializers.ModelSerializer):
+    gst_amount = serializers.SerializerMethodField()
+
+    def get_gst_amount(self, obj):
+        from decimal import Decimal
+        if obj.gst_rate and obj.gst_rate > 0:
+            return round(float(obj.total) * float(obj.gst_rate) / 100, 2)
+        return 0.0
+
     class Meta:
         model  = Invoice
-        fields = ['id', 'customer_name', 'customer_phone', 'items', 'notes', 'total', 'is_sent', 'created_at']
-        read_only_fields = ['id', 'total', 'created_at']
+        fields = [
+            'id', 'customer_name', 'customer_phone', 'customer_ns_code',
+            'items', 'notes', 'total', 'is_sent', 'created_at',
+            'discount_type', 'discount_value',
+            'gstin', 'gst_rate', 'gst_amount',
+        ]
+        read_only_fields = ['id', 'total', 'created_at', 'is_sent', 'gst_amount']
+
+
+class CustomerInvoiceSerializer(serializers.ModelSerializer):
+    """Invoice as seen by the customer — includes store info for the Purchase History screen."""
+    store_id    = serializers.UUIDField(source='store.id', read_only=True)
+    store_name  = serializers.CharField(source='store.name', read_only=True)
+    store_logo  = serializers.URLField(source='store.logo_url', read_only=True)
+    store_address = serializers.CharField(source='store.address', read_only=True)
+    store_phone = serializers.CharField(source='store.phone', read_only=True)
+    gst_amount  = serializers.SerializerMethodField()
+
+    def get_gst_amount(self, obj):
+        if obj.gst_rate and obj.gst_rate > 0:
+            return round(float(obj.total) * float(obj.gst_rate) / 100, 2)
+        return 0.0
+
+    class Meta:
+        model  = Invoice
+        fields = [
+            'id', 'store_id', 'store_name', 'store_logo', 'store_address', 'store_phone',
+            'customer_name', 'customer_phone', 'customer_ns_code',
+            'items', 'notes', 'total',
+            'discount_type', 'discount_value',
+            'gstin', 'gst_rate', 'gst_amount',
+            'is_sent', 'created_at',
+        ]
+        read_only_fields = fields
+
+
+class StoreFollowerSerializer(serializers.Serializer):
+    full_name  = serializers.SerializerMethodField()
+    profile_id = serializers.SerializerMethodField()
+
+    def get_full_name(self, obj):
+        return obj.user.full_name or 'NearKart User'
+
+    def get_profile_id(self, obj):
+        return obj.user.profile_id or ''
+
+
+class StaffMemberSerializer(serializers.ModelSerializer):
+    name       = serializers.SerializerMethodField()
+    phone      = serializers.SerializerMethodField()
+    profile_id = serializers.SerializerMethodField()
+
+    class Meta:
+        model  = StaffMember
+        fields = ['id', 'name', 'phone', 'profile_id', 'role', 'is_active', 'created_at']
+        read_only_fields = ['id', 'name', 'phone', 'profile_id', 'created_at']
+
+    def get_name(self, obj):
+        return obj.user.full_name or ''
+
+    def get_phone(self, obj):
+        return obj.user.phone_number
+
+    def get_profile_id(self, obj):
+        return obj.user.profile_id
+
+
+class ServiceCatalogueSerializer(serializers.ModelSerializer):
+    class Meta:
+        model  = ServiceCatalogue
+        fields = [
+            'id', 'store', 'name', 'slug', 'description',
+            'price_from', 'price_to', 'duration_minutes',
+            'is_active', 'image_url', 'sort_order',
+        ]
+        read_only_fields = ['id', 'slug', 'store']

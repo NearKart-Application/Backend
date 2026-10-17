@@ -22,11 +22,13 @@ class GroupMemberRole(models.TextChoices):
 
 
 class Group(BaseModel):
-    name        = models.CharField(max_length=200)
-    group_type  = models.CharField(max_length=10, choices=GroupType.choices, default=GroupType.CUSTOMER, db_index=True)
-    created_by  = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='created_groups')
-    store       = models.ForeignKey(Store, on_delete=models.CASCADE, related_name='vendor_groups', null=True, blank=True)
-    is_active   = models.BooleanField(default=True)
+    name         = models.CharField(max_length=200)
+    group_type   = models.CharField(max_length=10, choices=GroupType.choices, default=GroupType.CUSTOMER, db_index=True)
+    created_by   = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='created_groups')
+    store        = models.ForeignKey(Store, on_delete=models.CASCADE, related_name='vendor_groups', null=True, blank=True)
+    is_active    = models.BooleanField(default=True)
+    avatar_url   = models.URLField(max_length=500, blank=True)
+    invite_token = models.UUIDField(default=None, null=True, blank=True, unique=True, db_index=True)
 
     class Meta:
         db_table = 'groups'
@@ -52,6 +54,22 @@ class GroupMember(BaseModel):
 
     def __str__(self):
         return f'{self.user} in {self.group} ({self.role})'
+
+
+class GroupMessage(BaseModel):
+    group   = models.ForeignKey(Group, on_delete=models.CASCADE, related_name='messages')
+    sender  = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='group_messages')
+    content = models.TextField()
+
+    class Meta:
+        db_table = 'group_messages'
+        ordering = ['created_at']
+        indexes  = [
+            models.Index(fields=['group', 'created_at'], name='grp_msg_group_time_idx'),
+        ]
+
+    def __str__(self):
+        return f'{self.sender.full_name} in {self.group.name}: {self.content[:40]}'
 
 
 class GroupSharedProduct(BaseModel):

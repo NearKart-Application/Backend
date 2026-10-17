@@ -27,10 +27,21 @@ class NotificationListView(APIView):
         responses={200: NotificationSerializer(many=True)},
     )
     def get(self, request):
-        notifications = Notification.objects.filter(
-            recipient=request.user
-        ).order_by('-created_at')[:50]
-        return Response(NotificationSerializer(notifications, many=True).data)
+        try:
+            page      = max(int(request.query_params.get('page', 1)), 1)
+            page_size = min(max(int(request.query_params.get('page_size', 20)), 1), 100)
+        except (TypeError, ValueError):
+            return Response({'error': 'invalid_param', 'message': 'page and page_size must be integers.'}, status=400)
+        qs        = Notification.objects.filter(recipient=request.user).order_by('-created_at')
+        total     = qs.count()
+        offset    = (page - 1) * page_size
+        results   = qs[offset: offset + page_size]
+        return Response({
+            'count':    total,
+            'page':     page,
+            'has_next': offset + page_size < total,
+            'results':  NotificationSerializer(results, many=True).data,
+        })
 
 
 class NotificationUnreadCountView(APIView):
@@ -83,6 +94,24 @@ class NotificationMarkAllReadView(APIView):
         return Response({'marked_read': count})
 
 
+class NotificationDeleteView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        tags=[_TAG],
+        summary='Delete a notification',
+        request=None,
+        responses={204: None},
+    )
+    def delete(self, request, notification_id):
+        try:
+            notif = Notification.objects.get(id=notification_id, recipient=request.user)
+        except Notification.DoesNotExist:
+            return Response({'error': 'not_found', 'message': 'Notification not found.'}, status=404)
+        notif.delete()
+        return Response(status=204)
+
+
 class DeviceTokenRegisterView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -107,3 +136,33 @@ class DeviceTokenRegisterView(APIView):
             },
         )
         return Response({'message': 'Device token registered.'})
+
+
+class NotificationPreferenceView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        tags=[_TAG],
+        summary='Get notification preferences',
+        responses={200: OpenApiTypes.OBJECT},
+    )
+    def get(self, request):
+        from .models import NotificationPreference
+        pref = NotificationPreference.for_user(request.user)
+        return Response(pref.to_dict())
+
+    @extend_schema(
+        tags=[_TAG],
+        summary='Update notification preferences',
+        description='PATCH any subset of: chat, reservations, offers, loyalty, wallet, new_product, general, push_enabled (all booleans).',
+        responses={200: OpenApiTypes.OBJECT},
+    )
+    def patch(self, request):
+        from .models import NotificationPreference
+        pref = NotificationPreference.for_user(request.user)
+        FIELDS = ('chat', 'reservations', 'offers', 'loyalty', 'wallet', 'new_product', 'general', 'push_enabled')
+        for field in FIELDS:
+            if field in request.data:
+                setattr(pref, field, bool(request.data[field]))
+        pref.save(update_fields=[f for f in FIELDS if f in request.data] + ['updated_at'])
+        return Response(pref.to_dict())

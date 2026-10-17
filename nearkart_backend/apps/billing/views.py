@@ -9,13 +9,17 @@ GET  /api/v1/billing/transactions/           → wallet transaction history
 POST /api/v1/billing/payment/initiate/       → create Razorpay order for a plan
 POST /api/v1/billing/payment/verify/         → verify payment + fund wallet + subscribe
 POST /api/v1/billing/payment/webhook/        → Razorpay webhook (payment.captured backup)
+POST /api/v1/billing/wallet/topup/initiate/  → create Razorpay order for wallet top-up
+POST /api/v1/billing/wallet/topup/verify/    → verify payment + credit wallet balance
 """
 import json
 import logging
 from decimal import Decimal, InvalidOperation
 
 from django.conf import settings
+from django.db import models, transaction
 from django.utils import timezone
+from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiExample, OpenApiResponse, extend_schema, inline_serializer
 from rest_framework import serializers as s
 from rest_framework import status
@@ -24,11 +28,12 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from core.logging import log_event
+from core.pagination import StandardOffsetPagination
 from core.permissions import IsVendor
-from .models import Plan, Transaction
+from .models import Coupon, Plan, Transaction, VendorReferral, UserReferralLink
 from .razorpay_service import RazorpayService
 from .serializers import PlanSerializer, SubscriptionSerializer, TransactionSerializer
-from .services import BillingService
+from .services import BillingService, ReferralService
 
 logger = logging.getLogger(__name__)
 _TAG = 'Billing'
@@ -44,8 +49,13 @@ class PlanListView(APIView):
         auth=[],
     )
     def get(self, request):
-        plans = Plan.objects.filter(is_active=True).order_by('price')
-        return Response(PlanSerializer(plans, many=True).data)
+        qs = Plan.objects.filter(is_active=True)
+        # If a store_type query param is passed, filter to matching track + 'both'
+        store_type = request.query_params.get('store_type', '').strip().lower()
+        if store_type in ('product', 'service'):
+            from django.db.models import Q
+            qs = qs.filter(Q(store_track='both') | Q(store_track=store_type))
+        return Response(PlanSerializer(qs.order_by('price'), many=True).data)
 
 
 class WalletView(APIView):
@@ -141,13 +151,12 @@ class SubscribeView(APIView):
         summary='Subscribe to a plan (vendor only)',
         description=(
             'Deducts the plan price from the vendor\'s wallet and activates the subscription.\n\n'
-            '- Free plan costs ₹0 — no wallet balance needed\n'
-            '- Basic plan costs ₹499 — must have ≥ ₹499 in wallet\n'
-            '- Premium plan costs ₹999 — must have ≥ ₹999 in wallet\n\n'
+            '- Basic plan costs ₹299 — must have ≥ ₹299 in wallet\n'
+            '- Premium plan costs ₹499 — must have ≥ ₹499 in wallet\n\n'
             'Subscribing again (renew/upgrade) replaces the current subscription immediately.'
         ),
         request=inline_serializer('SubscribeRequest', fields={
-            'plan_name': s.CharField(help_text='Plan slug: free | basic | premium'),
+            'plan_name': s.CharField(help_text='Plan slug: basic | premium'),
         }),
         responses={
             200: SubscriptionSerializer,
@@ -156,7 +165,6 @@ class SubscribeView(APIView):
         examples=[
             OpenApiExample('Subscribe Basic',   request_only=True, value={'plan_name': 'basic'}),
             OpenApiExample('Subscribe Premium', request_only=True, value={'plan_name': 'premium'}),
-            OpenApiExample('Subscribe Free',    request_only=True, value={'plan_name': 'free'}),
         ],
     )
     def post(self, request):
@@ -171,12 +179,19 @@ class SubscribeView(APIView):
         except Plan.DoesNotExist:
             return Response(
                 {'error': 'not_found',
-                 'message': f'Plan "{plan_name}" not found. Valid plans: free, basic, premium.'},
+                 'message': f'Plan "{plan_name}" not found. Valid plans: basic, premium.'},
                 status=status.HTTP_404_NOT_FOUND,
             )
-        store = request.user.store
+        store       = request.user.store
+        coupon_code = (request.data.get('coupon_code') or '').strip()
+        coupon      = None
+        if coupon_code:
+            coupon, err = BillingService.validate_coupon(coupon_code, plan, store=store)
+            if coupon is None:
+                return Response({'error': 'invalid_coupon', 'message': err}, status=status.HTTP_400_BAD_REQUEST)
+
         try:
-            sub = BillingService.subscribe(store, plan)
+            sub = BillingService.subscribe(store, plan, coupon=coupon)
         except ValueError as e:
             return Response(
                 {'error': 'insufficient_balance', 'message': str(e)},
@@ -184,7 +199,9 @@ class SubscribeView(APIView):
             )
         log_event('billing', action='plan_subscribed', store_id=str(store.id),
                   user_id=str(request.user.id), plan=plan_name,
-                  price=str(plan.price), expires_at=str(sub.expires_at))
+                  price=str(plan.price), coupon=coupon_code or None,
+                  expires_at=str(sub.expires_at))
+        ReferralService.handle_vendor_subscribed(request.user)
         return Response(SubscriptionSerializer(sub).data)
 
 
@@ -226,10 +243,59 @@ class TransactionListView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         txns = BillingService.get_transactions(request.user.store)
-        return Response(TransactionSerializer(txns, many=True).data)
+        paginator = StandardOffsetPagination()
+        page = paginator.paginate_queryset(txns, request)
+        return paginator.get_paginated_response(TransactionSerializer(page, many=True).data)
 
 
 # ── Razorpay Payment Views ─────────────────────────────────────────────────────
+
+
+class CouponValidateView(APIView):
+    permission_classes = [IsAuthenticated, IsVendor]
+
+    @extend_schema(
+        tags=[_TAG],
+        summary='Validate a coupon code for a plan (vendor only)',
+        request=inline_serializer('CouponValidateRequest', fields={
+            'code':      s.CharField(help_text='Coupon code'),
+            'plan_name': s.CharField(help_text='Plan slug: basic | premium'),
+        }),
+        responses={
+            200: OpenApiResponse(
+                response=inline_serializer('CouponValidateResponse', fields={
+                    'valid':            s.BooleanField(),
+                    'discount_percent': s.IntegerField(),
+                    'final_price':      s.CharField(),
+                    'message':          s.CharField(),
+                })
+            ),
+        },
+    )
+    def post(self, request):
+        code      = (request.data.get('code') or '').strip()
+        plan_name = (request.data.get('plan_name') or '').strip().lower()
+
+        if not code or not plan_name:
+            return Response({'error': 'validation_error', 'message': 'code and plan_name are required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            plan = Plan.objects.get(name=plan_name, is_active=True)
+        except Plan.DoesNotExist:
+            return Response({'error': 'not_found', 'message': f'Plan "{plan_name}" not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        store = request.user.store if hasattr(request.user, 'store') else None
+        coupon, err = BillingService.validate_coupon(code, plan, store=store)
+        if coupon is None:
+            return Response({'valid': False, 'discount_percent': 0, 'final_price': str(plan.price), 'message': err})
+
+        final_price = BillingService.apply_discount(plan.price, coupon)
+        return Response({
+            'valid':            True,
+            'discount_percent': coupon.discount_percent,
+            'final_price':      str(final_price),
+            'message':          f'{coupon.discount_percent}% off applied!' + (' Subscription is free!' if final_price == 0 else ''),
+        })
 
 
 class PaymentInitiateView(APIView):
@@ -240,30 +306,35 @@ class PaymentInitiateView(APIView):
         summary='Initiate Razorpay payment for a plan (vendor only)',
         description=(
             'Creates a Razorpay order for the selected plan price.\n\n'
-            'The app uses the returned `order_id` and `razorpay_key_id` to open '
-            'the Razorpay checkout SDK. After payment succeeds call **POST /billing/payment/verify/**.\n\n'
+            'If a coupon_code is provided and reduces price to 0, returns a direct subscription '
+            'instead of a Razorpay order (field `coupon_free: true`).\n\n'
             '**Dev mode:** returns a mock order — no real payment processed.'
         ),
         request=inline_serializer('PaymentInitiateRequest', fields={
-            'plan_name': s.CharField(help_text='Plan slug: basic | premium'),
+            'plan_name':      s.CharField(help_text='Plan slug: basic | premium'),
+            'coupon_code':    s.CharField(required=False, help_text='Optional coupon code'),
+            'wallet_amount':  s.DecimalField(max_digits=10, decimal_places=2, required=False,
+                                             help_text='Wallet amount to use (max 15% of plan price)'),
         }),
         responses={
             200: OpenApiResponse(
                 response=inline_serializer('PaymentInitiateResponse', fields={
-                    'order_id':       s.CharField(),
-                    'amount':         s.IntegerField(help_text='Amount in paise (₹×100)'),
-                    'currency':       s.CharField(),
-                    'plan_name':      s.CharField(),
-                    'receipt':        s.CharField(),
-                    'razorpay_key_id': s.CharField(),
+                    'order_id':           s.CharField(),
+                    'amount':             s.IntegerField(help_text='Amount in paise (₹×100)'),
+                    'currency':           s.CharField(),
+                    'plan_name':          s.CharField(),
+                    'receipt':            s.CharField(),
+                    'razorpay_key_id':    s.CharField(),
+                    'coupon_free':        s.BooleanField(),
+                    'original_price':     s.CharField(),
+                    'coupon_discount':    s.CharField(),
+                    'wallet_discount':    s.CharField(),
+                    'wallet_max_usable':  s.CharField(),
+                    'final_price':        s.CharField(),
                 })
             ),
-            400: OpenApiResponse(description='Free plan or invalid plan name'),
+            400: OpenApiResponse(description='Invalid plan or coupon'),
         },
-        examples=[
-            OpenApiExample('Initiate Basic',   request_only=True, value={'plan_name': 'basic'}),
-            OpenApiExample('Initiate Premium', request_only=True, value={'plan_name': 'premium'}),
-        ],
     )
     def post(self, request):
         if not hasattr(request.user, 'store'):
@@ -271,34 +342,64 @@ class PaymentInitiateView(APIView):
                 {'error': 'no_store', 'message': 'You do not have a store yet.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        plan_name = (request.data.get('plan_name') or '').strip().lower()
+        plan_name      = (request.data.get('plan_name')   or '').strip().lower()
+        coupon_code    = (request.data.get('coupon_code') or '').strip()
+        wallet_raw     = request.data.get('wallet_amount', '0') or '0'
+
         try:
             plan = Plan.objects.get(name=plan_name, is_active=True)
         except Plan.DoesNotExist:
-            return Response(
-                {'error': 'not_found', 'message': f'Plan "{plan_name}" not found. Valid paid plans: basic, premium.'},
-                status=status.HTTP_404_NOT_FOUND,
-            )
-        if plan.price <= 0:
-            return Response(
-                {'error': 'validation_error', 'message': 'Free plan requires no payment. Use POST /billing/subscribe/ directly.'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            return Response({'error': 'not_found', 'message': f'Plan "{plan_name}" not found.'}, status=status.HTTP_404_NOT_FOUND)
 
-        store = request.user.store
+        store  = request.user.store
+        coupon = None
+        if coupon_code:
+            coupon, err = BillingService.validate_coupon(coupon_code, plan, store=store)
+            if coupon is None:
+                return Response({'error': 'invalid_coupon', 'message': err}, status=status.HTTP_400_BAD_REQUEST)
+
+        after_coupon    = BillingService.apply_discount(plan.price, coupon)
+        coupon_discount = plan.price - after_coupon
+
+        # Clamp wallet_amount to 15% cap and available balance
+        max_wallet = BillingService.calc_wallet_max(plan.price)
+        try:
+            wallet_requested = Decimal(str(wallet_raw)).quantize(Decimal('0.01'))
+        except Exception:
+            wallet_requested = Decimal('0')
+        wallet_discount = max(Decimal('0'), min(wallet_requested, max_wallet, store.wallet_balance))
+
+        final_price = max(after_coupon - wallet_discount, Decimal('0'))
+
+        summary = {
+            'original_price':    str(plan.price),
+            'coupon_discount':   str(coupon_discount),
+            'wallet_discount':   str(wallet_discount),
+            'wallet_max_usable': str(max_wallet),
+            'final_price':       str(final_price),
+        }
+
+        if final_price == 0:
+            sub = BillingService.subscribe(store, plan, coupon=coupon, wallet_discount=wallet_discount)
+            return Response({'coupon_free': True, 'plan_name': plan_name,
+                             'subscription': SubscriptionSerializer(sub).data, **summary})
+
         receipt = f'store_{str(store.id)[:8]}_{plan_name}_{int(timezone.now().timestamp())}'
-        order = RazorpayService.create_order(
-            amount_inr=plan.price,
+        order   = RazorpayService.create_order(
+            amount_inr=final_price,
             receipt=receipt,
-            notes={'store_id': str(store.id), 'plan': plan_name},
+            notes={'store_id': str(store.id), 'plan': plan_name,
+                   'coupon': coupon_code or '', 'wallet': str(wallet_discount)},
         )
         return Response({
+            'coupon_free':     False,
             'order_id':        order['id'],
             'amount':          order['amount'],
             'currency':        order['currency'],
             'plan_name':       plan_name,
             'receipt':         receipt,
             'razorpay_key_id': settings.RAZORPAY_KEY_ID,
+            **summary,
         })
 
 
@@ -319,6 +420,8 @@ class PaymentVerifyView(APIView):
             'razorpay_payment_id': s.CharField(),
             'razorpay_signature':  s.CharField(),
             'plan_name':           s.CharField(help_text='Must match the plan from initiate step'),
+            'coupon_code':         s.CharField(required=False),
+            'wallet_amount':       s.DecimalField(max_digits=10, decimal_places=2, required=False),
         }),
         responses={
             200: SubscriptionSerializer,
@@ -369,20 +472,95 @@ class PaymentVerifyView(APIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        store = request.user.store
-        # Credit wallet then subscribe (topup creates the transaction record with Razorpay payment_id)
-        BillingService.topup(store, plan.price, reference_id=payment_id)
-        store.refresh_from_db(fields=['wallet_balance'])
+        store       = request.user.store
+        coupon_code = (request.data.get('coupon_code') or '').strip()
+        wallet_raw  = request.data.get('wallet_amount', '0') or '0'
+
+        # Re-validate coupon server-side (never trust client)
+        coupon = None
+        if coupon_code:
+            coupon, err = BillingService.validate_coupon(coupon_code, plan, store=store)
+            if coupon is None:
+                logger.warning('verify: invalid coupon %s for store %s', coupon_code, store.id)
+
+        # Clamp wallet amount server-side
         try:
-            sub = BillingService.subscribe(store, plan)
-        except ValueError as e:
+            wallet_discount = Decimal(str(wallet_raw)).quantize(Decimal('0.01'))
+        except Exception:
+            wallet_discount = Decimal('0')
+        wallet_discount = max(Decimal('0'), min(wallet_discount,
+                                                BillingService.calc_wallet_max(plan.price),
+                                                store.wallet_balance))
+
+        sub = BillingService.subscribe(
+            store, plan,
+            coupon=coupon,
+            wallet_discount=wallet_discount,
+            razorpay_payment_id=payment_id,
+        )
+
+        logger.info('Payment verified: store=%s plan=%s payment_id=%s wallet=%s coupon=%s',
+                    store.id, plan_name, payment_id, wallet_discount, coupon_code or None)
+        ReferralService.handle_vendor_subscribed(request.user)
+        return Response(SubscriptionSerializer(sub).data)
+
+
+class MyCouponsView(APIView):
+    """GET /billing/my-coupons/ — active vendor-specific coupons for the logged-in vendor."""
+    permission_classes = [IsAuthenticated, IsVendor]
+
+    @extend_schema(
+        tags=[_TAG],
+        summary='Get active vendor-specific coupons (vendor only)',
+        description='Returns coupons that are targeted specifically to this vendor\'s store and are still usable.',
+        responses={200: OpenApiResponse(
+            response=inline_serializer('MyCouponItem', fields={
+                'code':             s.CharField(),
+                'discount_percent': s.IntegerField(),
+                'plan_name':        s.CharField(),
+                'plan_display':     s.CharField(),
+                'expires_at':       s.DateTimeField(allow_null=True),
+            }, many=True)
+        )},
+    )
+    def get(self, request):
+        if not hasattr(request.user, 'store'):
             return Response(
-                {'error': 'subscription_failed', 'message': str(e)},
+                {'error': 'no_store', 'message': 'You do not have a store yet.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        store = request.user.store
+        now   = timezone.now()
+        coupons = Coupon.objects.filter(
+            target_store=store,
+            is_active=True,
+        ).filter(
+            models.Q(expires_at__isnull=True) | models.Q(expires_at__gt=now)
+        ).filter(
+            models.Q(max_uses=0) | models.Q(used_count__lt=models.F('max_uses'))
+        ).prefetch_related('applicable_plans')
 
-        logger.info('Payment verified: store=%s plan=%s payment_id=%s', store.id, plan_name, payment_id)
-        return Response(SubscriptionSerializer(sub).data)
+        result = []
+        for c in coupons:
+            plans = list(c.applicable_plans.values('name', 'display_name'))
+            if plans:
+                for p in plans:
+                    result.append({
+                        'code':             c.code,
+                        'discount_percent': c.discount_percent,
+                        'plan_name':        p['name'],
+                        'plan_display':     p['display_name'],
+                        'expires_at':       c.expires_at,
+                    })
+            else:
+                result.append({
+                    'code':             c.code,
+                    'discount_percent': c.discount_percent,
+                    'plan_name':        '',
+                    'plan_display':     'All Plans',
+                    'expires_at':       c.expires_at,
+                })
+        return Response(result)
 
 
 class PaymentWebhookView(APIView):
@@ -447,12 +625,250 @@ class PaymentWebhookView(APIView):
                     from apps.stores.models import Store
                     store = Store.objects.get(id=store_id)
                     plan  = Plan.objects.get(name=plan_name, is_active=True)
-                    BillingService.topup(store, plan.price, reference_id=payment_id)
-                    store.refresh_from_db(fields=['wallet_balance'])
-                    BillingService.subscribe(store, plan)
+                    with transaction.atomic():
+                        BillingService.subscribe(store, plan, razorpay_payment_id=payment_id)
                     logger.info('Razorpay webhook: activated %s for store %s', plan_name, store_id)
                 except Exception as exc:
                     logger.exception('Razorpay webhook: failed to activate plan — %s', exc)
                     return Response({'error': 'processing_failed'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         return Response({'status': 'ok'})
+
+
+class VendorReferralView(APIView):
+    """GET /billing/referral/ — vendor's referral code + earnings stats."""
+    permission_classes = [IsAuthenticated, IsVendor]
+
+    def get(self, request):
+        if not hasattr(request.user, 'store'):
+            return Response(
+                {'error': 'no_store', 'message': 'You do not have a store yet.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        store = request.user.store
+        ref   = ReferralService.get_or_create_code(store)
+
+        from django.db.models import Sum
+        # Count all who used the code (pending + rewarded)
+        all_links      = UserReferralLink.objects.filter(referrer_store=store)
+        total_referred = all_links.count()
+        vendor_count   = all_links.filter(reward_type=UserReferralLink.REWARD_VENDOR).count()
+        customer_count = all_links.filter(reward_type=UserReferralLink.REWARD_CUSTOMER).count()
+
+        # Earnings only from paid-out rewards
+        earnings     = VendorReferral.objects.filter(referrer_store=store)
+        total_earned = earnings.aggregate(total=Sum('reward_amount'))['total'] or Decimal('0')
+
+        city   = getattr(request.user, 'location_city', '') or ''
+        config = ReferralService.get_config(city)
+
+        recent = [
+            {
+                'id':            str(r.id),
+                'reward_type':   r.reward_type,
+                'reward_amount': str(r.reward_amount),
+                'referred_user': (r.referred_user.full_name or str(r.referred_user.phone_number)) if r.referred_user else None,
+                'created_at':    r.created_at.isoformat(),
+            }
+            for r in earnings.select_related('referred_user').order_by('-created_at')[:10]
+        ]
+
+        return Response({
+            'code':              ref.code,
+            'total_referred':    total_referred,
+            'vendor_referred':   vendor_count,
+            'customer_referred': customer_count,
+            'total_earned':      str(total_earned),
+            'vendor_reward':     str(config.vendor_reward),
+            'customer_reward':   str(config.customer_reward),
+            'recent_rewards':    recent,
+        })
+
+
+class SubscriptionRefundRequestView(APIView):
+    """POST /billing/subscription/refund/ — vendor requests a refund for their current plan."""
+    permission_classes = [IsAuthenticated, IsVendor]
+
+    @extend_schema(
+        tags=[_TAG],
+        summary='Request subscription refund',
+        description='Creates a refund request. Admin reviews and processes manually.',
+        responses={201: OpenApiTypes.OBJECT},
+    )
+    def post(self, request):
+        try:
+            store = request.user.store
+        except Exception:
+            return Response({'error': 'no_store'}, status=400)
+
+        reason = (request.data.get('reason') or '').strip()
+        if not reason:
+            return Response({'error': 'reason_required', 'message': 'Please provide a reason for the refund.'}, status=400)
+
+        sub = BillingService.get_subscription(store)
+        if not sub or not sub.is_active:
+            return Response({'error': 'no_active_subscription', 'message': 'No active subscription to refund.'}, status=400)
+
+        # Log the refund request as an admin activity note
+        from apps.admin_panel.models import AdminActivityLog
+        AdminActivityLog.objects.create(
+            admin=request.user,
+            action='subscription_refund_request',
+            target_type='store',
+            target_id=str(store.id),
+            notes=f'Refund requested: {reason}',
+        )
+
+        return Response({
+            'message': 'Refund request submitted. Our team will review within 2–3 business days.',
+            'plan':    sub.plan.display_name if hasattr(sub, 'plan') else '',
+        }, status=201)
+
+
+class SubscriptionInvoiceView(APIView):
+    """GET /billing/subscription/invoice/ — download latest subscription invoice."""
+    permission_classes = [IsAuthenticated, IsVendor]
+
+    @extend_schema(tags=[_TAG], summary='Get subscription invoice', responses={200: OpenApiTypes.OBJECT})
+    def get(self, request):
+        try:
+            store = request.user.store
+        except Exception:
+            return Response({'error': 'no_store'}, status=400)
+
+        sub  = BillingService.get_subscription(store)
+        plan = BillingService.get_active_plan(store)
+        if not sub or not plan:
+            return Response({'error': 'no_subscription', 'message': 'No active subscription found.'}, status=404)
+
+        # Latest billing transaction
+        txn = Transaction.objects.filter(store=store, transaction_type='subscription').order_by('-created_at').first()
+
+        return Response({
+            'invoice_number': f'NS-{str(sub.id)[:8].upper()}',
+            'store_name':     store.name,
+            'plan':           plan.display_name,
+            'amount':         str(txn.amount) if txn else str(plan.price),
+            'currency':       'INR',
+            'gst_rate':       18,
+            'gst_amount':     str(round(float(txn.amount if txn else plan.price) * 0.18, 2)),
+            'started_at':     sub.started_at.isoformat() if hasattr(sub, 'started_at') else '',
+            'expires_at':     sub.expires_at.isoformat() if sub.expires_at else '',
+            'generated_at':   timezone.now().isoformat(),
+        })
+
+
+# ── Wallet Top-up via Razorpay ─────────────────────────────────────────────────
+
+_TOPUP_MIN = Decimal('100')
+_TOPUP_MAX = Decimal('10000')
+
+
+class WalletTopupInitiateView(APIView):
+    permission_classes = [IsAuthenticated, IsVendor]
+
+    @extend_schema(
+        tags=[_TAG],
+        summary='Initiate Razorpay order for wallet top-up (vendor only)',
+        request=inline_serializer('WalletTopupInitiateRequest', fields={
+            'amount': s.DecimalField(max_digits=10, decimal_places=2,
+                                     help_text='Amount to add in ₹ (100–10000)'),
+        }),
+        responses={
+            200: OpenApiResponse(
+                response=inline_serializer('WalletTopupInitiateResponse', fields={
+                    'order_id':        s.CharField(),
+                    'amount':          s.IntegerField(help_text='Amount in paise'),
+                    'currency':        s.CharField(),
+                    'razorpay_key_id': s.CharField(),
+                })
+            ),
+            400: OpenApiResponse(description='Invalid amount'),
+        },
+    )
+    def post(self, request):
+        if not hasattr(request.user, 'store'):
+            return Response({'error': 'no_store', 'message': 'You do not have a store yet.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        try:
+            amount = Decimal(str(request.data.get('amount', ''))).quantize(Decimal('0.01'))
+            if amount < _TOPUP_MIN or amount > _TOPUP_MAX:
+                raise ValueError()
+        except (InvalidOperation, ValueError):
+            return Response(
+                {'error': 'validation_error',
+                 'message': f'amount must be between ₹{_TOPUP_MIN} and ₹{_TOPUP_MAX}.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        store = request.user.store
+        receipt = f'topup_{str(store.id)[:8]}_{int(timezone.now().timestamp())}'
+        order = RazorpayService.create_order(
+            amount_inr=amount,
+            receipt=receipt,
+            notes={'store_id': str(store.id), 'purpose': 'wallet_topup', 'amount': str(amount)},
+        )
+        return Response({
+            'order_id':        order['id'],
+            'amount':          order['amount'],
+            'currency':        order['currency'],
+            'razorpay_key_id': settings.RAZORPAY_KEY_ID,
+        })
+
+
+class WalletTopupVerifyView(APIView):
+    permission_classes = [IsAuthenticated, IsVendor]
+
+    @extend_schema(
+        tags=[_TAG],
+        summary='Verify Razorpay payment and credit wallet (vendor only)',
+        request=inline_serializer('WalletTopupVerifyRequest', fields={
+            'razorpay_order_id':   s.CharField(),
+            'razorpay_payment_id': s.CharField(),
+            'razorpay_signature':  s.CharField(),
+            'amount':              s.DecimalField(max_digits=10, decimal_places=2),
+        }),
+        responses={
+            200: OpenApiResponse(
+                response=inline_serializer('WalletTopupVerifyResponse', fields={
+                    'message':        s.CharField(),
+                    'amount_added':   s.CharField(),
+                    'wallet_balance': s.CharField(),
+                    'transaction_id': s.UUIDField(),
+                })
+            ),
+            400: OpenApiResponse(description='Invalid signature or amount'),
+        },
+    )
+    def post(self, request):
+        if not hasattr(request.user, 'store'):
+            return Response({'error': 'no_store', 'message': 'You do not have a store yet.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        order_id   = request.data.get('razorpay_order_id', '')
+        payment_id = request.data.get('razorpay_payment_id', '')
+        signature  = request.data.get('razorpay_signature', '')
+
+        if not RazorpayService.verify_payment_signature(order_id, payment_id, signature):
+            return Response({'error': 'invalid_signature', 'message': 'Payment verification failed.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            amount = Decimal(str(request.data.get('amount', ''))).quantize(Decimal('0.01'))
+            if amount < _TOPUP_MIN or amount > _TOPUP_MAX:
+                raise ValueError()
+        except (InvalidOperation, ValueError):
+            return Response({'error': 'validation_error', 'message': 'Invalid amount.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        store = request.user.store
+        with transaction.atomic():
+            txn = BillingService.topup(store, amount, reference_id=payment_id)
+        log_event('billing', action='wallet_topup_razorpay', store_id=str(store.id),
+                  user_id=str(request.user.id), amount=str(amount),
+                  payment_id=payment_id, new_balance=str(store.wallet_balance))
+        return Response({
+            'message':        f'₹{amount} added to wallet.',
+            'amount_added':   str(amount),
+            'wallet_balance': str(store.wallet_balance),
+            'transaction_id': txn.id,
+        })

@@ -40,14 +40,18 @@ class RazorpayService:
                 'status':   'created',
             }
 
-        import razorpay
-        client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
-        return client.order.create({
-            'amount':   amount_paise,
-            'currency': 'INR',
-            'receipt':  receipt,
-            'notes':    notes or {},
-        })
+        try:
+            import razorpay
+            client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
+            return client.order.create({
+                'amount':   amount_paise,
+                'currency': 'INR',
+                'receipt':  receipt,
+                'notes':    notes or {},
+            })
+        except Exception as e:
+            logger.error(f'Razorpay create_order failed for receipt={receipt}: {e}')
+            raise
 
     @staticmethod
     def verify_payment_signature(order_id: str, payment_id: str, signature: str) -> bool:
@@ -59,13 +63,17 @@ class RazorpayService:
             logger.info(f'[Razorpay-DEV] verify_payment order={order_id} payment={payment_id}')
             return True
 
-        msg = f'{order_id}|{payment_id}'.encode()
-        expected = hmac.new(
-            settings.RAZORPAY_KEY_SECRET.encode(),
-            msg,
-            hashlib.sha256,
-        ).hexdigest()
-        return hmac.compare_digest(expected, signature)
+        try:
+            msg = f'{order_id}|{payment_id}'.encode()
+            expected = hmac.new(
+                settings.RAZORPAY_KEY_SECRET.encode(),
+                msg,
+                hashlib.sha256,
+            ).hexdigest()
+            return hmac.compare_digest(expected, signature)
+        except Exception as e:
+            logger.error(f'Razorpay signature verification failed: {e}')
+            return False
 
     @staticmethod
     def verify_webhook_signature(body: bytes, signature: str) -> bool:
@@ -76,9 +84,13 @@ class RazorpayService:
         if _is_dev():
             return True
 
-        expected = hmac.new(
-            settings.RAZORPAY_WEBHOOK_SECRET.encode(),
-            body,
-            hashlib.sha256,
-        ).hexdigest()
-        return hmac.compare_digest(expected, signature)
+        try:
+            expected = hmac.new(
+                settings.RAZORPAY_WEBHOOK_SECRET.encode(),
+                body,
+                hashlib.sha256,
+            ).hexdigest()
+            return hmac.compare_digest(expected, signature)
+        except Exception as e:
+            logger.error(f'Razorpay webhook signature verification failed: {e}')
+            return False

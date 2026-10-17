@@ -48,7 +48,7 @@ class NotificationService:
             vendor, NotificationType.RESERVATION_CREATED,
             title='New Reservation',
             body=f'{customer_name} reserved {product_name}.',
-            data={'reservation_id': reservation_id},
+            data={'reservation_id': reservation_id, 'notification_type': 'reservation', 'type': 'reservation'},
         )
 
     @staticmethod
@@ -57,7 +57,7 @@ class NotificationService:
             customer, NotificationType.RESERVATION_CONFIRMED,
             title='Reservation Confirmed',
             body=f'Your reservation at {store_name} has been confirmed.',
-            data={'reservation_id': reservation_id},
+            data={'reservation_id': reservation_id, 'notification_type': 'reservation', 'type': 'reservation'},
         )
 
     @staticmethod
@@ -66,7 +66,7 @@ class NotificationService:
             customer, NotificationType.RESERVATION_CANCELLED,
             title='Reservation Cancelled',
             body=f'Your reservation at {store_name} has been cancelled.',
-            data={'reservation_id': reservation_id},
+            data={'reservation_id': reservation_id, 'notification_type': 'reservation', 'type': 'reservation'},
         )
 
     @staticmethod
@@ -75,7 +75,19 @@ class NotificationService:
             customer, NotificationType.RESERVATION_EXPIRED,
             title='Reservation Expired',
             body=f'Your hold at {store_name} has expired.',
-            data={'reservation_id': reservation_id},
+            data={'reservation_id': reservation_id, 'notification_type': 'reservation', 'type': 'reservation'},
+        )
+
+    @staticmethod
+    def notify_reservation_expiring_soon(
+        customer, store_name: str, reservation_id: str, product_name: str,
+        time_label: str = 'tomorrow', time_body: str = '~24 hours',
+    ):
+        NotificationService.send(
+            customer, NotificationType.RESERVATION_EXPIRING_SOON,
+            title=f'Hold expiring {time_label}',
+            body=f'Your hold on {product_name} at {store_name} expires in {time_body}.',
+            data={'reservation_id': reservation_id, 'notification_type': 'reservation', 'type': 'reservation'},
         )
 
     @staticmethod
@@ -84,14 +96,6 @@ class NotificationService:
             vendor, NotificationType.NEW_FOLLOWER,
             title='New Follower',
             body=f'{follower_name} is now following your store.',
-        )
-
-    @staticmethod
-    def notify_new_review(vendor, reviewer_name: str, rating: int, store_name: str):
-        NotificationService.send(
-            vendor, NotificationType.NEW_REVIEW,
-            title='New Review',
-            body=f'{reviewer_name} rated {store_name} {rating}/5.',
         )
 
     @staticmethod
@@ -209,6 +213,15 @@ class NotificationService:
         )
 
     @staticmethod
+    def notify_invoice_received(customer, store_name: str, invoice_id: str, total: str):
+        NotificationService.send(
+            customer, NotificationType.INVOICE_RECEIVED,
+            title=f'Invoice from {store_name}',
+            body=f'You received an invoice for ₹{total}.',
+            data={'invoice_id': invoice_id},
+        )
+
+    @staticmethod
     def notify_new_review(vendor, store_name: str, rating: int, store_id: str):
         stars = '★' * rating + '☆' * (5 - rating)
         NotificationService.send(
@@ -216,6 +229,78 @@ class NotificationService:
             title=f'New Review — {store_name}',
             body=f'A customer left a {stars} review for your store.',
             data={'store_id': store_id},
+        )
+
+    @staticmethod
+    def notify_reservation_completed(customer, store_name: str, reservation_id: str, product_name: str):
+        NotificationService.send(
+            customer, NotificationType.RESERVATION_COMPLETED,
+            title='Pickup Marked Complete',
+            body=f'{store_name} marked your reservation of {product_name} as completed. Thanks for visiting!',
+            data={'reservation_id': reservation_id, 'notification_type': 'reservation', 'type': 'reservation'},
+        )
+
+    @staticmethod
+    def notify_back_in_stock(customer, product_name: str, store_name: str, product_id: str):
+        NotificationService.send(
+            customer, NotificationType.BACK_IN_STOCK,
+            title=f'{product_name} is back in stock!',
+            body=f'{product_name} at {store_name} is available again. Reserve before it runs out.',
+            data={'product_id': product_id, 'notification_type': 'back_in_stock'},
+        )
+
+    @staticmethod
+    def notify_price_drop(customer, product_name: str, product_id: str, old_price: str, new_price: str):
+        NotificationService.send(
+            customer, NotificationType.PRICE_DROP_ALERT,
+            title=f'Price Drop on {product_name}!',
+            body=f'{product_name} dropped from ₹{old_price} to ₹{new_price}. Tap to grab it now.',
+            data={'product_id': product_id, 'old_price': old_price, 'new_price': new_price},
+        )
+
+    @staticmethod
+    def notify_vendor_reorder_point(variant) -> None:
+        """Fire once when stock hits or crosses below the variant's reorder_point."""
+        from apps.notifications.models import NotificationType
+        vendor = variant.product.store.owner
+        NotificationService.send(
+            recipient=vendor,
+            notification_type=NotificationType.REORDER_POINT,
+            title='Reorder point reached',
+            body=(
+                f'{variant.product.name} — {variant.name} has {variant.stock_quantity} units left. '
+                'Time to reorder from your supplier.'
+            ),
+            data={
+                'notification_type': 'reorder_point',
+                'product_id': str(variant.product_id),
+                'variant_id': str(variant.id),
+                'stock_quantity': str(variant.stock_quantity),
+            },
+        )
+
+    @staticmethod
+    def notify_referral_reward(vendor, amount: str, reward_type: str):
+        type_label = 'vendor signup' if reward_type == 'vendor' else 'customer reservation'
+        NotificationService.send(
+            vendor, NotificationType.REFERRAL_REWARD,
+            title='Referral Reward Earned!',
+            body=f'You earned ₹{amount} for a {type_label} referral. Wallet credited.',
+            data={'amount': amount, 'reward_type': reward_type},
+        )
+
+    @staticmethod
+    def notify_vendor_coupon(vendor, plan_display: str, discount_percent: int, coupon_code: str):
+        """Sent to vendor when admin creates a targeted coupon for their store."""
+        if discount_percent == 100:
+            body = f'Subscribe to {plan_display} for FREE using code {coupon_code}. Tap to activate.'
+        else:
+            body = f'Get {discount_percent}% off on {plan_display}! Use code {coupon_code}. Tap to activate.'
+        NotificationService.send(
+            vendor, NotificationType.VENDOR_COUPON,
+            title='Special Offer Just For You!',
+            body=body,
+            data={'coupon_code': coupon_code, 'action': 'open_billing'},
         )
 
 
@@ -231,7 +316,7 @@ class SMSService:
             from twilio.rest import Client
             client = Client(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN)
             client.messages.create(
-                body=f'Your NearKart OTP is {otp}. Valid for 5 minutes. Do not share.',
+                body=f'Your NearSpot OTP is {otp}. Valid for 5 minutes. Do not share.',
                 from_=settings.TWILIO_FROM_NUMBER,
                 to=phone_number,
             )
@@ -239,4 +324,30 @@ class SMSService:
             return True
         except Exception as e:
             logger.error(f'Failed to send OTP SMS to {phone_number}: {e}')
+            return False
+
+    @staticmethod
+    def send_voice_otp(phone_number: str, otp: str) -> bool:
+        """Delivers OTP via a Twilio voice call with TwiML read-aloud message."""
+        try:
+            from twilio.rest import Client
+            from twilio.twiml.voice_response import VoiceResponse
+            spaced_otp = '  '.join(otp)
+            twiml = VoiceResponse()
+            twiml.say(
+                f'Hello. Your NearSpot verification code is {spaced_otp}. '
+                f'I repeat, {spaced_otp}. Goodbye.',
+                voice='alice',
+                language='en-IN',
+            )
+            client = Client(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN)
+            client.calls.create(
+                twiml=str(twiml),
+                from_=settings.TWILIO_FROM_NUMBER,
+                to=phone_number,
+            )
+            logger.info(f'Voice OTP call placed to {phone_number}')
+            return True
+        except Exception as e:
+            logger.error(f'Failed to place voice OTP call to {phone_number}: {e}')
             return False

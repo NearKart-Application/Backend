@@ -13,3 +13,11 @@ def send_otp_sms(self, phone_number: str, otp: str):
     success = SMSService.send_otp(phone_number, otp)
     if not success:
         raise self.retry(exc=Exception(f'SMS delivery failed for {phone_number}'))
+
+
+@shared_task(bind=True, max_retries=3, default_retry_delay=30)
+def send_otp_voice(self, phone_number: str, otp: str):
+    from apps.notifications.services import SMSService
+    success = SMSService.send_voice_otp(phone_number, otp)
+    if not success:
+        raise self.retry(exc=Exception(f'Voice OTP call failed for {phone_number}'))

@@ -8,11 +8,14 @@ from .models import Reservation, ReservationStatus
 
 
 class ReservationCreateSerializer(serializers.Serializer):
-    store_id        = serializers.UUIDField()
-    product_id      = serializers.UUIDField()
-    quantity        = serializers.IntegerField(min_value=1, max_value=100, default=1)
-    note            = serializers.CharField(max_length=500, allow_blank=True, default='')
+    store_id         = serializers.UUIDField()
+    product_id       = serializers.UUIDField()
+    variant_id       = serializers.UUIDField(required=False, allow_null=True, default=None)
+    quantity         = serializers.IntegerField(min_value=1, max_value=100, default=1)
+    note             = serializers.CharField(max_length=500, allow_blank=True, default='')
     points_to_redeem = serializers.IntegerField(min_value=0, default=0, required=False)
+    hours            = serializers.IntegerField(min_value=1, max_value=3, default=2, required=False)
+    pickup_time      = serializers.DateTimeField(required=False, allow_null=True, default=None)
 
 
 class ReservationStatusUpdateSerializer(serializers.Serializer):
@@ -21,8 +24,14 @@ class ReservationStatusUpdateSerializer(serializers.Serializer):
         ReservationStatus.CANCELLED,
         ReservationStatus.COMPLETED,
     ]
-    status      = serializers.ChoiceField(choices=STATUS_CHOICES)
-    vendor_note = serializers.CharField(max_length=500, allow_blank=True, default='')
+    status                = serializers.ChoiceField(choices=STATUS_CHOICES)
+    vendor_note           = serializers.CharField(max_length=500, allow_blank=True, default='')
+    actual_selling_price  = serializers.DecimalField(max_digits=10, decimal_places=2, required=False, allow_null=True, default=None)
+    payment_method        = serializers.ChoiceField(
+        choices=['', 'cash', 'upi', 'card', 'credit', 'other'],
+        required=False, allow_blank=True, default='',
+    )
+    served_by_id = serializers.UUIDField(required=False, allow_null=True, default=None)
 
 
 class ReservationProductSerializer(serializers.Serializer):
@@ -45,17 +54,30 @@ class ReservationCustomerSerializer(serializers.Serializer):
 
 
 class ReservationSerializer(serializers.ModelSerializer):
-    product  = ReservationProductSerializer(read_only=True)
-    store    = ReservationStoreSerializer(read_only=True)
-    customer = ReservationCustomerSerializer(read_only=True)
-    hours_left = serializers.FloatField(read_only=True)
+    product        = ReservationProductSerializer(read_only=True)
+    store          = ReservationStoreSerializer(read_only=True)
+    customer       = ReservationCustomerSerializer(read_only=True)
+    hours_left     = serializers.FloatField(read_only=True)
+    variant_id     = serializers.UUIDField(source='variant.id',   read_only=True, allow_null=True)
+    variant_name   = serializers.CharField(source='variant.name', read_only=True, allow_null=True)
+    served_by_id   = serializers.UUIDField(source='served_by.id', read_only=True, allow_null=True)
+    served_by_name = serializers.SerializerMethodField()
+
+    def get_served_by_name(self, obj):
+        if obj.served_by is None:
+            return None
+        user = obj.served_by.user
+        return user.get_full_name() or str(getattr(user, 'phone_number', ''))
 
     class Meta:
         model  = Reservation
         fields = [
             'id', 'store', 'customer', 'product',
+            'variant_id', 'variant_name',
             'quantity', 'note', 'vendor_note',
-            'status', 'expires_at', 'hours_left',
+            'status', 'cancelled_by', 'cancel_reason', 'expires_at', 'hours_left',
             'points_redeemed', 'discount_amount',
-            'created_at', 'updated_at',
+            'actual_selling_price', 'cost_price_at_sale', 'payment_method',
+            'served_by_id', 'served_by_name',
+            'pickup_time', 'created_at', 'updated_at',
         ]

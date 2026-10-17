@@ -22,21 +22,38 @@ from django.core.management.base import BaseCommand
 from django.utils import timezone
 
 
+# Different public HLS test streams so each vendor's videos play distinct content
+DEV_HLS_POOL = [
+    'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8',
+    'https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_4x3/bipbop_4x3_variant.m3u8',
+    'https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_16x9/bipbop_16x9_variant.m3u8',
+    'https://devstreaming-cdn.apple.com/videos/streaming/examples/img_bipbop_adv_example_ts/master.m3u8',
+    'https://test-streams.mux.dev/pts_shift/master.m3u8',
+    'https://playertest.longtailvideo.com/adaptive/bipbop/gear4/prog_index.m3u8',
+    'https://devstreaming-cdn.apple.com/videos/streaming/examples/adv_dv_atmos/main.m3u8',
+    'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8',  # cycle back
+    'https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_4x3/bipbop_4x3_variant.m3u8',
+    'https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_16x9/bipbop_16x9_variant.m3u8',
+]
+
+
 # ── User definitions — KEEP IN SYNC with DevTestUsers.kt ─────────────────────
 DEV_USERS = [
     # (phone, full_name, role)
-    ('+919000000001', 'Arjun Kumar',  'customer'),
-    ('+919000000002', 'Priya Sharma', 'customer'),
-    ('+919000000003', 'Rahul Verma',  'customer'),
-    ('+919000000006', 'Meena Patel',  'customer'),
-    ('+919000000009', 'Sanjay Rao',   'customer'),
-    ('+919000000010', 'Lakshmi Nair', 'customer'),
-    ('+919000000004', 'Sneha Reddy',  'vendor'),
-    ('+919000000005', 'Vikram Iyer',  'vendor'),
-    ('+919000000007', 'Kiran Naidu',  'vendor'),
-    ('+919000000008', 'Divya Mehta',  'vendor'),
-    ('+919999999999', 'Dev Vendor',   'vendor'),
-    ('+918888888888', 'Dev Customer', 'customer'),
+    ('+919000000001', 'Arjun Kumar',    'customer'),
+    ('+919000000002', 'Priya Sharma',   'customer'),
+    ('+919000000003', 'Rahul Verma',    'customer'),
+    ('+919000000006', 'Meena Patel',    'customer'),
+    ('+919000000009', 'Sanjay Rao',     'customer'),
+    ('+919000000010', 'Lakshmi Nair',   'customer'),
+    ('+919000000004', 'Sneha Reddy',    'vendor'),
+    ('+919000000005', 'Vikram Iyer',    'vendor'),
+    ('+919000000007', 'Kiran Naidu',    'vendor'),
+    ('+919000000008', 'Divya Mehta',    'vendor'),
+    ('+919999999999', 'Dev Vendor',     'vendor'),
+    ('+918888888888', 'Dev Customer',   'customer'),
+    ('+917000000001', 'Dev Admin',      'admin'),
+    ('+917000000002', 'Dev Master',     'master_admin'),
 ]
 
 # ── Vendor stores — one per dev vendor ───────────────────────────────────────
@@ -276,7 +293,11 @@ class Command(BaseCommand):
             user.full_name = full_name
             user.role = role
             user.registered_location = kukatpally
-            user.save(update_fields=['full_name', 'role', 'registered_location'])
+            if role in ('admin', 'master_admin'):
+                user.is_staff = True
+                if not user.admin_assigned_city:
+                    user.admin_assigned_city = 'Hyderabad'
+            user.save(update_fields=['full_name', 'role', 'registered_location', 'is_staff', 'admin_assigned_city'])
             users[phone] = user
             flag = '✅ created' if created else '   exists'
             self.stdout.write(f'  {flag}  {full_name} ({phone})')
@@ -285,6 +306,7 @@ class Command(BaseCommand):
 
         # ── 2. Create vendor stores + products ────────────────────────────────
         stores = {}  # vendor_phone → Store
+        global_video_idx = 0  # increments across all vendors so each video gets a distinct HLS URL
         for vendor_phone, store_data in DEV_VENDOR_STORES.items():
             vendor = users[vendor_phone]
             if hasattr(vendor, 'store'):
@@ -379,20 +401,27 @@ class Command(BaseCommand):
 
                 # Videos (2 per vendor store, status=ready so they appear in video feed)
                 for v_idx, (title, desc, thumb, duration, views, likes) in enumerate(store_data.get('videos', [])):
-                    Video.objects.get_or_create(
+                    hls_url = DEV_HLS_POOL[global_video_idx % len(DEV_HLS_POOL)]
+                    global_video_idx += 1
+                    video_obj, created = Video.objects.get_or_create(
                         store=store,
                         title=title,
                         defaults=dict(
                             description=desc,
                             thumbnail_url=thumb,
-                            video_url='https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8',
+                            video_url=hls_url,
                             status=Video.STATUS_READY,
                             duration_seconds=duration,
                             view_count=views,
                             like_count=likes,
                             is_visible=True,
+                            expires_at=timezone.now() + timedelta(days=3650),
                         ),
                     )
+                    if not created and video_obj.expires_at and video_obj.expires_at <= timezone.now():
+                        Video.objects.filter(pk=video_obj.pk).update(
+                            expires_at=timezone.now() + timedelta(days=3650)
+                        )
 
                 self.stdout.write(self.style.SUCCESS(
                     f'  ✅ created  {store.name} ({store.locality}) — '

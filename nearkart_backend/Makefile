@@ -1,7 +1,7 @@
 # NearKart Backend — Developer Commands
 # Usage: make <command>
 
-.PHONY: help install test test-auth run shell migrate docker-up docker-down lint format \
+.PHONY: help install test test-auth test-cov test-report run shell migrate docker-up docker-down lint format \
         prod-up prod-down prod-logs check-env
 
 help:
@@ -38,6 +38,22 @@ test-auth:
 
 test-cov:
 	pytest --cov=apps --cov-report=term-missing
+
+test-report:
+	@mkdir -p test-results
+	pytest \
+	  --html=test-results/report.html \
+	  --self-contained-html \
+	  --junitxml=test-results/junit.xml \
+	  --cov=apps \
+	  --cov-report=html:test-results/coverage \
+	  --cov-report=term-missing \
+	  -v
+	@echo ""
+	@echo "  Reports saved to test-results/"
+	@echo "  HTML report  : test-results/report.html"
+	@echo "  JUnit XML    : test-results/junit.xml"
+	@echo "  Coverage HTML: test-results/coverage/index.html"
 
 run:
 	DJANGO_SETTINGS_MODULE=config.settings.development \

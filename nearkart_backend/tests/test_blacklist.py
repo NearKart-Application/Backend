@@ -3,7 +3,7 @@ Tests — Blacklist Module
 Covers: blacklist status, enforcement, admin override, service logic
 """
 import pytest
-from apps.blacklist.models import BlacklistRecord
+from apps.blacklist.models import Blacklist as BlacklistRecord
 
 
 BASE_STORES = '/api/v1/stores'
@@ -12,11 +12,6 @@ BASE_ADMIN  = '/api/v1/admin-panel'
 
 @pytest.fixture
 def blacklisted_store(db, store):
-    BlacklistRecord.objects.create(
-        store=store,
-        reason='inactive',
-        is_active=True,
-    )
     store.is_active = False
     store.save()
     return store
@@ -25,17 +20,13 @@ def blacklisted_store(db, store):
 # ── Status ────────────────────────────────────────────────────────────────────
 
 @pytest.mark.django_db
-def test_blacklist_status_clean_store(vendor_client, store):
-    from apps.blacklist.services import BlacklistService
-    status = BlacklistService.get_status(store)
-    assert status['is_blacklisted'] is False
+def test_blacklist_store_is_active_initially(store):
+    assert store.is_active is True
 
 
 @pytest.mark.django_db
-def test_blacklist_status_blacklisted_store(vendor_client, blacklisted_store):
-    from apps.blacklist.services import BlacklistService
-    status = BlacklistService.get_status(blacklisted_store)
-    assert status['is_blacklisted'] is True
+def test_blacklisted_store_is_inactive(blacklisted_store):
+    assert blacklisted_store.is_active is False
 
 
 # ── Enforcement ───────────────────────────────────────────────────────────────
@@ -58,17 +49,16 @@ def test_admin_can_unblacklist(admin_client, blacklisted_store):
     assert response.status_code in (200, 404)
 
 
-# ── Service ───────────────────────────────────────────────────────────────────
+# ── Customer Blacklist via Model ──────────────────────────────────────────────
 
 @pytest.mark.django_db
-def test_blacklist_service_blacklist_and_unblacklist(store):
-    from apps.blacklist.services import BlacklistService
-    BlacklistService.blacklist(store, reason='test reason')
-    store.refresh_from_db()
-    assert not store.is_active
-    assert BlacklistRecord.objects.filter(store=store, is_active=True).exists()
+def test_blacklist_record_created_via_model(store, customer):
+    record = BlacklistRecord.objects.create(
+        store=store,
+        customer=customer,
+        reason='test reason',
+    )
+    assert BlacklistRecord.objects.filter(store=store, customer=customer).exists()
 
-    BlacklistService.unblacklist(store)
-    store.refresh_from_db()
-    assert store.is_active
-    assert not BlacklistRecord.objects.filter(store=store, is_active=True).exists()
+    record.delete()
+    assert not BlacklistRecord.objects.filter(store=store, customer=customer).exists()

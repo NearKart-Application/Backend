@@ -4,42 +4,63 @@ NearKart — Product Serializers
 from django.db import models
 from rest_framework import serializers
 from drf_spectacular.utils import extend_schema_field
-from .models import Product, ProductVariant, ProductImage, Wishlist
+from .models import Product, ProductVariant, ProductImage, Wishlist, ProductReview, ProductQA, ProductPriceHistory
 
 
 class ProductVariantSerializer(serializers.ModelSerializer):
     class Meta:
         model  = ProductVariant
-        fields = ['id', 'name', 'sku', 'price', 'stock_quantity']
+        fields = [
+            'id', 'name', 'sku', 'price', 'stock_quantity', 'mrp', 'cost_price',
+            'reorder_point', 'low_stock_threshold', 'unit',
+            'weight_grams', 'price_per_gram', 'purity', 'making_charges', 'hallmark_number',
+            'length_cm', 'width_cm', 'height_cm', 'weight_kg', 'is_assembly_required', 'is_display_unit',
+        ]
         read_only_fields = ['id']
 
 
 class ProductImageSerializer(serializers.ModelSerializer):
+    variant_id = serializers.UUIDField(source='variant.id', allow_null=True, read_only=True)
+
     class Meta:
         model  = ProductImage
-        fields = ['id', 'image_url', 'is_primary', 'order']
+        fields = ['id', 'image_url', 'is_primary', 'order', 'variant_id']
         read_only_fields = ['id']
 
 
 class ProductSerializer(serializers.ModelSerializer):
-    variants     = ProductVariantSerializer(many=True, required=False)
-    images       = ProductImageSerializer(many=True, read_only=True)
-    store_name   = serializers.CharField(source='store.name', read_only=True)
-    store_id     = serializers.UUIDField(source='store.id', read_only=True)
-    distance_km  = serializers.SerializerMethodField(read_only=True)
+    variants      = ProductVariantSerializer(many=True, required=False)
+    images        = ProductImageSerializer(many=True, read_only=True)
+    store_name    = serializers.CharField(source='store.name', read_only=True)
+    store_id      = serializers.UUIDField(source='store.id', read_only=True)
+    distance_km   = serializers.SerializerMethodField(read_only=True)
     is_wishlisted = serializers.SerializerMethodField(read_only=True)
+    primary_image = serializers.SerializerMethodField(read_only=True)
+    stock_total   = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model  = Product
         fields = [
-            'id', 'store_id', 'store_name',
-            'name', 'description', 'category',
-            'status', 'is_visible', 'base_price',
+            'id', 'store_id', 'store_name', 'product_code',
+            'name', 'description', 'category', 'category_fk',
+            'status', 'is_visible', 'base_price', 'barcode',
             'variants', 'images',
+            'primary_image', 'stock_total',
             'distance_km', 'is_wishlisted',
             'created_at', 'last_updated_at',
         ]
         read_only_fields = ['id', 'store_id', 'store_name', 'created_at', 'last_updated_at']
+        extra_kwargs = {'product_code': {'required': False, 'allow_blank': True}}
+
+    @extend_schema_field(serializers.URLField(allow_null=True))
+    def get_primary_image(self, obj):
+        images = list(obj.images.all())
+        img = next((i for i in images if i.is_primary), None) or (images[0] if images else None)
+        return img.image_url if img else None
+
+    @extend_schema_field(serializers.IntegerField())
+    def get_stock_total(self, obj):
+        return sum(v.stock_quantity for v in obj.variants.all())
 
     @extend_schema_field(serializers.FloatField(allow_null=True))
     def get_distance_km(self, obj):
@@ -49,6 +70,8 @@ class ProductSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.BooleanField())
     def get_is_wishlisted(self, obj):
+        if hasattr(obj, '_is_wishlisted'):
+            return obj._is_wishlisted
         request = self.context.get('request')
         if request and request.user.is_authenticated:
             return obj.wishlisted_by.filter(user=request.user).exists()
@@ -78,15 +101,17 @@ class ProductListSerializer(serializers.ModelSerializer):
     image         = serializers.SerializerMethodField()
     store         = serializers.SerializerMethodField()
     is_on_sale    = serializers.SerializerMethodField()
+    is_wishlisted = serializers.SerializerMethodField()
 
     class Meta:
         model  = Product
         fields = [
-            'id', 'store_name', 'name', 'category', 'subcategory',
+            'id', 'product_code', 'store_name', 'name', 'category', 'subcategory',
             'base_price', 'min_price', 'primary_image',
             'distance_km', 'status',
             # mobile-compatible fields
-            'price', 'sale_price', 'image', 'store', 'is_on_sale',
+            'price', 'sale_price', 'image', 'store', 'is_on_sale', 'festival_tag',
+            'is_wishlisted',
         ]
 
     def _primary_image(self, obj):
@@ -128,16 +153,30 @@ class ProductListSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.DictField())
     def get_store(self, obj):
+        store = obj.store
+        rating = float(getattr(store, 'avg_rating', None) or 0)
+        review_count = int(getattr(store, 'review_count_ann', None) or 0)
         return {
-            'id': str(obj.store.id),
-            'name': obj.store.name,
-            'avatar': obj.store.logo_url or None,
+            'id': str(store.id),
+            'name': store.name,
+            'avatar': store.logo_url or None,
+            'rating': rating,
+            'review_count': review_count,
         }
 
     @extend_schema_field(serializers.BooleanField())
     def get_is_on_sale(self, obj):
         v = self._cheapest_variant(obj)
         return bool(v and float(v.price) < float(obj.base_price))
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_is_wishlisted(self, obj):
+        if hasattr(obj, '_is_wishlisted'):
+            return obj._is_wishlisted
+        request = self.context.get('request')
+        if request and request.user.is_authenticated:
+            return obj.wishlisted_by.filter(user=request.user).exists()
+        return False
 
 
 class MobileProductDetailSerializer(serializers.ModelSerializer):
@@ -157,33 +196,35 @@ class MobileProductDetailSerializer(serializers.ModelSerializer):
         model  = Product
         fields = [
             'id', 'name', 'description', 'category', 'subcategory',
-            'price', 'sale_price', 'images', 'store',
+            'price', 'sale_price', 'base_price', 'images', 'store',
             'distance_km', 'sizes', 'colors',
-            'stock_count', 'is_on_sale', 'is_wishlisted',
+            'stock_count', 'is_on_sale', 'festival_tag', 'is_wishlisted',
+            # Vendor edit form fields
+            'status', 'is_visible', 'product_code', 'barcode',
         ]
 
     @extend_schema_field(serializers.FloatField(allow_null=True))
     def get_sale_price(self, obj):
-        variant = obj.variants.order_by('price').first()
+        variant = min(obj.variants.all(), key=lambda v: v.price, default=None)
         if variant and float(variant.price) < float(obj.base_price):
             return float(variant.price)
         return None
 
-    @extend_schema_field(serializers.ListField(child=serializers.URLField()))
+    @extend_schema_field(serializers.ListField())
     def get_images(self, obj):
-        # Sort prefetched images in Python — avoids bypassing the prefetch cache
-        return [img.image_url for img in sorted(obj.images.all(), key=lambda i: i.order)]
+        return [
+            {'url': img.image_url, 'variant_id': str(img.variant_id) if img.variant_id else None}
+            for img in sorted(obj.images.all(), key=lambda i: i.order)
+        ]
 
     @extend_schema_field(serializers.DictField())
     def get_store(self, obj):
-        from django.db.models import Avg, Count
-        agg = obj.store.reviews.aggregate(avg=Avg('rating'), cnt=Count('id'))
         return {
             'id':           str(obj.store.id),
             'name':         obj.store.name,
             'avatar':       obj.store.logo_url or None,
-            'rating':       round(float(agg['avg'] or 0), 1),
-            'review_count': agg['cnt'] or 0,
+            'rating':       round(float(getattr(obj, 'store_avg_rating', None) or 0), 1),
+            'review_count': getattr(obj, 'store_review_count', None) or 0,
         }
 
     @extend_schema_field(serializers.FloatField(allow_null=True))
@@ -205,7 +246,7 @@ class MobileProductDetailSerializer(serializers.ModelSerializer):
     def get_colors(self, obj):
         colors = []
         seen = set()
-        for v in obj.variants.order_by('name'):
+        for v in sorted(obj.variants.all(), key=lambda v: v.name):
             parts = v.name.split('/')
             if len(parts) > 1:
                 color = parts[1].strip()
@@ -216,17 +257,76 @@ class MobileProductDetailSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.IntegerField())
     def get_stock_count(self, obj):
-        from django.db.models import Sum
-        return obj.variants.aggregate(total=Sum('stock_quantity'))['total'] or 0
+        return sum(v.stock_quantity or 0 for v in obj.variants.all())
 
     @extend_schema_field(serializers.BooleanField())
     def get_is_on_sale(self, obj):
-        variant = obj.variants.order_by('price').first()
+        variant = min(obj.variants.all(), key=lambda v: v.price, default=None)
         return bool(variant and float(variant.price) < float(obj.base_price))
 
     @extend_schema_field(serializers.BooleanField())
     def get_is_wishlisted(self, obj):
+        if hasattr(obj, '_is_wishlisted'):
+            return obj._is_wishlisted
         request = self.context.get('request')
         if request and request.user.is_authenticated:
             return obj.wishlisted_by.filter(user=request.user).exists()
         return False
+
+
+class ProductReviewSerializer(serializers.ModelSerializer):
+    class Meta:
+        model  = ProductReview
+        fields = ['id', 'rating', 'content', 'created_at']
+        read_only_fields = ['id', 'created_at']
+
+    def validate_rating(self, value):
+        if not 1 <= value <= 5:
+            raise serializers.ValidationError('Rating must be between 1 and 5.')
+        return value
+
+
+class ProductReviewListSerializer(serializers.ModelSerializer):
+    """Public read — shows reviewer name initials, not phone."""
+    reviewer_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model  = ProductReview
+        fields = ['id', 'reviewer_name', 'rating', 'content', 'created_at']
+
+    @extend_schema_field(serializers.CharField())
+    def get_reviewer_name(self, obj):
+        name = getattr(obj.reviewer, 'full_name', '') or ''
+        if name:
+            parts = name.split()
+            return f'{parts[0]} {"*" * (len(parts[1]) if len(parts) > 1 else 0)}'.strip()
+        phone = obj.reviewer.phone_number or ''
+        return phone[:4] + '****' + phone[-2:] if len(phone) >= 6 else '****'
+
+
+class ProductQASerializer(serializers.ModelSerializer):
+    asker_name  = serializers.SerializerMethodField()
+    is_answered = serializers.SerializerMethodField()
+
+    class Meta:
+        model  = ProductQA
+        fields = ['id', 'question', 'answer', 'answered_at', 'asker_name', 'is_answered', 'created_at']
+        read_only_fields = ['id', 'answer', 'answered_at', 'created_at']
+
+    def get_asker_name(self, obj):
+        name = getattr(obj.user, 'full_name', '') or ''
+        if name:
+            parts = name.split()
+            return parts[0]
+        phone = obj.user.phone_number or ''
+        return phone[:4] + '****' if len(phone) >= 4 else '****'
+
+    def get_is_answered(self, obj):
+        return bool(obj.answer)
+
+
+class ProductPriceHistorySerializer(serializers.ModelSerializer):
+    class Meta:
+        model  = ProductPriceHistory
+        fields = ['id', 'price', 'created_at']
+        read_only_fields = ['id', 'price', 'created_at']

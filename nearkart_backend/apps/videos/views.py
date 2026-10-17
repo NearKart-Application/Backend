@@ -9,6 +9,9 @@ PATCH /api/v1/videos/<id>/
 DELETE /api/v1/videos/<id>/delete/
 POST /api/v1/videos/<id>/like/
 GET  /api/v1/videos/<id>/download/
+GET  /api/v1/videos/<id>/tags/
+POST /api/v1/videos/<id>/tags/
+DELETE /api/v1/videos/<id>/tags/<tag_id>/
 """
 import logging
 
@@ -24,12 +27,16 @@ from rest_framework.views import APIView
 import rest_framework.serializers as s
 
 from core.logging import log_event
+from core.pagination import StandardOffsetPagination
 from core.permissions import IsVendor
 from core.utils.cache import CacheService
 from core.utils.upload_tracker import UploadTracker
 from apps.billing.services import BillingService
-from .models import Video
-from .serializers import VideoSerializer, VideoUploadRequestSerializer
+from .models import Video, VideoProductTag
+from .serializers import (
+    VideoSerializer, VideoUploadRequestSerializer,
+    VideoProductTagSerializer, VideoProductTagWriteSerializer,
+)
 from .services import AWSService, VideoService
 
 logger = logging.getLogger(__name__)
@@ -79,7 +86,7 @@ class VideoUploadRequestView(APIView):
         allowed, msg = BillingService.check_video_limit(request.user.store)
         if not allowed:
             return Response(
-                {'error': 'plan_limit_reached', 'message': msg},
+                {'error': 'subscription_required', 'message': msg},
                 status=status.HTTP_403_FORBIDDEN,
             )
         upload_allowed, upload_count = UploadTracker.check_and_increment(
@@ -100,10 +107,23 @@ class VideoUploadRequestView(APIView):
             )
         serializer = VideoUploadRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        product = None
+        product_id = serializer.validated_data.get('product_id')
+        if product_id:
+            from apps.products.models import Product
+            try:
+                product = Product.objects.get(id=product_id, store=request.user.store)
+            except Product.DoesNotExist:
+                return Response(
+                    {'error': 'not_found', 'message': 'Product not found in your store.'},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
         video, upload_url = VideoService.request_upload(
             store=request.user.store,
             title=serializer.validated_data['title'],
             description=serializer.validated_data.get('description', ''),
+            video_type=serializer.validated_data.get('video_type', 'store_promo'),
+            product=product,
         )
         log_event('videos', action='video_upload_requested', video_id=str(video.id),
                   store_id=str(request.user.store.id), user_id=str(request.user.id),
@@ -208,12 +228,21 @@ class MyVideosView(APIView):
     )
     def get(self, request):
         if not hasattr(request.user, 'store'):
-            return Response([], status=status.HTTP_200_OK)
-        qs = Video.objects.filter(store=request.user.store).order_by('-created_at')
+            return Response({'count': 0, 'next': None, 'previous': None, 'results': []}, status=status.HTTP_200_OK)
+        qs = (
+            Video.objects
+            .filter(store=request.user.store)
+            .prefetch_related('product_tags__product')
+            .order_by('-created_at')
+        )
         status_filter = request.query_params.get('status')
         if status_filter:
             qs = qs.filter(status=status_filter)
-        return Response(VideoSerializer(qs, many=True, context={'request': request}).data)
+        paginator = StandardOffsetPagination()
+        page = paginator.paginate_queryset(qs, request)
+        return paginator.get_paginated_response(
+            VideoSerializer(page, many=True, context={'request': request}).data
+        )
 
 
 class VideoUpdateView(APIView):
@@ -244,12 +273,16 @@ class VideoUpdateView(APIView):
                 {'error': 'not_found', 'message': 'Video not found.'},
                 status=status.HTTP_404_NOT_FOUND,
             )
-        allowed = {'title', 'description', 'is_visible'}
         update_fields = []
-        for field in allowed:
+        for field in ('title', 'description', 'video_type'):
             if field in request.data:
                 setattr(video, field, request.data[field])
                 update_fields.append(field)
+        for bool_field in ('is_visible', 'is_pinned'):
+            if bool_field in request.data:
+                val = request.data[bool_field]
+                setattr(video, bool_field, str(val).lower() not in ('false', '0', 'no', ''))
+                update_fields.append(bool_field)
         if update_fields:
             update_fields.append('updated_at')
             video.save(update_fields=update_fields)
@@ -318,7 +351,9 @@ class VideoDetailView(APIView):
     )
     def get(self, request, video_id):
         try:
-            video = Video.objects.select_related('store').get(id=video_id)
+            video = Video.objects.select_related('store').prefetch_related(
+                'product_tags__product'
+            ).get(id=video_id)
         except Video.DoesNotExist:
             return Response(
                 {'error': 'not_found', 'message': 'Video not found.'},
@@ -357,6 +392,23 @@ class VideoDeleteView(APIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
         store_id = str(video.store_id)
+        # Best-effort S3 cleanup before deleting the DB record
+        # TODO: replace with a dedicated Celery task (delete_s3_video) when implemented
+        raw_key = video.raw_s3_key
+        hls_key = video.hls_s3_key
+        if raw_key or hls_key:
+            try:
+                from .services import AWSService
+                client = AWSService._client()
+                objects_to_delete = [{'Key': k} for k in [raw_key, hls_key] if k]
+                if objects_to_delete:
+                    from django.conf import settings as _settings
+                    client.delete_objects(
+                        Bucket=_settings.AWS_S3_BUCKET,
+                        Delete={'Objects': objects_to_delete, 'Quiet': True},
+                    )
+            except Exception as s3_exc:
+                logger.warning('VideoDeleteView: S3 cleanup failed for video %s — %s', video_id, s3_exc)
         video.delete()
         CacheService.invalidate_video_feeds()
         log_event('videos', action='video_deleted', video_id=str(video_id),
@@ -520,3 +572,169 @@ class VideoSaveView(APIView):
             )
         saved = VideoService.toggle_save(request.user, video)
         return Response({'saved': saved, 'message': 'Saved.' if saved else 'Unsaved.'})
+
+
+class VideoTagsView(APIView):
+    """
+    GET  /videos/<id>/tags/   — list product tags on a video (public)
+    POST /videos/<id>/tags/   — add product tag to vendor's own video
+    """
+
+    def get_permissions(self):
+        if self.request.method == 'GET':
+            return [AllowAny()]
+        return [IsAuthenticated(), IsVendor()]
+
+    @extend_schema(
+        tags=[_TAG],
+        summary='List product tags on a video (public)',
+        responses={200: VideoProductTagSerializer(many=True)},
+        auth=[],
+    )
+    def get(self, request, video_id):
+        try:
+            video = Video.objects.get(id=video_id, status='ready', is_visible=True)
+        except Video.DoesNotExist:
+            return Response({'error': 'not_found', 'message': 'Video not found.'},
+                            status=status.HTTP_404_NOT_FOUND)
+        tags = VideoProductTag.objects.filter(video=video).select_related('product')
+        return Response(VideoProductTagSerializer(tags, many=True).data)
+
+    @extend_schema(
+        tags=[_TAG],
+        summary='Pin a product tag on vendor\'s own video',
+        description=(
+            'Attach a product to a normalised (x_pct, y_pct) position in the video frame. '
+            '`product` must be a UUID of a product from the vendor\'s own store. '
+            'Max 5 tags per video.'
+        ),
+        request=VideoProductTagWriteSerializer,
+        responses={201: VideoProductTagSerializer, 400: OpenApiResponse(description='Validation error')},
+    )
+    def post(self, request, video_id):
+        try:
+            video = Video.objects.get(id=video_id, store=request.user.store)
+        except (Video.DoesNotExist, AttributeError):
+            return Response({'error': 'not_found', 'message': 'Video not found.'},
+                            status=status.HTTP_404_NOT_FOUND)
+
+        if VideoProductTag.objects.filter(video=video).count() >= 5:
+            return Response(
+                {'error': 'validation_error', 'message': 'Maximum 5 product tags per video.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        serializer = VideoProductTagWriteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        product = serializer.validated_data['product']
+        if product.store_id != request.user.store.id:
+            return Response(
+                {'error': 'validation_error', 'message': 'Product must belong to your store.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        tag, created = VideoProductTag.objects.get_or_create(
+            video=video,
+            product=product,
+            defaults={
+                'x_pct': serializer.validated_data['x_pct'],
+                'y_pct': serializer.validated_data['y_pct'],
+            },
+        )
+        if not created:
+            tag.x_pct = serializer.validated_data['x_pct']
+            tag.y_pct = serializer.validated_data['y_pct']
+            tag.save(update_fields=['x_pct', 'y_pct'])
+
+        CacheService.invalidate_video_feeds()
+        return Response(
+            VideoProductTagSerializer(tag).data,
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )
+
+
+class VideoTagDeleteView(APIView):
+    permission_classes = [IsAuthenticated, IsVendor]
+
+    @extend_schema(
+        tags=[_TAG],
+        summary='Remove a product tag from vendor\'s own video',
+        responses={204: None, 404: OpenApiResponse(description='Not found')},
+    )
+    def delete(self, request, video_id, tag_id):
+        try:
+            tag = VideoProductTag.objects.get(
+                id=tag_id, video_id=video_id, video__store=request.user.store,
+            )
+        except (VideoProductTag.DoesNotExist, AttributeError):
+            return Response({'error': 'not_found', 'message': 'Tag not found.'},
+                            status=status.HTTP_404_NOT_FOUND)
+        tag.delete()
+        CacheService.invalidate_video_feeds()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class VideoCommentView(APIView):
+    """GET/POST /videos/<id>/comments/ — list and create video comments."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, video_id):
+        from .models import VideoComment
+        try:
+            video = Video.objects.get(id=video_id, status=Video.STATUS_READY)
+        except Video.DoesNotExist:
+            return Response({'error': 'not_found'}, status=404)
+        qs = VideoComment.objects.filter(video=video, is_deleted=False).select_related('user').order_by('created_at')
+        page = int(request.query_params.get('page', 1))
+        page_size = 20
+        offset = (page - 1) * page_size
+        results = qs[offset: offset + page_size]
+        data = [
+            {
+                'id': c.id,
+                'user_name': c.user.full_name or c.user.phone_number,
+                'user_id': str(c.user.id),
+                'content': c.content,
+                'created_at': c.created_at,
+                'is_own': c.user_id == request.user.id,
+            }
+            for c in results
+        ]
+        return Response({'count': qs.count(), 'page': page, 'results': data})
+
+    def post(self, request, video_id):
+        from .models import VideoComment
+        try:
+            video = Video.objects.get(id=video_id, status=Video.STATUS_READY)
+        except Video.DoesNotExist:
+            return Response({'error': 'not_found'}, status=404)
+        content = (request.data.get('content') or '').strip()
+        if not content:
+            return Response({'error': 'validation_error', 'message': 'content is required.'}, status=400)
+        comment = VideoComment.objects.create(video=video, user=request.user, content=content)
+        return Response({
+            'id': comment.id,
+            'user_name': request.user.full_name or request.user.phone_number,
+            'user_id': str(request.user.id),
+            'content': comment.content,
+            'created_at': comment.created_at,
+            'is_own': True,
+        }, status=201)
+
+
+class VideoCommentDeleteView(APIView):
+    """DELETE /videos/<id>/comments/<comment_id>/ — soft-delete own comment."""
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request, video_id, comment_id):
+        from .models import VideoComment
+        try:
+            comment = VideoComment.objects.get(id=comment_id, video_id=video_id)
+        except VideoComment.DoesNotExist:
+            return Response({'error': 'not_found'}, status=404)
+        if comment.user_id != request.user.id:
+            return Response({'error': 'forbidden', 'message': 'Can only delete your own comments.'}, status=403)
+        comment.is_deleted = True
+        comment.save(update_fields=['is_deleted', 'updated_at'])
+        return Response(status=204)

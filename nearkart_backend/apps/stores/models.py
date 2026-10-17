@@ -23,24 +23,68 @@ class StoreCategory(models.TextChoices):
     OTHER       = 'other',       'Other'
 
 
+class StoreType(models.TextChoices):
+    PRODUCT  = 'product', 'Product Store'
+    SERVICE  = 'service', 'Service Store'
+    HOME     = 'home',    'Home Business'
+
+
+class VendorType(models.TextChoices):
+    PRODUCT = 'product', 'Product Vendor'
+    SERVICE = 'service', 'Service Vendor'
+
+
+class GstMode(models.TextChoices):
+    UNREGISTERED = 'unregistered', 'Unregistered (No GST)'
+    COMPOSITION  = 'composition',  'Composition Scheme (1–5% flat turnover tax)'
+    REGULAR      = 'regular',      'Regular GST (18% + ITC eligible)'
+
+
 class Store(BaseModel):
-    owner       = models.OneToOneField(User, on_delete=models.CASCADE, related_name='store')
+    owner       = models.ForeignKey(User, on_delete=models.CASCADE, related_name='stores')
     name        = models.CharField(max_length=200)
     description = models.TextField(blank=True)
     category    = models.CharField(max_length=20, choices=StoreCategory.choices, default=StoreCategory.OTHER)
+    store_type  = models.CharField(max_length=10, choices=StoreType.choices, default=StoreType.PRODUCT)
     phone       = models.CharField(max_length=15, blank=True)
     address     = models.TextField()
     locality    = models.CharField(max_length=200, blank=True)
+    area        = models.CharField(max_length=200, blank=True, default='')
+    city        = models.CharField(max_length=150, blank=True, default='')
+    district    = models.CharField(max_length=150, blank=True, default='')
+    state       = models.CharField(max_length=150, blank=True, default='')
+    country     = models.CharField(max_length=100, blank=True, default='India')
     location    = gis_models.PointField(srid=4326, spatial_index=True, geography=True)
     logo_url    = models.URLField(blank=True)
     banner_url  = models.URLField(blank=True)
     qr_code_url = models.URLField(blank=True)
+    license_url = models.URLField(blank=True)
+    gst_url     = models.URLField(blank=True)
 
     is_active         = models.BooleanField(default=True)
     is_verified       = models.BooleanField(default=False)
     is_open           = models.BooleanField(default=False)
+    is_women_owned    = models.BooleanField(default=False)
+    privacy_mode      = models.BooleanField(default=False)
+    holiday_mode      = models.BooleanField(default=False)
     performance_score = models.FloatField(default=0.0)
     wallet_balance    = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    vendor_type   = models.CharField(
+        max_length=10, choices=VendorType.choices, default=VendorType.PRODUCT,
+        help_text='PRODUCT = sells physical goods with inventory. SERVICE = provides skills/time with service catalogue.'
+    )
+    is_home_based = models.BooleanField(
+        default=False,
+        help_text='If True: address hidden publicly, shown only after accepted visit reservation.'
+    )
+    slug = models.SlugField(
+        max_length=120, unique=True, blank=True,
+        help_text='Auto-generated URL slug for vendor mini-website (/s/<slug>).',
+    )
+    gst_mode = models.CharField(
+        max_length=15, choices=GstMode.choices, default=GstMode.UNREGISTERED,
+        help_text='GST registration mode — controls invoice GST logic.',
+    )
 
     class Meta:
         db_table = 'stores'
@@ -50,6 +94,18 @@ class Store(BaseModel):
             models.Index(fields=['category'], name='store_category_idx'),
             GinIndex(fields=['name'], opclasses=['gin_trgm_ops'], name='store_name_gin_idx'),
         ]
+
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            from django.utils.text import slugify
+            base = slugify(self.name)[:100] or 'store'
+            slug = base
+            n = 1
+            while Store.objects.filter(slug=slug).exclude(pk=self.pk).exists():
+                slug = f'{base}-{n}'
+                n += 1
+            self.slug = slug
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return self.name
@@ -65,6 +121,8 @@ class StoreHours(models.Model):
     open_time  = models.TimeField()
     close_time = models.TimeField()
     is_closed  = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True, null=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         db_table        = 'store_hours'
@@ -92,6 +150,9 @@ class StoreReview(BaseModel):
     comment = models.TextField(blank=True)
     vendor_reply    = models.TextField(blank=True, default='')
     vendor_reply_at = models.DateTimeField(null=True, blank=True)
+    is_verified     = models.BooleanField(default=False)  # True when gated by invoice NS code
+    is_flagged      = models.BooleanField(default=False, db_index=True)
+    flag_reason     = models.CharField(max_length=200, blank=True)
 
     class Meta:
         db_table        = 'store_reviews'
@@ -102,14 +163,21 @@ class StoreReview(BaseModel):
         return f'{self.store.name} — {self.rating}★'
 
 
+class OfferDiscountType(models.TextChoices):
+    PERCENT = 'percent', 'Percentage'
+    FLAT    = 'flat',    'Flat Amount'
+
+
 class StoreOffer(BaseModel):
-    store        = models.ForeignKey(Store, on_delete=models.CASCADE, related_name='offers')
-    title        = models.CharField(max_length=200)
-    description  = models.TextField(blank=True)
-    discount_pct = models.PositiveSmallIntegerField(null=True, blank=True)  # e.g. 20 = 20% off
-    valid_till   = models.DateField(null=True, blank=True)
-    image_url    = models.URLField(blank=True)
-    is_active    = models.BooleanField(default=True, db_index=True)
+    store          = models.ForeignKey(Store, on_delete=models.CASCADE, related_name='offers')
+    title          = models.CharField(max_length=200)
+    description    = models.TextField(blank=True)
+    discount_pct   = models.PositiveSmallIntegerField(null=True, blank=True)  # legacy — use discount_type+discount_value
+    discount_type  = models.CharField(max_length=10, choices=OfferDiscountType.choices, null=True, blank=True)
+    discount_value = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    valid_till     = models.DateField(null=True, blank=True)
+    image_url      = models.URLField(blank=True)
+    is_active      = models.BooleanField(default=True, db_index=True)
 
     class Meta:
         db_table = 'store_offers'
@@ -120,13 +188,22 @@ class StoreOffer(BaseModel):
 
 
 class Invoice(BaseModel):
-    store          = models.ForeignKey(Store, on_delete=models.CASCADE, related_name='invoices')
-    customer_name  = models.CharField(max_length=200)
-    customer_phone = models.CharField(max_length=20, blank=True)
-    items          = models.JSONField(default=list)  # [{"name": ..., "price": ..., "qty": ...}]
-    notes          = models.TextField(blank=True)
-    total          = models.DecimalField(max_digits=10, decimal_places=2)
-    is_sent        = models.BooleanField(default=False)
+    DISCOUNT_AMOUNT  = 'amount'
+    DISCOUNT_PERCENT = 'percent'
+    DISCOUNT_CHOICES = [(DISCOUNT_AMOUNT, 'Fixed Amount'), (DISCOUNT_PERCENT, 'Percentage')]
+
+    store             = models.ForeignKey(Store, on_delete=models.CASCADE, related_name='invoices')
+    customer_name     = models.CharField(max_length=200)
+    customer_phone    = models.CharField(max_length=20, blank=True)
+    customer_ns_code  = models.CharField(max_length=30, blank=True)  # NSC-XX-XX-XXXX — used to send in-app notification
+    items             = models.JSONField(default=list)  # [{"name": ..., "price": ..., "qty": ..., "product_id": ..., "variant_id": ...}]
+    notes             = models.TextField(blank=True)
+    total             = models.DecimalField(max_digits=10, decimal_places=2)
+    is_sent           = models.BooleanField(default=False)
+    discount_type     = models.CharField(max_length=10, choices=DISCOUNT_CHOICES, null=True, blank=True)
+    discount_value    = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    gstin             = models.CharField(max_length=15, blank=True)  # 15-char GST registration number
+    gst_rate          = models.DecimalField(max_digits=5, decimal_places=2, default=0)  # e.g. 18.00 for 18%
 
     class Meta:
         db_table = 'store_invoices'
@@ -134,3 +211,253 @@ class Invoice(BaseModel):
 
     def __str__(self):
         return f'Invoice #{str(self.id)[:8]} — {self.store.name} → {self.customer_name}'
+
+
+class StaffRole(models.TextChoices):
+    MANAGER = 'manager', 'Manager'
+    STAFF   = 'staff',   'Staff'
+
+
+class StaffMember(BaseModel):
+    """A user who is a staff member of a store (invited by the store owner)."""
+    store      = models.ForeignKey(Store, on_delete=models.CASCADE, related_name='staff_members')
+    user       = models.ForeignKey(User,  on_delete=models.CASCADE, related_name='staff_roles')
+    role       = models.CharField(max_length=20, choices=StaffRole.choices, default=StaffRole.STAFF)
+    is_active  = models.BooleanField(default=True)
+    invited_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True,
+                                   related_name='invited_staff')
+
+    class Meta:
+        db_table       = 'store_staff_members'
+        unique_together = [('store', 'user')]
+        ordering        = ['created_at']
+
+    def __str__(self):
+        return f'{self.user.full_name or self.user.phone_number} @ {self.store.name} ({self.role})'
+
+
+class WebsiteRequest(BaseModel):
+    STATUS_PENDING  = 'pending'
+    STATUS_APPROVED = 'approved'
+    STATUS_REJECTED = 'rejected'
+    STATUS_CHOICES  = [
+        (STATUS_PENDING,  'Pending Review'),
+        (STATUS_APPROVED, 'Approved'),
+        (STATUS_REJECTED, 'Rejected'),
+    ]
+
+    store             = models.OneToOneField(Store, on_delete=models.CASCADE, related_name='website_request')
+    status            = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING, db_index=True)
+    domain_preference = models.CharField(max_length=100, blank=True)
+    notes             = models.TextField(blank=True)
+    admin_notes       = models.TextField(blank=True)
+    reviewed_at       = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'store_website_requests'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'{self.store.name} — website ({self.status})'
+
+
+class DiscountCode(BaseModel):
+    PERCENT = 'percent'
+    FLAT    = 'flat'
+    TYPE_CHOICES = [(PERCENT, 'Percent off'), (FLAT, 'Flat amount off')]
+
+    store             = models.ForeignKey(Store, on_delete=models.CASCADE, related_name='discount_codes')
+    code              = models.CharField(max_length=20)
+    description       = models.CharField(max_length=100, blank=True)
+    discount_type     = models.CharField(max_length=10, choices=TYPE_CHOICES, default=PERCENT)
+    value             = models.DecimalField(max_digits=8, decimal_places=2)
+    min_order_amount  = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    max_uses          = models.PositiveIntegerField(null=True, blank=True)
+    uses_count        = models.PositiveIntegerField(default=0)
+    valid_from        = models.DateField(null=True, blank=True)
+    valid_till        = models.DateField(null=True, blank=True)
+    is_active         = models.BooleanField(default=True, db_index=True)
+    created_by        = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='created_discount_codes')
+
+    class Meta:
+        db_table        = 'discount_codes'
+        unique_together = [('store', 'code')]
+        ordering        = ['-created_at']
+
+    def __str__(self):
+        return f'{self.store.name} — {self.code}'
+
+    def is_valid(self, order_amount=None):
+        from django.utils import timezone
+        today = timezone.now().date()
+        if not self.is_active:
+            return False, 'code_inactive'
+        if self.max_uses is not None and self.uses_count >= self.max_uses:
+            return False, 'max_uses_reached'
+        if self.valid_from and today < self.valid_from:
+            return False, 'not_started'
+        if self.valid_till and today > self.valid_till:
+            return False, 'expired'
+        if order_amount is not None and self.min_order_amount and order_amount < self.min_order_amount:
+            return False, 'below_minimum'
+        return True, None
+
+    def calculate_discount(self, order_amount):
+        if self.discount_type == self.PERCENT:
+            return round(float(order_amount) * float(self.value) / 100, 2)
+        return min(float(self.value), float(order_amount))
+
+
+class BroadcastChannel(BaseModel):
+    store          = models.ForeignKey(Store, on_delete=models.CASCADE, related_name='broadcast_channels')
+    name           = models.CharField(max_length=100)
+    description    = models.TextField(blank=True)
+    auto_subscribe = models.BooleanField(default=True)
+
+    class Meta:
+        db_table = 'broadcast_channels'
+        ordering = ['-created_at']
+
+    @property
+    def subscriber_count(self):
+        """
+        Returns the number of store followers (potential broadcast reach), NOT
+        per-channel subscribers.  Calling this in a loop causes an N+1 query.
+        In list views, annotate the queryset instead:
+          BroadcastChannel.objects.annotate(follower_count=Count('store__followers', distinct=True))
+        and use follower_count rather than this property.
+        """
+        return self.store.followers.count()
+
+    @property
+    def post_count(self):
+        return self.posts.count()
+
+    def __str__(self):
+        return f'{self.store.name} — {self.name}'
+
+
+class BroadcastPost(BaseModel):
+    channel   = models.ForeignKey(BroadcastChannel, on_delete=models.CASCADE, related_name='posts')
+    content   = models.TextField()
+    image_url = models.URLField(blank=True)
+
+    class Meta:
+        db_table = 'broadcast_posts'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'{self.channel.name} — {self.content[:40]}'
+
+
+class CustomerBlockedStore(BaseModel):
+    """A customer blocking a store — hides the store from their feed and prevents notifications."""
+    customer = models.ForeignKey(User, on_delete=models.CASCADE, related_name='blocked_stores')
+    store    = models.ForeignKey(Store, on_delete=models.CASCADE, related_name='blocked_by_customers')
+
+    class Meta:
+        db_table      = 'customer_blocked_stores'
+        unique_together = [('customer', 'store')]
+        ordering      = ['-created_at']
+
+    def __str__(self):
+        return f'{self.customer.phone_number} blocked {self.store.name}'
+
+
+class ServiceCatalogue(BaseModel):
+    """
+    Services offered by Service Vendors.
+    Only relevant when store.vendor_type == 'service'.
+    """
+    store            = models.ForeignKey(Store, on_delete=models.CASCADE, related_name='services')
+    name             = models.CharField(max_length=200)
+    slug             = models.SlugField(max_length=220, blank=True)
+    description      = models.TextField(blank=True)
+    price_from       = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    price_to         = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    duration_minutes = models.PositiveIntegerField(null=True, blank=True, help_text='Estimated service duration in minutes')
+    is_active        = models.BooleanField(default=True)
+    image_url        = models.URLField(blank=True)
+    sort_order       = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        db_table = 'service_catalogue'
+        ordering = ['sort_order', 'name']
+        unique_together = [('store', 'slug')]
+
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            from django.utils.text import slugify
+            self.slug = slugify(self.name)
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f'{self.store.name} — {self.name}'
+
+
+class VendorActionLog(BaseModel):
+    """DB audit trail for every meaningful vendor action across the platform."""
+
+    class Action(models.TextChoices):
+        PRODUCT_CREATE     = 'product_create',     'Product Created'
+        PRODUCT_UPDATE     = 'product_update',     'Product Updated'
+        PRODUCT_DELETE     = 'product_delete',     'Product Deleted'
+        IMAGE_UPLOAD       = 'image_upload',       'Image Uploaded'
+        IMAGE_DELETE       = 'image_delete',       'Image Deleted'
+        STOCK_UPDATE       = 'stock_update',       'Stock Updated'
+        STOCK_BULK_UPDATE  = 'stock_bulk_update',  'Bulk Stock Update'
+        OFFER_CREATE       = 'offer_create',       'Offer Created'
+        OFFER_DELETE       = 'offer_delete',       'Offer Deleted'
+        STORE_UPDATE       = 'store_update',       'Store Updated'
+        STORE_HOURS_UPDATE = 'store_hours_update', 'Hours Updated'
+
+    user        = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='vendor_action_logs')
+    store       = models.ForeignKey(Store, on_delete=models.SET_NULL, null=True, blank=True, related_name='action_logs')
+    action      = models.CharField(max_length=30, choices=Action.choices, db_index=True)
+    entity_type = models.CharField(max_length=30, blank=True)
+    entity_id   = models.CharField(max_length=40, blank=True, db_index=True)
+    entity_name = models.CharField(max_length=250, blank=True)
+    meta        = models.JSONField(default=dict, blank=True)
+    ip_address  = models.GenericIPAddressField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'vendor_action_logs'
+        ordering = ['-created_at']
+        indexes  = [
+            models.Index(fields=['store', 'created_at'], name='val_store_idx'),
+            models.Index(fields=['user', 'created_at'],  name='val_user_idx'),
+        ]
+
+    def __str__(self):
+        return f'{self.action} by {self.user_id} @ {self.created_at}'
+
+
+class StorePhoto(BaseModel):
+    """Vendor-uploaded store gallery photos."""
+    store     = models.ForeignKey(Store, on_delete=models.CASCADE, related_name='photos')
+    image_url = models.URLField()
+    caption   = models.CharField(max_length=200, blank=True)
+    order     = models.PositiveSmallIntegerField(default=0)
+
+    class Meta:
+        db_table = 'store_photos'
+        ordering = ['order', 'created_at']
+
+    def __str__(self):
+        return f'{self.store.name} photo #{self.order}'
+
+
+class StoreQuestion(BaseModel):
+    """Customer-posted Q&A question for a store."""
+    store    = models.ForeignKey(Store, on_delete=models.CASCADE, related_name='questions')
+    user     = models.ForeignKey(User, on_delete=models.CASCADE, related_name='store_questions')
+    question = models.TextField()
+    answer   = models.TextField(blank=True)
+    answered_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'store_questions'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'Q: {self.question[:50]} for {self.store.name}'

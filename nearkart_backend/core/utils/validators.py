@@ -46,9 +46,9 @@ def validate_image_content_type(value: str) -> None:
         )
 
 
-def validate_video_size(size_mb: float, is_story: bool = False) -> None:
+def validate_video_size(size_mb: float) -> None:
     """Validate video file size."""
-    max_size = settings.STORY_MAX_SIZE_MB if is_story else settings.VIDEO_MAX_SIZE_MB
+    max_size = settings.VIDEO_MAX_SIZE_MB
     if size_mb > max_size:
         raise ValidationError(
             f'Video too large. Maximum size is {max_size}MB.',

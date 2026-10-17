@@ -27,10 +27,20 @@ class Video(models.Model):
         (STATUS_EXPIRED,    'Expired'),
     ]
 
+    TYPE_STORE_PROMO  = 'store_promo'
+    TYPE_PRODUCT_DEMO = 'product_demo'
+
+    TYPE_CHOICES = [
+        (TYPE_STORE_PROMO,  'Store Promo'),
+        (TYPE_PRODUCT_DEMO, 'Product Demo'),
+    ]
+
     id               = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     store            = models.ForeignKey('stores.Store', on_delete=models.CASCADE, related_name='videos')
     title            = models.CharField(max_length=200)
     description      = models.TextField(blank=True)
+    video_type       = models.CharField(max_length=20, choices=TYPE_CHOICES, default=TYPE_STORE_PROMO, db_index=True)
+    product          = models.ForeignKey('products.Product', on_delete=models.SET_NULL, null=True, blank=True, related_name='demo_videos')
 
     # S3 object keys
     raw_s3_key       = models.CharField(max_length=500, blank=True)
@@ -52,6 +62,7 @@ class Video(models.Model):
     like_count       = models.PositiveIntegerField(default=0)
 
     is_visible       = models.BooleanField(default=True, db_index=True)
+    is_pinned        = models.BooleanField(default=False, db_index=True)
     expires_at       = models.DateTimeField(null=True, blank=True, db_index=True)
 
     created_at       = models.DateTimeField(auto_now_add=True)
@@ -97,6 +108,23 @@ class VideoLike(models.Model):
         return f'{self.user} likes {self.video}'
 
 
+class VideoComment(models.Model):
+    video      = models.ForeignKey(Video, on_delete=models.CASCADE, related_name='comments')
+    user       = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='video_comments')
+    content    = models.TextField()
+    is_deleted = models.BooleanField(default=False, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'video_comments'
+        ordering = ['created_at']
+        indexes  = [models.Index(fields=['video', 'created_at'], name='vidcomment_video_time_idx')]
+
+    def __str__(self):
+        return f'{self.user} on {self.video.title}: {self.content[:40]}'
+
+
 class VideoSave(models.Model):
     user       = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
                                    related_name='video_saves')
@@ -108,3 +136,22 @@ class VideoSave(models.Model):
 
     def __str__(self):
         return f'{self.user} saved {self.video}'
+
+
+class VideoProductTag(models.Model):
+    """Product pinned to a specific position in a video (TikTok-style tap overlay)."""
+    id         = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    video      = models.ForeignKey(Video, on_delete=models.CASCADE, related_name='product_tags')
+    product    = models.ForeignKey('products.Product', on_delete=models.CASCADE,
+                                   related_name='video_tags')
+    # Normalised 0–1 position on the video frame (e.g. 0.3 = 30% from left/top)
+    x_pct      = models.FloatField(default=0.5)
+    y_pct      = models.FloatField(default=0.5)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ['video', 'product']
+        ordering = ['created_at']
+
+    def __str__(self):
+        return f'{self.product.name} @ ({self.x_pct:.2f}, {self.y_pct:.2f}) in {self.video.title}'

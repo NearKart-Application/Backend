@@ -1,0 +1,419 @@
+/* ============================================================
+   Nearspot Admin — Brand CSS
+   Colors: Navy #1C2E4A  |  Gold #F7B731  |  Light #F8F9FA
+   ============================================================ */
+
+:root {
+  --ns-navy:        #1C2E4A;
+  --ns-navy-dark:   #111f33;
+  --ns-navy-light:  #243a5e;
+  --ns-gold:        #F7B731;
+  --ns-gold-hover:  #e5a520;
+  --ns-text-light:  rgba(255,255,255,0.88);
+  --ns-text-muted:  rgba(255,255,255,0.55);
+}
+
+/* ── SIDEBAR ─────────────────────────────────────────────── */
+.main-sidebar,
+.sidebar {
+  background-color: var(--ns-navy) !important;
+}
+
+.brand-link {
+  background-color: var(--ns-navy-dark) !important;
+  border-bottom: 1px solid rgba(255,255,255,0.08) !important;
+  padding: 12px 16px !important;
+}
+
+.brand-text {
+  color: #fff !important;
+  font-weight: 700;
+  font-size: 1.1rem;
+  letter-spacing: 0.3px;
+}
+
+.brand-image {
+  max-height: 38px !important;
+  width: auto !important;
+  border-radius: 6px;
+  margin-right: 10px;
+}
+
+/* Sidebar nav links */
+.sidebar .nav-sidebar > .nav-item > .nav-link {
+  color: var(--ns-text-light) !important;
+  border-radius: 6px;
+  margin: 1px 8px;
+  padding: 8px 12px;
+}
+
+.sidebar .nav-sidebar > .nav-item > .nav-link:hover {
+  background-color: rgba(255,255,255,0.1) !important;
+  color: #fff !important;
+}
+
+.sidebar .nav-sidebar > .nav-item > .nav-link.active {
+  background-color: var(--ns-gold) !important;
+  color: var(--ns-navy) !important;
+  font-weight: 600;
+}
+
+.sidebar .nav-sidebar > .nav-item > .nav-link.active .nav-icon {
+  color: var(--ns-navy) !important;
+}
+
+.sidebar .nav-icon {
+  color: var(--ns-text-muted) !important;
+}
+
+.sidebar .nav-sidebar > .nav-item > .nav-link:hover .nav-icon {
+  color: #fff !important;
+}
+
+/* Sidebar sub-items (treeview) */
+.nav-treeview {
+  background-color: rgba(0,0,0,0.15);
+  border-radius: 4px;
+  margin: 2px 8px;
+}
+
+.nav-treeview > .nav-item > .nav-link {
+  color: var(--ns-text-muted) !important;
+  padding: 6px 10px 6px 28px;
+  font-size: 0.87rem;
+}
+
+.nav-treeview > .nav-item > .nav-link:hover {
+  color: var(--ns-gold) !important;
+  background-color: transparent !important;
+}
+
+.nav-treeview > .nav-item > .nav-link.active {
+  color: var(--ns-gold) !important;
+  background-color: transparent !important;
+  font-weight: 600;
+}
+
+/* App headings in sidebar */
+.nav-header {
+  color: var(--ns-text-muted) !important;
+  font-size: 0.72rem;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  padding: 12px 16px 4px;
+}
+
+/* ── NAVBAR (top bar) ────────────────────────────────────── */
+.main-header.navbar {
+  background-color: var(--ns-navy-dark) !important;
+  border-bottom: 1px solid rgba(255,255,255,0.06) !important;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+}
+
+.main-header .nav-link,
+.main-header .navbar-nav .nav-link {
+  color: var(--ns-text-light) !important;
+}
+
+.main-header .nav-link:hover {
+  color: var(--ns-gold) !important;
+}
+
+.main-header .navbar-search-block {
+  background-color: var(--ns-navy-dark) !important;
+}
+
+/* Search input in navbar */
+.navbar-search-block .form-control {
+  border-color: rgba(255,255,255,0.2) !important;
+  background-color: rgba(255,255,255,0.08) !important;
+  color: #fff !important;
+}
+
+/* ── CONTENT AREA ────────────────────────────────────────── */
+.content-header h1 {
+  font-size: 1.4rem;
+  font-weight: 600;
+  color: var(--ns-navy);
+}
+
+.breadcrumb-item a {
+  color: var(--ns-navy);
+}
+
+.breadcrumb-item a:hover {
+  color: var(--ns-gold-hover);
+}
+
+/* ── TABLE (changelist) ──────────────────────────────────── */
+#result_list {
+  border-radius: 6px;
+  overflow: hidden;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+}
+
+#result_list thead th {
+  background-color: var(--ns-navy) !important;
+  color: #fff !important;
+  font-size: 0.82rem;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  padding: 10px 12px;
+  border: none !important;
+}
+
+#result_list thead th a,
+#result_list thead th a:visited {
+  color: rgba(255,255,255,0.85) !important;
+}
+
+#result_list thead th a:hover {
+  color: var(--ns-gold) !important;
+}
+
+#result_list thead th.sorted a {
+  color: var(--ns-gold) !important;
+}
+
+#result_list tbody tr {
+  border-bottom: 1px solid #f0f0f0;
+  transition: background 0.15s;
+}
+
+#result_list tbody tr:hover {
+  background-color: rgba(28, 46, 74, 0.04) !important;
+}
+
+#result_list tbody td {
+  padding: 10px 12px;
+  vertical-align: middle;
+  font-size: 0.9rem;
+}
+
+/* Checkbox column */
+#result_list thead th:first-child,
+#result_list tbody td:first-child {
+  width: 24px;
+}
+
+/* ── FILTER SIDEBAR ──────────────────────────────────────── */
+#changelist-filter {
+  border-radius: 6px;
+  overflow: hidden;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+}
+
+#changelist-filter h2 {
+  background: var(--ns-navy) !important;
+  color: #fff !important;
+  font-size: 0.8rem;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  padding: 10px 14px;
+  margin: 0;
+}
+
+#changelist-filter h3 {
+  color: var(--ns-navy) !important;
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  border-bottom: 2px solid var(--ns-gold);
+  padding-bottom: 5px;
+  margin-bottom: 8px;
+}
+
+#changelist-filter ul li a {
+  color: #444;
+  font-size: 0.88rem;
+}
+
+#changelist-filter ul li a:hover {
+  color: var(--ns-navy);
+  font-weight: 600;
+}
+
+#changelist-filter ul li.selected a {
+  color: var(--ns-navy);
+  font-weight: 700;
+}
+
+/* ── BUTTONS ─────────────────────────────────────────────── */
+.btn-primary,
+input[type="submit"].default {
+  background-color: var(--ns-navy) !important;
+  border-color: var(--ns-navy) !important;
+  color: #fff !important;
+}
+
+.btn-primary:hover {
+  background-color: var(--ns-navy-light) !important;
+  border-color: var(--ns-navy-light) !important;
+}
+
+.submit-row input[type="submit"],
+.submit-row button[type="submit"] {
+  background-color: var(--ns-navy);
+  border-color: var(--ns-navy);
+}
+
+.submit-row input[type="submit"]:hover {
+  background-color: var(--ns-navy-light);
+}
+
+/* Delete button stays red */
+.deletelink,
+.submit-row a.deletelink {
+  background-color: #dc3545 !important;
+  color: #fff !important;
+}
+
+/* ── CARDS & INFO BOXES ──────────────────────────────────── */
+.card-primary:not(.card-outline) > .card-header {
+  background-color: var(--ns-navy) !important;
+}
+
+.info-box .info-box-icon.bg-primary {
+  background-color: var(--ns-navy) !important;
+}
+
+/* ── PAGINATION ──────────────────────────────────────────── */
+.paginator a,
+.paginator span.this-page {
+  border-radius: 4px;
+  padding: 4px 10px;
+  margin: 0 2px;
+  font-size: 0.88rem;
+}
+
+.paginator a:hover {
+  background-color: var(--ns-gold);
+  color: var(--ns-navy);
+  text-decoration: none;
+}
+
+.paginator span.this-page {
+  background-color: var(--ns-navy);
+  color: #fff;
+}
+
+/* ── FORM FIELDSETS ──────────────────────────────────────── */
+fieldset.module h2 {
+  background-color: var(--ns-navy) !important;
+  color: #fff !important;
+  font-size: 0.85rem;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  border-radius: 4px 4px 0 0;
+  padding: 8px 14px;
+}
+
+/* ── LINKS ───────────────────────────────────────────────── */
+a:not(.btn):not(.nav-link):not(.brand-link):not(.deletelink) {
+  color: var(--ns-navy);
+}
+
+a:not(.btn):not(.nav-link):not(.brand-link):not(.deletelink):hover {
+  color: var(--ns-gold-hover);
+}
+
+/* ── FOOTER ──────────────────────────────────────────────── */
+.main-footer {
+  color: #888;
+  font-size: 0.82rem;
+  border-top: 1px solid #e8e8e8;
+  background: #fafafa;
+}
+
+/* ── LOGIN PAGE ──────────────────────────────────────────── */
+.login-page {
+  background-color: var(--ns-navy) !important;
+}
+
+.login-box-body {
+  border-radius: 10px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+}
+
+.login-box-body .btn-primary {
+  background-color: var(--ns-gold) !important;
+  border-color: var(--ns-gold) !important;
+  color: var(--ns-navy) !important;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+
+.login-box-body .btn-primary:hover {
+  background-color: var(--ns-gold-hover) !important;
+  border-color: var(--ns-gold-hover) !important;
+}
+
+/* ── TABS (horizontal_tabs changeform) ───────────────────── */
+.nav-tabs .nav-link.active {
+  border-top: 3px solid var(--ns-gold) !important;
+  color: var(--ns-navy) !important;
+  font-weight: 600;
+}
+
+.nav-tabs .nav-link:hover {
+  color: var(--ns-navy);
+}
+
+/* ── SEARCH BAR (changelist) ─────────────────────────────── */
+#searchbar {
+  border: 1px solid #ced4da;
+  border-radius: 6px 0 0 6px;
+  padding: 6px 12px;
+  font-size: 0.9rem;
+}
+
+#searchbar:focus {
+  border-color: var(--ns-navy);
+  box-shadow: 0 0 0 2px rgba(28,46,74,0.15);
+  outline: none;
+}
+
+input[type="submit"]#changelist-search-submit {
+  background-color: var(--ns-navy);
+  border-color: var(--ns-navy);
+  color: #fff;
+  border-radius: 0 6px 6px 0;
+}
+
+/* ── OBJECT TOOLS (top-right of changelist) ──────────────── */
+.object-tools a {
+  background-color: var(--ns-navy) !important;
+  border-radius: 20px;
+  font-size: 0.82rem;
+  letter-spacing: 0.3px;
+}
+
+.object-tools a:hover {
+  background-color: var(--ns-gold) !important;
+  color: var(--ns-navy) !important;
+}
+
+/* ── INLINE ADMIN ────────────────────────────────────────── */
+.inline-group h2 {
+  background-color: var(--ns-navy) !important;
+  color: #fff !important;
+}
+
+/* ── MESSAGES (success/error banners) ───────────────────── */
+.messagelist li.success {
+  background-color: #d4edda;
+  border-left: 4px solid #28a745;
+  color: #155724;
+}
+
+.messagelist li.error {
+  background-color: #f8d7da;
+  border-left: 4px solid #dc3545;
+  color: #721c24;
+}
+
+.messagelist li.warning {
+  background-color: #fff3cd;
+  border-left: 4px solid var(--ns-gold);
+  color: #856404;
+}

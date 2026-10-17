@@ -11,8 +11,8 @@ env = environ.Env()
 DEBUG = False
 
 # ── HOSTS ─────────────────────────────────────────────────────
-# Set ALLOWED_HOSTS=api.nearkart.in in production .env
-ALLOWED_HOSTS = env.list('ALLOWED_HOSTS', default=['api.nearkart.in'])
+# Set ALLOWED_HOSTS=api.nearspot.in in production .env
+ALLOWED_HOSTS = env.list('ALLOWED_HOSTS', default=['api.nearspot.in'])
 
 # ── SECURITY ──────────────────────────────────────────────────
 # SSL is terminated at the AWS ALB — Django trusts the forwarded header
@@ -30,24 +30,31 @@ X_FRAME_OPTIONS = 'DENY'
 SECURE_REFERRER_POLICY = 'strict-origin-when-cross-origin'
 
 # ── STATIC + MEDIA FILES (AWS S3 via django-storages) ─────────
+# querystring_auth=False: generate permanent public URLs instead of
+# presigned URLs that expire. Requires the S3 bucket objects to be
+# publicly readable (set via bucket policy, not ACL — S3 Block Public
+# Access must allow bucket-policy-based public reads).
+# Set AWS_CDN_DOMAIN to a CloudFront domain for CDN-cached delivery.
 STORAGES = {
     'default': {
         'BACKEND': 'storages.backends.s3boto3.S3Boto3Storage',
         'OPTIONS': {
-            'bucket_name':   env('AWS_S3_BUCKET', default='nearkart-media'),
-            'region_name':   env('AWS_REGION',    default='ap-south-1'),
-            'location':      'media',
-            'file_overwrite': False,
-            'custom_domain':  env('AWS_CDN_DOMAIN', default=''),
+            'bucket_name':      env('AWS_S3_BUCKET', default='nearkart-media'),
+            'region_name':      env('AWS_REGION',    default='ap-south-1'),
+            'location':         'media',
+            'file_overwrite':   False,
+            'querystring_auth': False,
+            'custom_domain':    env('AWS_CDN_DOMAIN', default=''),
         },
     },
     'staticfiles': {
         'BACKEND': 'storages.backends.s3boto3.S3Boto3Storage',
         'OPTIONS': {
-            'bucket_name':   env('AWS_S3_STATIC_BUCKET', default='nearkart-static'),
-            'region_name':   env('AWS_REGION', default='ap-south-1'),
-            'location':      'static',
-            'custom_domain':  env('AWS_CDN_DOMAIN', default=''),
+            'bucket_name':      env('AWS_S3_STATIC_BUCKET', default='nearkart-static'),
+            'region_name':      env('AWS_REGION', default='ap-south-1'),
+            'location':         'static',
+            'querystring_auth': False,
+            'custom_domain':    env('AWS_CDN_DOMAIN', default=''),
         },
     },
 }
@@ -61,7 +68,9 @@ EMAIL_HOST_USER = 'apikey'
 EMAIL_HOST_PASSWORD = env('SENDGRID_API_KEY', default='')
 
 # ── DATABASE: production tuning ───────────────────────────────
-DATABASES['default']['CONN_MAX_AGE'] = 60  # noqa: F405
+# CONN_MAX_AGE must stay 0 — PgBouncer transaction pooling reclaims
+# connections between requests; persistent connections cause errors.
+DATABASES['default']['CONN_MAX_AGE'] = 0   # noqa: F405
 DATABASES['default']['CONN_HEALTH_CHECKS'] = True  # noqa: F405
 
 # ── CELERY: ensure tasks run async in production ──────────────
@@ -113,3 +122,12 @@ LOGGING = {
         },
     },
 }
+
+# ── CORS: nearspot.in production domains ─────────────────────
+CORS_ALLOWED_ORIGINS = [
+    'https://app.nearspot.in',
+    'https://vendor.nearspot.in',
+]
+CORS_ALLOWED_ORIGIN_REGEXES = [
+    r'^https://.*\.nearspot\.in$',
+]

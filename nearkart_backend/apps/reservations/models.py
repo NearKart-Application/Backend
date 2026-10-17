@@ -11,7 +11,7 @@ from datetime import timedelta
 
 from core.models import BaseModel
 from apps.stores.models import Store
-from apps.products.models import Product
+from apps.products.models import Product, ProductVariant
 
 
 class ReservationStatus(models.TextChoices):
@@ -26,6 +26,8 @@ class Reservation(BaseModel):
     store       = models.ForeignKey(Store,   on_delete=models.CASCADE, related_name='reservations')
     customer    = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='reservations')
     product     = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='reservations')
+    variant     = models.ForeignKey(ProductVariant, on_delete=models.SET_NULL,
+                                    null=True, blank=True, related_name='reservations')
     quantity    = models.PositiveIntegerField(default=1)
     note        = models.TextField(blank=True)         # customer note to vendor
     vendor_note = models.TextField(blank=True)         # vendor response
@@ -36,8 +38,33 @@ class Reservation(BaseModel):
         db_index=True,
     )
     expires_at      = models.DateTimeField(db_index=True)
-    points_redeemed = models.PositiveIntegerField(default=0)
-    discount_amount = models.DecimalField(max_digits=8, decimal_places=2, default=0)
+    cancel_reason   = models.CharField(max_length=200, blank=True)
+    cancelled_by    = models.CharField(max_length=20, blank=True, default='',
+                                       choices=[('customer', 'Customer'), ('vendor', 'Vendor')])
+    points_redeemed       = models.PositiveIntegerField(default=0)
+    discount_amount       = models.DecimalField(max_digits=8, decimal_places=2, default=0)
+    pickup_time           = models.DateTimeField(null=True, blank=True)
+    actual_selling_price  = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True,
+                                                help_text='Price vendor charged at completion. Used for revenue reports.')
+    cost_price_at_sale    = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True,
+                                                help_text='Snapshot of variant.cost_price at reservation creation. Enables gross margin = (actual_selling_price - cost_price_at_sale) × quantity.')
+    payment_method        = models.CharField(
+        max_length=20, blank=True, default='',
+        choices=[
+            ('cash',   'Cash'),
+            ('upi',    'UPI'),
+            ('card',   'Card'),
+            ('credit', 'Credit (Udhar)'),
+            ('other',  'Other'),
+        ],
+        help_text='How the customer paid at pickup.',
+    )
+    served_by = models.ForeignKey(
+        'stores.StaffMember',
+        on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='served_reservations',
+        help_text='Staff member who attended the customer at pickup.',
+    )
 
     class Meta:
         db_table = 'reservations'
@@ -45,6 +72,7 @@ class Reservation(BaseModel):
         indexes = [
             models.Index(fields=['store', 'status'],    name='res_store_status_idx'),
             models.Index(fields=['customer', 'status'], name='res_customer_status_idx'),
+            models.Index(fields=['created_at'],         name='res_created_at_idx'),
         ]
 
     def __str__(self):
@@ -56,7 +84,7 @@ class Reservation(BaseModel):
 
     @property
     def hours_left(self):
-        if self.status != ReservationStatus.PENDING:
+        if self.status not in (ReservationStatus.PENDING, ReservationStatus.CONFIRMED):
             return 0
         delta = self.expires_at - timezone.now()
-        return max(0, round(delta.total_seconds() / 3600, 1))
+        return max(0, round(delta.total_seconds() / 3600, 4))

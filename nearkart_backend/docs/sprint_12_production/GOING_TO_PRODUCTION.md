@@ -29,7 +29,7 @@ and the bypass switches off.
 |----------|-----------|-----------------|-----------------|
 | `SECRET_KEY` | `your-50-char-secret-key...` | Random 50-char string | `python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"` |
 | `DEBUG` | `True` | **`False`** | Hardcoded |
-| `ALLOWED_HOSTS` | `localhost,127.0.0.1` | `api.nearkart.in,api-staging.nearkart.in` | Your domain name |
+| `ALLOWED_HOSTS` | `localhost,127.0.0.1` | `api.nearspot.in,api-staging.nearspot.in` | Your domain name |
 | `DJANGO_SETTINGS_MODULE` | `config.settings.development` | `config.settings.production` | Hardcoded |
 | `DEV_FIXED_OTP` | `123456` | **empty string** (remove the value entirely) | Just clear it |
 
@@ -159,7 +159,7 @@ Real money moves.
 1. Go to [dashboard.razorpay.com](https://dashboard.razorpay.com) → Settings → API Keys
 2. Generate live keys — copy `Key ID` and `Key Secret`
 3. Go to Settings → Webhooks → Add New Webhook:
-   - URL: `https://api.nearkart.in/api/v1/billing/payment/webhook/`
+   - URL: `https://api.nearspot.in/api/v1/billing/payment/webhook/`
    - Events: tick `payment.captured`
    - Copy the **Webhook Secret** shown
 4. Complete KYC / business verification in Razorpay to activate live mode
@@ -192,12 +192,12 @@ Currently used for transactional emails (receipts, etc.).
 | Variable | Dev value | Production value |
 |----------|-----------|-----------------|
 | `SENDGRID_API_KEY` | `SG.your_sendgrid_api_key_here` | Real API key from SendGrid |
-| `DEFAULT_FROM_EMAIL` | `hello@nearkart.in` | `hello@nearkart.in` (verify this domain in SendGrid) |
-| `DEFAULT_FROM_NAME` | `NearKart` | `NearKart` |
+| `DEFAULT_FROM_EMAIL` | `hello@nearspot.in` | `hello@nearspot.in` (verify this domain in SendGrid) |
+| `DEFAULT_FROM_NAME` | `Nearspot` | `Nearspot` |
 
 **SendGrid setup steps:**
 1. Go to [app.sendgrid.com](https://app.sendgrid.com) → Settings → API Keys → Create
-2. Verify your sending domain `nearkart.in` under Sender Authentication
+2. Verify your sending domain `nearspot.in` under Sender Authentication
 3. Copy API key to `SENDGRID_API_KEY`
 
 ---
@@ -222,7 +222,7 @@ Used for reverse geocoding store addresses.
 
 | Variable | Dev value | Production value |
 |----------|-----------|-----------------|
-| `CORS_ALLOWED_ORIGINS` | `http://localhost:3000,http://localhost:19006` | `https://app.nearkart.in,https://vendor.nearkart.in` |
+| `CORS_ALLOWED_ORIGINS` | `http://localhost:3000,http://localhost:19006` | `https://app.nearspot.in,https://vendor.nearspot.in` |
 
 Add every domain your mobile/web apps will call the API from.
 
@@ -280,17 +280,17 @@ After setting all variables and deploying, verify each service works end-to-end:
 
 ```bash
 # 1. Health check
-curl https://api.nearkart.in/api/v1/health/
+curl https://api.nearspot.in/api/v1/health/
 # Expected: {"status": "ok", "database": "ok", "redis": "ok"}
 
 # 2. OTP — real SMS should arrive on your phone
-curl -X POST https://api.nearkart.in/api/v1/auth/otp/send/ \
+curl -X POST https://api.nearspot.in/api/v1/auth/otp/send/ \
   -H "Content-Type: application/json" \
   -d '{"phone_number": "+91XXXXXXXXXX"}'
 # Expected: SMS delivered within 10 seconds
 
 # 3. Video upload — should create real S3 presigned URL (not mock-s3.dev)
-# POST /videos/request-upload/ → check upload_url starts with https://nearkart-media-prod.s3...
+# POST /videos/request-upload/ → check upload_url starts with https://nearspot-media-prod.s3...
 
 # 4. Razorpay — initiate a basic plan payment
 # POST /billing/payment/initiate/ → order_id should start with "order_" (not "order_DEV_")
@@ -299,11 +299,11 @@ curl -X POST https://api.nearkart.in/api/v1/auth/otp/send/ \
 # order_id NOT starting with order_DEV_ = Razorpay live mode active
 
 # 6. Swagger must be BLOCKED on production
-curl https://api.nearkart.in/api/docs/
+curl https://api.nearspot.in/api/docs/
 # Expected: 403 Forbidden (Nginx blocks it)
 
 # 7. Swagger accessible on staging
-curl https://api-staging.nearkart.in/api/docs/
+curl https://api-staging.nearspot.in/api/docs/
 # Expected: 200 OK with Swagger UI
 ```
 

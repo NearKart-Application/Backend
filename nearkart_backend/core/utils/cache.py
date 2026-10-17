@@ -57,9 +57,10 @@ class CacheService:
 
     @staticmethod
     def nearby_stores_key(lat: float, lng: float,
-                          radius: int, category: str = 'all') -> str:
+                          radius: int, category: str = 'all',
+                          store_type: str = 'all') -> str:
         cell = _h3_cell(lat, lng)
-        raw  = f'stores:nearby:{cell}:{radius}:{category}'
+        raw  = f'stores:nearby:{cell}:{radius}:{category}:{store_type}'
         return hashlib.md5(raw.encode()).hexdigest()
 
     @staticmethod
@@ -259,9 +260,10 @@ class CacheService:
     @staticmethod
     def invalidate_store_caches(lat: float, lng: float):
         """Bust all nearby-store cache keys for the grid cell containing this location."""
-        for radius in [1, 2, 3, 5]:
+        for radius in [1, 2, 3, 5, 10]:
             for category in ['all', 'fashion', 'jewellery', 'footwear',
-                              'decor', 'furniture', 'gifts', 'beauty']:
+                              'decor', 'furniture', 'gifts', 'beauty',
+                              'food', 'electronics']:
                 CacheService.delete(
                     CacheService.nearby_stores_key(lat, lng, radius, category)
                 )

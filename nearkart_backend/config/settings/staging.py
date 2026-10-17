@@ -7,7 +7,7 @@ DJANGO_SETTINGS_MODULE=config.settings.staging
 from .production import *  # noqa
 
 # ── HOSTS ─────────────────────────────────────────────────────
-ALLOWED_HOSTS = ['api-staging.nearkart.in', 'localhost', '127.0.0.1']
+ALLOWED_HOSTS = ['api-staging.nearspot.in', 'localhost', '127.0.0.1']
 
 # ── RELAXED HSTS FOR STAGING ──────────────────────────────────
 # Short TTL so we can change domains easily during staging
@@ -35,5 +35,5 @@ if SENTRY_DSN:
 
 # ── SWAGGER DOCS: allow in staging (not in production) ────────
 SPECTACULAR_SETTINGS['SERVERS'] = [  # noqa: F405
-    {'url': 'https://api-staging.nearkart.in', 'description': 'Staging'},
+    {'url': 'https://api-staging.nearspot.in', 'description': 'Staging'},
 ]

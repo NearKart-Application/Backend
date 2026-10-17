@@ -8,6 +8,12 @@ from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
 API_V1 = 'api/v1/'
 
+if settings.DEBUG:
+    from django.conf.urls.static import static
+    urlpatterns_media = static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+else:
+    urlpatterns_media = []
+
 urlpatterns = [
     # ── ADMIN ─────────────────────────────────────────────────
     path('admin/', admin.site.urls),
@@ -18,6 +24,9 @@ urlpatterns = [
 
     # ── HEALTH CHECK ──────────────────────────────────────────
     path(API_V1 + 'health/', include('core.urls.health')),
+
+    # ── APP VERSION (no auth) ─────────────────────────────────
+    path(API_V1 + 'app/', include('core.urls.app_version')),
 
     # ── AUTH ──────────────────────────────────────────────────
     path(API_V1 + 'auth/', include('apps.auth_app.urls')),
@@ -54,5 +63,29 @@ urlpatterns = [
 
     # ── LOYALTY & REFERRALS ───────────────────────────────────────
     path(API_V1 + 'loyalty/', include('apps.loyalty.urls')),
-]
+
+    # ── CUSTOMER WALLET REQUESTS ──────────────────────────────────
+    path(API_V1 + 'wallet/', include('apps.loyalty.wallet_urls')),
+
+    # ── INVENTORY ─────────────────────────────────────────────────────
+    path(API_V1 + 'inventory/', include('apps.inventory.urls')),
+
+    # ── LOCATIONS (public — no auth) ──────────────────────────────────
+    path(API_V1 + 'locations/', include('apps.locations.urls')),
+
+    # ── CUSTOMER CREDIT (Udhar) ───────────────────────────────────────
+    path(API_V1 + 'credit/', include('apps.credit.urls')),
+
+    # ── EXPENSE TRACKING ─────────────────────────────────────────────────
+    path(API_V1 + 'expenses/', include('apps.expenses.urls')),
+
+    # ── FINANCIAL REPORTS ────────────────────────────────────────────────
+    path(API_V1 + 'reports/', include('apps.reports.urls')),
+
+    # ── RESTAURANT INVENTORY ─────────────────────────────────────────────
+    path(API_V1 + 'restaurant/', include('apps.restaurant.urls')),
+
+    # ── SERVICES INVENTORY ───────────────────────────────────────────────
+    path(API_V1 + 'services/', include('apps.services_inventory.urls')),
+] + urlpatterns_media
 

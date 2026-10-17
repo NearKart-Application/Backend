@@ -15,19 +15,20 @@ logger = logging.getLogger(__name__)
 
 
 # Keep in sync with DevTestUsers.kt in the mobile app
+# All dev accounts use OTP 123456 (matches DEV_FIXED_OTP in .env)
 _DEV_PHONE_OTPS = {
-    '+919000000001': '100001',
-    '+919000000002': '200002',
-    '+919000000003': '300003',
-    '+919000000006': '600006',
-    '+919000000009': '900009',
-    '+919000000010': '100010',
-    '+919000000004': '400004',
-    '+919000000005': '500005',
-    '+919000000007': '700007',
-    '+919000000008': '800008',
-    '+919999999999': '999999',
-    '+918888888888': '888888',
+    '+919000000001': '123456',
+    '+919000000002': '123456',
+    '+919000000003': '123456',
+    '+919000000006': '123456',
+    '+919000000009': '123456',
+    '+919000000010': '123456',
+    '+919000000004': '123456',
+    '+919000000005': '123456',
+    '+919000000007': '123456',
+    '+919000000008': '123456',
+    '+919999999999': '123456',
+    '+918888888888': '123456',
 }
 
 
@@ -36,19 +37,20 @@ class OTPService:
     @staticmethod
     def generate_otp(phone_number: str = '') -> str:
         from django.conf import settings
-        if getattr(settings, 'DEBUG', False) and phone_number in _DEV_PHONE_OTPS:
-            return _DEV_PHONE_OTPS[phone_number]
+        # In DEBUG any phone always gets 123456 — no real SMS needed for testing
+        if getattr(settings, 'DEBUG', False):
+            return '123456'
         dev_otp = getattr(settings, 'DEV_FIXED_OTP', None)
         if dev_otp:
             return str(dev_otp)
         return str(random.randint(100000, 999999))
 
     @classmethod
-    def generate_and_send(cls, phone_number: str) -> str:
+    def generate_and_send(cls, phone_number: str, delivery_method: str = 'sms') -> str:
         """
         Creates or fetches user, invalidates old OTPs,
-        generates new OTP, queues SMS task.
-        Returns the OTP (for task to send via SMS).
+        generates new OTP, queues SMS or voice task.
+        Returns the OTP (for task to send).
         """
         try:
             user = User.objects.get(phone_number=phone_number)
@@ -59,10 +61,14 @@ class OTPService:
         otp = cls.generate_otp(phone_number)
         OTPToken.create_for_user(user, otp)
 
-        is_dev_phone = getattr(settings, 'DEBUG', False) and phone_number in _DEV_PHONE_OTPS
-        if not getattr(settings, 'DEV_FIXED_OTP', None) and not is_dev_phone:
-            from apps.auth_app.tasks import send_otp_sms
-            send_otp_sms.delay(phone_number, otp)
+        # Skip delivery entirely in DEBUG — 123456 works for any phone
+        if not getattr(settings, 'DEBUG', False) and not getattr(settings, 'DEV_FIXED_OTP', None):
+            if delivery_method == 'voice':
+                from apps.auth_app.tasks import send_otp_voice
+                send_otp_voice.delay(phone_number, otp)
+            else:
+                from apps.auth_app.tasks import send_otp_sms
+                send_otp_sms.delay(phone_number, otp)
 
         return otp
 
@@ -72,6 +78,15 @@ class OTPService:
         Verifies OTP for phone_number.
         Returns User on success, raises ValueError on failure.
         """
+        from django.conf import settings
+        # Universal debug bypass — accepts 123456 for any phone without a real OTP token
+        if getattr(settings, 'DEBUG', False) and otp == '123456':
+            user, _ = User.objects.get_or_create(
+                phone_number=phone_number,
+                defaults={'role': ''},
+            )
+            return user
+
         try:
             user = User.objects.get(phone_number=phone_number)
         except User.DoesNotExist:

@@ -12,12 +12,13 @@ from drf_spectacular.types import OpenApiTypes
 
 from apps.auth_app.models import User
 from apps.products.models import Product
-from .models import Group, GroupSharedProduct, GroupType
+from .models import Group, GroupMessage, GroupSharedProduct, GroupType
 from .services import GroupService
 from .serializers import (
     GroupCreateSerializer,
     GroupSerializer,
     GroupDetailSerializer,
+    GroupMessageSerializer,
     AddMemberSerializer,
     ShareProductSerializer,
     SharedProductSerializer,
@@ -127,14 +128,14 @@ class GroupAddMemberView(APIView):
         summary='Add member',
         description=(
             'Admin adds a member. '
-            '**Customer groups:** provide `profile_id` (e.g. NK-A3X9K2). '
+            '**Customer groups:** provide `profile_id` (e.g. NS-SF-KU-4X2B). '
             '**Vendor groups:** provide `user_id` (UUID from eligible-members list). '
             'For vendor groups, the user must follow the store.'
         ),
         request=AddMemberSerializer,
         responses={201: OpenApiTypes.OBJECT},
         examples=[
-            OpenApiExample('By Profile ID (customer group)', value={'profile_id': 'NK-A3X9K2'}, request_only=True),
+            OpenApiExample('By Profile ID (customer group)', value={'profile_id': 'NS-SF-KU-4X2B'}, request_only=True),
             OpenApiExample('By User ID (vendor group)',      value={'user_id': '{{user_id}}'},    request_only=True),
         ],
     )
@@ -375,7 +376,10 @@ class GroupProductListView(APIView):
         if not ser.is_valid():
             return Response(ser.errors, status=400)
 
-        product = Product.objects.select_related('store').get(id=ser.validated_data['product_id'])
+        try:
+            product = Product.objects.select_related('store').get(id=ser.validated_data['product_id'])
+        except Product.DoesNotExist:
+            return Response({'error': 'not_found', 'message': 'Product not found.'}, status=404)
         shared = GroupService.share_product(
             group=group,
             product=product,
@@ -383,6 +387,57 @@ class GroupProductListView(APIView):
             note=ser.validated_data.get('note', ''),
         )
         return Response(SharedProductSerializer(shared).data, status=201)
+
+
+class GroupMessageListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def _get_group(self, group_id, user):
+        try:
+            group = Group.objects.get(id=group_id, is_active=True)
+        except Group.DoesNotExist:
+            return None
+        if not GroupService.is_member(group, user):
+            return None
+        return group
+
+    @extend_schema(
+        tags=[_TAG],
+        summary='List group messages',
+        description='Returns the last 100 messages for the group. Members only.',
+        parameters=[OpenApiParameter('group_id', OpenApiTypes.UUID, location=OpenApiParameter.PATH)],
+        responses={200: GroupMessageSerializer(many=True)},
+    )
+    def get(self, request, group_id):
+        group = self._get_group(group_id, request.user)
+        if not group:
+            return Response({'error': 'not_found', 'message': 'Group not found.'}, status=404)
+        messages = (
+            GroupMessage.objects
+            .select_related('sender')
+            .filter(group=group)
+            .order_by('created_at')[:100]
+        )
+        return Response(GroupMessageSerializer(messages, many=True).data)
+
+    @extend_schema(
+        tags=[_TAG],
+        summary='Send group message (REST fallback)',
+        description='Send a message via REST. Prefer the WebSocket consumer for real-time delivery.',
+        request=GroupMessageSerializer,
+        responses={201: GroupMessageSerializer},
+    )
+    def post(self, request, group_id):
+        group = self._get_group(group_id, request.user)
+        if not group:
+            return Response({'error': 'not_found', 'message': 'Group not found.'}, status=404)
+
+        content = (request.data.get('content') or '').strip()
+        if not content:
+            return Response({'error': 'empty', 'message': 'Message cannot be empty.'}, status=400)
+
+        msg = GroupMessage.objects.create(group=group, sender=request.user, content=content)
+        return Response(GroupMessageSerializer(msg).data, status=201)
 
 
 class GroupFinalizeProductView(APIView):
@@ -416,3 +471,86 @@ class GroupFinalizeProductView(APIView):
 
         shared = GroupService.finalize_product(shared, request.user)
         return Response(SharedProductSerializer(shared).data)
+
+
+class GroupAvatarView(APIView):
+    """POST /groups/<id>/avatar/ — upload group avatar. Admin only."""
+    permission_classes = [IsAuthenticated]
+    from rest_framework.parsers import MultiPartParser, FormParser
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request, group_id):
+        import uuid, os
+        from django.core.files.base import ContentFile
+        from django.core.files.storage import default_storage
+        try:
+            group = Group.objects.get(id=group_id, is_active=True)
+        except Group.DoesNotExist:
+            return Response({'error': 'not_found'}, status=404)
+        if not GroupService.is_admin(group, request.user):
+            return Response({'error': 'forbidden', 'message': 'Only group admin can change avatar.'}, status=403)
+        image = request.FILES.get('image')
+        if not image:
+            return Response({'error': 'no_image', 'message': 'image file required.'}, status=400)
+        ext = os.path.splitext(image.name)[1].lower()
+        if ext not in ('.jpg', '.jpeg', '.png', '.webp'):
+            return Response({'error': 'invalid_type', 'message': 'Only JPEG/PNG/WebP allowed.'}, status=400)
+        try:
+            path = default_storage.save(f'groups/avatars/{uuid.uuid4()}{ext}', ContentFile(image.read()))
+            url = default_storage.url(path)
+        except Exception:
+            logger.exception('[GroupAvatarView] storage save failed for group %s', group_id)
+            return Response({'error': 'upload_failed', 'message': 'Failed to upload image.'}, status=500)
+        group.avatar_url = url
+        group.save(update_fields=['avatar_url'])
+        return Response({'avatar_url': url})
+
+
+class GroupInviteView(APIView):
+    """GET /groups/<id>/invite/ — get or generate invite link. Admin only."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, group_id):
+        import uuid as _uuid_mod
+        try:
+            group = Group.objects.get(id=group_id, is_active=True)
+        except Group.DoesNotExist:
+            return Response({'error': 'not_found'}, status=404)
+        if not GroupService.is_admin(group, request.user):
+            return Response({'error': 'forbidden', 'message': 'Only group admin can view invite link.'}, status=403)
+        if not group.invite_token:
+            group.invite_token = _uuid_mod.uuid4()
+            group.save(update_fields=['invite_token'])
+        return Response({'invite_token': str(group.invite_token), 'invite_url': f'/groups/join/{group.invite_token}/'})
+
+    def delete(self, request, group_id):
+        """Revoke the invite link."""
+        try:
+            group = Group.objects.get(id=group_id, is_active=True)
+        except Group.DoesNotExist:
+            return Response({'error': 'not_found'}, status=404)
+        if not GroupService.is_admin(group, request.user):
+            return Response({'error': 'forbidden'}, status=403)
+        group.invite_token = None
+        group.save(update_fields=['invite_token'])
+        return Response(status=204)
+
+
+class GroupJoinViaInviteView(APIView):
+    """POST /groups/join/<token>/ — join group by invite token."""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, token):
+        from .models import GroupMember, GroupMemberRole
+        try:
+            group = Group.objects.get(invite_token=token, is_active=True)
+        except Group.DoesNotExist:
+            return Response({'error': 'invalid_token', 'message': 'Invalid or expired invite link.'}, status=404)
+        if GroupMember.objects.filter(group=group, user=request.user).exists():
+            return Response({'error': 'already_member', 'message': 'You are already in this group.'}, status=400)
+        if group.group_type == GroupType.VENDOR and group.store_id:
+            from apps.stores.models import StoreFollow
+            if not StoreFollow.objects.filter(user=request.user, store_id=group.store_id).exists():
+                return Response({'error': 'not_follower', 'message': 'You must follow this store to join.'}, status=403)
+        GroupMember.objects.create(group=group, user=request.user, role=GroupMemberRole.MEMBER)
+        return Response({'group_id': str(group.id), 'group_name': group.name})

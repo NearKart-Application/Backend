@@ -1,22 +1,16 @@
 """
 NearKart — Loyalty & Referral Models
-LoyaltyAccount  : one per user, holds points balance + unique referral code
+LoyaltyAccount  : one per user, holds points balance
 LoyaltyTransaction : earn / redeem history
 Referral        : tracks who referred whom
-"""
-import random
-import string
 
+The user's profile_id (NS code) is the referral code — no separate field needed.
+"""
 from django.conf import settings
 from django.db import models
 from django.utils import timezone
 
 from core.models import BaseModel
-
-
-def _make_referral_code() -> str:
-    chars = string.ascii_uppercase + string.digits
-    return 'NK' + ''.join(random.choices(chars, k=6))
 
 
 class LoyaltyAccount(BaseModel):
@@ -28,23 +22,41 @@ class LoyaltyAccount(BaseModel):
     balance        = models.PositiveIntegerField(default=0)
     total_earned   = models.PositiveIntegerField(default=0)
     total_redeemed = models.PositiveIntegerField(default=0)
-    referral_code  = models.CharField(max_length=10, unique=True)
+    is_active      = models.BooleanField(default=True, db_index=True)
 
     class Meta:
         db_table = 'loyalty_accounts'
 
     def __str__(self):
-        return f'{self.user.phone_number} — {self.balance} pts ({self.referral_code})'
+        return f'{self.user.phone_number} — {self.balance} pts'
+
+    TIER_BRONZE = 'bronze'
+    TIER_SILVER = 'silver'
+    TIER_GOLD   = 'gold'
+    TIER_THRESHOLDS = {TIER_GOLD: 5000, TIER_SILVER: 1000, TIER_BRONZE: 0}
+
+    @property
+    def tier(self) -> str:
+        earned = self.total_earned
+        if earned >= 5000:
+            return self.TIER_GOLD
+        if earned >= 1000:
+            return self.TIER_SILVER
+        return self.TIER_BRONZE
+
+    @property
+    def next_tier_points_needed(self) -> int:
+        earned = self.total_earned
+        if earned >= 5000:
+            return 0
+        if earned >= 1000:
+            return 5000 - earned
+        return 1000 - earned
 
     @classmethod
     def get_or_create_for(cls, user) -> 'LoyaltyAccount':
-        try:
-            return cls.objects.get(user=user)
-        except cls.DoesNotExist:
-            code = _make_referral_code()
-            while cls.objects.filter(referral_code=code).exists():
-                code = _make_referral_code()
-            return cls.objects.create(user=user, referral_code=code)
+        obj, _ = cls.objects.get_or_create(user=user)
+        return obj
 
 
 class LoyaltyTransaction(BaseModel):
@@ -55,10 +67,16 @@ class LoyaltyTransaction(BaseModel):
     SOURCE_REFERRAL   = 'referral'
     SOURCE_REDEMPTION = 'redemption'
     SOURCE_BONUS      = 'bonus'
+    SOURCE_PENALTY    = 'penalty'
+    SOURCE_EARNED     = 'earned'     # wallet top-up / generic earn
+    SOURCE_PURCHASE   = 'purchase'   # earn on reservation spend
     SOURCE_CHOICES = [
         (SOURCE_REFERRAL,   'Referral Bonus'),
         (SOURCE_REDEMPTION, 'Points Redemption'),
         (SOURCE_BONUS,      'Bonus'),
+        (SOURCE_PENALTY,    'Cancellation Penalty'),
+        (SOURCE_EARNED,     'Points Earned'),
+        (SOURCE_PURCHASE,   'Purchase Reward'),
     ]
 
     account          = models.ForeignKey(LoyaltyAccount, on_delete=models.CASCADE, related_name='transactions')
@@ -67,6 +85,8 @@ class LoyaltyTransaction(BaseModel):
     points           = models.PositiveIntegerField()
     description      = models.CharField(max_length=200)
     balance_after    = models.PositiveIntegerField(default=0)
+    expires_at       = models.DateTimeField(null=True, blank=True, db_index=True)
+    is_expired       = models.BooleanField(default=False, db_index=True)
 
     class Meta:
         db_table = 'loyalty_transactions'
@@ -76,6 +96,66 @@ class LoyaltyTransaction(BaseModel):
         return f'{self.transaction_type} {self.points} pts — {self.description}'
 
 
+class WalletWithdrawalRequest(BaseModel):
+    METHOD_UPI  = 'upi'
+    METHOD_BANK = 'bank'
+    METHOD_CHOICES = [
+        (METHOD_UPI,  'UPI'),
+        (METHOD_BANK, 'Bank Transfer'),
+    ]
+
+    STATUS_PENDING   = 'pending'
+    STATUS_APPROVED  = 'approved'
+    STATUS_REJECTED  = 'rejected'
+    STATUS_PROCESSED = 'processed'
+    STATUS_CHOICES = [
+        (STATUS_PENDING,   'Pending'),
+        (STATUS_APPROVED,  'Approved'),
+        (STATUS_REJECTED,  'Rejected'),
+        (STATUS_PROCESSED, 'Processed'),
+    ]
+
+    user           = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='wallet_withdrawal_requests')
+    amount         = models.DecimalField(max_digits=10, decimal_places=2)
+    method         = models.CharField(max_length=10, choices=METHOD_CHOICES)
+    upi_id         = models.CharField(max_length=100, blank=True)
+    account_number = models.CharField(max_length=30, blank=True)
+    ifsc_code      = models.CharField(max_length=20, blank=True)
+    account_name   = models.CharField(max_length=100, blank=True)
+    note           = models.TextField(blank=True)
+    status         = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING, db_index=True)
+    admin_note     = models.TextField(blank=True)
+
+    class Meta:
+        db_table = 'loyalty_wallet_withdrawal_requests'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'{self.user} — ₹{self.amount} via {self.method} ({self.status})'
+
+
+class PointMultiplierEvent(BaseModel):
+    """Time-boxed event that multiplies loyalty points earned from purchases."""
+    store       = models.ForeignKey(
+        'stores.Store', on_delete=models.CASCADE, null=True, blank=True,
+        related_name='multiplier_events',
+        help_text='If null, applies platform-wide.',
+    )
+    name        = models.CharField(max_length=200)
+    multiplier  = models.DecimalField(max_digits=4, decimal_places=2, default=2)  # e.g. 2.0 = 2×
+    starts_at   = models.DateTimeField()
+    ends_at     = models.DateTimeField()
+    is_active   = models.BooleanField(default=True)
+
+    class Meta:
+        db_table = 'loyalty_point_multiplier_events'
+        ordering = ['-starts_at']
+
+    def __str__(self):
+        scope = self.store.name if self.store_id else 'Platform-wide'
+        return f'{self.name} ({self.multiplier}×) — {scope}'
+
+
 class Referral(BaseModel):
     STATUS_PENDING   = 'pending'
     STATUS_COMPLETED = 'completed'
@@ -83,7 +163,7 @@ class Referral(BaseModel):
 
     referrer       = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='referrals_given')
     referred       = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='referral_received')
-    referral_code  = models.CharField(max_length=10)
+    referral_code  = models.CharField(max_length=16)
     status         = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING)
     points_awarded = models.PositiveIntegerField(default=0)
     completed_at   = models.DateTimeField(null=True, blank=True)

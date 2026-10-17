@@ -106,6 +106,8 @@ class GroupService:
     @staticmethod
     def get_eligible_members(group: Group):
         """Returns store followers who are not yet group members (vendor groups only)."""
+        if not group.store_id:
+            return []
         existing_ids = GroupMember.objects.filter(group=group).values_list('user_id', flat=True)
         followers = StoreFollow.objects.filter(
             store=group.store
@@ -149,6 +151,20 @@ class GroupService:
             str(grp.id),
             shared_product.product.name,
         )
+        try:
+            vendor = shared_product.product.store.owner
+            NotificationService.notify_reservation_created(
+                vendor=vendor,
+                customer_name=grp.name,
+                reservation_id=str(grp.id),
+                product_name=shared_product.product.name,
+            )
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception(
+                '[groups] failed to notify vendor for finalized product %s',
+                shared_product.product_id,
+            )
         return shared_product
 
     @staticmethod

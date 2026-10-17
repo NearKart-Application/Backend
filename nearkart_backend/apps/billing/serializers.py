@@ -14,7 +14,7 @@ class PlanSerializer(serializers.ModelSerializer):
         model  = Plan
         fields = [
             'id', 'name', 'display_name', 'price', 'duration_days',
-            'video_limit', 'product_limit',
+            'video_limit', 'product_limit', 'store_track',
             'video_limit_display', 'product_limit_display',
             'description',
         ]

@@ -7,6 +7,7 @@
 | [DOCS_MAP.md](DOCS_MAP.md) | **Every doc with its exact file path — find anything instantly** |
 | [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md) | Architecture, what Docker shows, sprint roadmap |
 | [HOW_TO_RUN_AND_TEST.md](HOW_TO_RUN_AND_TEST.md) | Setup venv, run Docker, test in Postman |
+| [LOGGING.md](LOGGING.md) | **Every log channel: file locations, events, jq queries, investigation playbooks** |
 | [sprint_12_production/GOING_TO_PRODUCTION.md](sprint_12_production/GOING_TO_PRODUCTION.md) | **Every dummy value to replace before going live — read this before launch** |
 
 ---
@@ -35,6 +36,14 @@
 | S17 — Store Detail Enhancement _(mobile-driven)_ | [sprint_17_store_detail_enhancement/](sprint_17_store_detail_enhancement/README.md) | Done ✅ | [TESTING_CHECKLIST.md](sprint_17_store_detail_enhancement/TESTING_CHECKLIST.md) |
 | S18 — Rating Badges + Pull-to-Refresh _(mobile + backend)_ | [sprint_18_ratings_refresh/](sprint_18_ratings_refresh/README.md) | Done ✅ | [TESTING_CHECKLIST.md](sprint_18_ratings_refresh/TESTING_CHECKLIST.md) · [POSTMAN_GUIDE.md](sprint_18_ratings_refresh/POSTMAN_GUIDE.md) |
 | S19 — Search Filters · Follow Feed · Invoices · Map | [sprint_19_search_filters_follow_invoices_map/](sprint_19_search_filters_follow_invoices_map/README.md) | Done ✅ | [TESTING_CHECKLIST.md](sprint_19_search_filters_follow_invoices_map/TESTING_CHECKLIST.md) · [POSTMAN_GUIDE.md](sprint_19_search_filters_follow_invoices_map/POSTMAN_GUIDE.md) |
+| S20 — Admin Panel + NS Code System + User Suspension | [sprint_20_admin_panel/](sprint_20_admin_panel/README.md) | Done ✅ | [TESTING_CHECKLIST.md](sprint_20_admin_panel/TESTING_CHECKLIST.md) · [POSTMAN_GUIDE.md](sprint_20_admin_panel/POSTMAN_GUIDE.md) |
+| S21 — Admin Category Management + Offer Templates | [sprint_21_admin_categories_offer_templates/](sprint_21_admin_categories_offer_templates/README.md) | Done ✅ | [TESTING_CHECKLIST.md](sprint_21_admin_categories_offer_templates/TESTING_CHECKLIST.md) · [POSTMAN_GUIDE.md](sprint_21_admin_categories_offer_templates/POSTMAN_GUIDE.md) |
+| S23 — Store Hours Sync · Discount Codes · Image Gallery | [sprint_23_store_hours_discounts_gallery/](sprint_23_store_hours_discounts_gallery/README.md) | Done ✅ | [TESTING_CHECKLIST.md](sprint_23_store_hours_discounts_gallery/TESTING_CHECKLIST.md) · [POSTMAN_GUIDE.md](sprint_23_store_hours_discounts_gallery/POSTMAN_GUIDE.md) |
+| S25 — Store Offer Labels · Sale Price PATCH · Broadcast Seed · Cache Invalidation | [sprint_25_map_integration/](sprint_25_map_integration/README.md) | Done ✅ | [TESTING_CHECKLIST.md](sprint_25_map_integration/TESTING_CHECKLIST.md) · [POSTMAN_GUIDE.md](sprint_25_map_integration/POSTMAN_GUIDE.md) |
+| S26 — Structured Product ID System (`NS-{ShopAbbr}-{LocalityCode}-{CategoryCode}-{Unique}`) | [sprint_26_product_id_system/](sprint_26_product_id_system/README.md) | Done ✅ | [TESTING_CHECKLIST.md](sprint_26_product_id_system/TESTING_CHECKLIST.md) · [POSTMAN_GUIDE.md](sprint_26_product_id_system/POSTMAN_GUIDE.md) |
+| S27 — Store Click Tracking: Store Views · Inquiries Pending · Products Need Action live in vendor dashboard | [sprint_27_store_click_tracking/](sprint_27_store_click_tracking/README.md) | Done ✅ | [TESTING_CHECKLIST.md](sprint_27_store_click_tracking/TESTING_CHECKLIST.md) · [POSTMAN_GUIDE.md](sprint_27_store_click_tracking/POSTMAN_GUIDE.md) |
+| S28 — Product Demo Video (`video_type` field + `products/{id}/demo-video/` endpoint) · Voice OTP (`delivery_method: voice` via Twilio call) | [sprint_28_localization_video_voice/](sprint_28_localization_video_voice/README.md) | Done ✅ | [TESTING_CHECKLIST.md](sprint_28_localization_video_voice/TESTING_CHECKLIST.md) · [POSTMAN_GUIDE.md](sprint_28_localization_video_voice/POSTMAN_GUIDE.md) |
+| S29 — Backend Performance Hardening · Bug Fixes (N+1 elimination, pagination, bulk tasks, DB indexes, 3 runtime bug fixes) | [sprint_29_performance_bugfix/](sprint_29_performance_bugfix/README.md) | Done ✅ | [TESTING_CHECKLIST.md](sprint_29_performance_bugfix/TESTING_CHECKLIST.md) · [POSTMAN_GUIDE.md](sprint_29_performance_bugfix/POSTMAN_GUIDE.md) |
 
 ---
 
