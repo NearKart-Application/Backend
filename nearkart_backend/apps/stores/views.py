@@ -122,7 +122,7 @@ class StoreDetailView(APIView):
             from .models import StoreHours, StorePhoto
             store = Store.objects.prefetch_related(
                 Prefetch('hours', queryset=StoreHours.objects.all()),
-                Prefetch('photos', queryset=StorePhoto.objects.order_by('order', 'created_at')[:12]),
+                Prefetch('photos', queryset=StorePhoto.objects.order_by('order', 'created_at')),
                 'followers',
             ).annotate(
                 follower_count=Count('followers', distinct=True),
