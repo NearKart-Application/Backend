@@ -267,3 +267,25 @@ class CacheService:
                 CacheService.delete(
                     CacheService.nearby_stores_key(lat, lng, radius, category)
                 )
+
+    @staticmethod
+    def invalidate_nearby_products(lat: float, lng: float,
+                                   store_id: str = None, category: str = None):
+        """Bust nearby-product cache keys for the grid cell containing this location.
+
+        get_nearby_products builds its key as
+        nearby_products_key(lat, lng, radius, category) + f'_store_{store_id or "all"}',
+        so we clear both the global feed ('all') and the store-scoped list, across the
+        radii customers query with and for the 'all' bucket plus the product's category.
+        """
+        categories = {'all'}
+        if category:
+            categories.add(category)
+        store_suffixes = ['all']
+        if store_id:
+            store_suffixes.append(str(store_id))
+        for radius in [1, 2, 3, 5, 10]:
+            for cat in categories:
+                base = CacheService.nearby_products_key(lat, lng, radius, cat)
+                for suffix in store_suffixes:
+                    CacheService.delete(f'{base}_store_{suffix}')

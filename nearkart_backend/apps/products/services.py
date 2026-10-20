@@ -103,6 +103,12 @@ class ProductService:
             store.location.y,
             store.location.x,
         )
+        CacheService.invalidate_nearby_products(
+            store.location.y,
+            store.location.x,
+            store_id=str(store.id),
+            category=product.category,
+        )
         return product
 
     @staticmethod
@@ -114,6 +120,12 @@ class ProductService:
         CacheService.invalidate_store_caches(
             product.store.location.y,
             product.store.location.x,
+        )
+        CacheService.invalidate_nearby_products(
+            product.store.location.y,
+            product.store.location.x,
+            store_id=str(product.store_id),
+            category=product.category,
         )
         # PRICE_DROP_ALERT — notify wishlist customers when base_price drops
         new_price = product.base_price
