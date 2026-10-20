@@ -525,7 +525,11 @@ class ProductImageUploadView(APIView):
             log_vendor_action(request, 'image_upload', entity_type='product',
                               entity_id=str(product_id), entity_name=product.name,
                               meta={'count': len(saved_urls)})
-            return Response({'urls': saved_urls, 'primary_image': saved_urls[0] if saved_urls else None})
+            # Store relative in DB (saved_urls), but return absolute URLs so clients
+            # that display the response directly (e.g. mobile) get a reachable image.
+            from apps.products.serializers import resolve_media_url
+            resolved = [resolve_media_url(u, request) for u in saved_urls]
+            return Response({'urls': resolved, 'primary_image': resolved[0] if resolved else None})
 
         except Exception as e:
             logger.error('Product image upload failed: %s', e)
