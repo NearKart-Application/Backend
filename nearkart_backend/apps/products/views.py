@@ -556,9 +556,14 @@ class ProductImageDeleteView(APIView):
                 first.is_primary = True
                 first.save(update_fields=['is_primary'])
         CacheService.invalidate_product_detail(str(product_id))
+        CacheService.invalidate_nearby_products(
+            product.store.location.y, product.store.location.x,
+            store_id=str(product.store_id), category=product.category,
+        )
         log_vendor_action(request, 'image_delete', entity_type='product',
                           entity_id=str(product_id), entity_name=product.name)
-        remaining = [{'id': str(img.id), 'image_url': img.image_url, 'is_primary': img.is_primary}
+        from apps.products.serializers import resolve_media_url
+        remaining = [{'id': str(img.id), 'image_url': resolve_media_url(img.image_url, request), 'is_primary': img.is_primary}
                      for img in product.images.order_by('order')]
         return Response({'images': remaining})
 
