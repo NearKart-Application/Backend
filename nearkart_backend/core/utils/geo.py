@@ -91,7 +91,8 @@ def get_nearby_stores(lat: float, lng: float,
                 output_field=FloatField(),
             ),
         ).prefetch_related(
-            Prefetch('hours', queryset=StoreHours.objects.filter(is_closed=False)),
+            # Include closed days too, so the card can reflect a day the vendor marked closed (bug #Store status)
+            Prefetch('hours', queryset=StoreHours.objects.all()),
             Prefetch('offers', queryset=StoreOffer.objects.filter(
                 is_active=True
             ).filter(

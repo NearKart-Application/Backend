@@ -20,6 +20,10 @@ class StoreCategory(models.TextChoices):
     BEAUTY      = 'beauty',      'Beauty'
     FOOD        = 'food',        'Food'
     ELECTRONICS = 'electronics', 'Electronics'
+    GROCERY     = 'grocery',     'Grocery'
+    PHARMACY    = 'pharmacy',    'Pharmacy'
+    BOOKS       = 'books',       'Books & Stationery'
+    SPORTS      = 'sports',      'Sports & Fitness'
     OTHER       = 'other',       'Other'
 
 

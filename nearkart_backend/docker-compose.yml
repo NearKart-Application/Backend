@@ -212,9 +212,26 @@ services:
       retries: 5
     restart: unless-stopped
 
+  # ── NEARSPOT WEB DEV (Astro dev server with hot reload) ───
+  web:
+    build:
+      context: ../../Web/nearspot-web
+      dockerfile: Dockerfile.dev
+    volumes:
+      - ../../Web/nearspot-web:/app
+      - /app/node_modules
+    environment:
+      DJANGO_HOST: django
+      WS_HOST: daphne
+    ports:
+      - "4321:4321"
+    depends_on:
+      - django
+      - daphne
+    restart: unless-stopped
+
   # ── NEARSPOT WEB (Astro SSR) ──────────────────────────────
   # Only starts in production: docker compose --profile prod up -d
-  # In local dev, run: npm run dev  (in Web/nearspot-web/)
   nearspot-web:
     profiles: [prod]
     build:

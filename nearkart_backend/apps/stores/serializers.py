@@ -126,6 +126,7 @@ class StoreListSerializer(serializers.ModelSerializer):
     top_offer_label     = serializers.SerializerMethodField()
     active_offer_labels = serializers.SerializerMethodField()
     open_status_label   = serializers.SerializerMethodField()
+    live_is_open        = serializers.SerializerMethodField()
     todays_hours      = serializers.SerializerMethodField()
     top_subcategories = serializers.SerializerMethodField()
 
@@ -134,7 +135,7 @@ class StoreListSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'name', 'category', 'store_type', 'vendor_type', 'is_home_based',
             'locality', 'location',
-            'avatar', 'cover_image', 'is_open', 'is_verified',
+            'avatar', 'cover_image', 'is_open', 'live_is_open', 'is_verified',
             'holiday_mode',
             'performance_score', 'lat', 'lng', 'distance_km',
             'rating', 'review_count', 'follower_count',
@@ -191,27 +192,49 @@ class StoreListSerializer(serializers.ModelSerializer):
             labels.append(_offer_label(offer))
         return labels
 
+    def _today_hours_ist(self, obj):
+        """(current IST time, today's StoreHours entry incl. closed days) — hours prefetched, zero DB hit."""
+        from datetime import datetime
+        import pytz
+        now = datetime.now(pytz.timezone('Asia/Kolkata'))
+        day = now.weekday()
+        return now.time(), next((h for h in obj.hours.all() if h.day == day), None)
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_live_is_open(self, obj):
+        """Real open status for the customer card: holiday_mode → closed; a day the vendor
+        marked closed → closed; otherwise open iff current IST time is within hours. Falls back
+        to the manual is_open flag only when no hours are configured for today."""
+        if obj.holiday_mode:
+            return False
+        current_time, hours = self._today_hours_ist(obj)
+        if hours is not None:
+            if hours.is_closed:
+                return False
+            return hours.open_time <= current_time <= hours.close_time
+        return obj.is_open
+
     @extend_schema_field(serializers.CharField())
     def get_open_status_label(self, obj):
-        if obj.is_open:
-            from datetime import date
-            day = date.today().weekday()
-            # Uses prefetched non-closed hours — zero DB hit
-            hours = next((h for h in obj.hours.all() if h.day == day), None)
-            if hours:
+        if obj.holiday_mode:
+            return 'Closed'
+        current_time, hours = self._today_hours_ist(obj)
+        if hours is not None:
+            if hours.is_closed:
+                return 'Closed'
+            if hours.open_time <= current_time <= hours.close_time:
                 return f'Closes {hours.close_time.strftime("%-I:%M %p")}'
-            return 'Open now'
-        return 'Closed'
+            return 'Closed'
+        return 'Open now' if obj.is_open else 'Closed'
 
     @extend_schema_field(serializers.CharField())
     def get_todays_hours(self, obj):
-        from datetime import date
-        day = date.today().weekday()
-        # Uses prefetched non-closed hours — zero DB hit
-        hours = next((h for h in obj.hours.all() if h.day == day), None)
-        if hours:
-            return f'{hours.open_time.strftime("%-I %p")}–{hours.close_time.strftime("%-I %p")}'
-        return ''
+        _, hours = self._today_hours_ist(obj)
+        if hours is None:
+            return ''
+        if hours.is_closed:
+            return 'Closed'
+        return f'{hours.open_time.strftime("%-I %p")}–{hours.close_time.strftime("%-I %p")}'
 
     @extend_schema_field(serializers.ListField(child=serializers.CharField()))
     def get_top_subcategories(self, obj):
@@ -375,9 +398,11 @@ class StoreMobileDetailSerializer(serializers.ModelSerializer):
             now = datetime.now(ist)
             current_time = now.time()
             day = now.weekday()
-            hours = next((h for h in obj.hours.all() if h.day == day and not h.is_closed), None)
-            if hours:
-                return hours.open_time <= current_time <= hours.close_time
+            today = next((h for h in obj.hours.all() if h.day == day), None)
+            if today is not None:
+                if today.is_closed:       # vendor marked today closed → closed
+                    return False
+                return today.open_time <= current_time <= today.close_time
         except Exception:
             pass
         return obj.is_open

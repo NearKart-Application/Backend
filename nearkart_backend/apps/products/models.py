@@ -32,7 +32,7 @@ class Product(BaseModel):
         related_name='products',
     )
     subcategory    = models.CharField(max_length=100, blank=True)
-    status         = models.CharField(max_length=20, choices=ProductStatus.choices, default=ProductStatus.DRAFT)
+    status         = models.CharField(max_length=20, choices=ProductStatus.choices, default=ProductStatus.ACTIVE)
     is_visible     = models.BooleanField(default=True, db_index=True)
     base_price     = models.DecimalField(max_digits=10, decimal_places=2)
     previous_price = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)

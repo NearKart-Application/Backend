@@ -1,6 +1,6 @@
 from django.urls import path
 from .views import (
-    NearbyStoresView, StoreDetailView, SimilarStoresView, StoreCreateView, StoreMyView, StoreVisitedView,
+    NearbyStoresView, GameOffersView, StoreDetailView, SimilarStoresView, StoreCreateView, StoreMyView, StoreVisitedView,
     StoreUpdateView, StoreFollowView, StoreFollowerListView, StoreReviewView, StoreQRCodeView,
     StoreHoursView, StoreOfferView, StoreOfferDeleteView, StoreStatsView,
     VendorReviewReplyView, VendorReviewsListView, MyReviewsView, StoreInvoiceListCreateView,
@@ -23,6 +23,7 @@ urlpatterns = [
     path('offer-templates/',         PublicOfferTemplateListView.as_view(), name='store-offer-templates'),
     path('s/<slug:slug>/',           StorePublicWebsiteView.as_view(),   name='store-public-website'),
     path('nearby/',                  NearbyStoresView.as_view(),         name='stores-nearby'),
+    path('game-offers/',             GameOffersView.as_view(),           name='stores-game-offers'),
     path('mine/',                    StoreMyView.as_view(),               name='store-mine'),
     path('mine/all/',                VendorStoresListView.as_view(),      name='store-mine-all'),
     path('mine/website-request/',    WebsiteRequestView.as_view(),        name='store-website-request'),

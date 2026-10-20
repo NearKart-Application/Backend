@@ -98,6 +98,68 @@ class NearbyStoresView(APIView):
         return Response({'count': len(data), 'next': None, 'previous': None, 'results': data})
 
 
+class GameOffersView(APIView):
+    """Nearby active offers feed for the 'Deal or Skip' game. Public, location-based."""
+    permission_classes = [AllowAny]
+
+    @extend_schema(
+        tags=[_TAG],
+        summary='Nearby offers feed for the Deal-or-Skip game',
+        description='Returns nearby active percentage offers used as cards in the game. No auth required.',
+        parameters=[
+            OpenApiParameter('lat',    float, description='Latitude',  required=False),
+            OpenApiParameter('lng',    float, description='Longitude', required=False),
+            OpenApiParameter('radius', int,   description='Radius in km', required=False),
+        ],
+        auth=[],
+    )
+    def get(self, request):
+        from django.utils import timezone
+        from django.db.models import Q
+        from .models import StoreOffer
+
+        # lat/lng optional — fall back to a default city so the game always has data
+        try:
+            lat    = float(request.query_params.get('lat', 17.385))
+            lng    = float(request.query_params.get('lng', 78.4867))
+            radius = int(request.query_params.get('radius', 5))
+        except (TypeError, ValueError):
+            lat, lng, radius = 17.385, 78.4867, 5
+
+        stores    = StoreService.get_nearby(lat, lng, radius_km=radius)
+        store_ids = [s.id for s in stores]
+        today     = timezone.now().date()
+
+        offers = (StoreOffer.objects
+                  .filter(store_id__in=store_ids, is_active=True)
+                  .filter(Q(valid_till__isnull=True) | Q(valid_till__gte=today))
+                  .select_related('store')
+                  .order_by('-created_at')[:120])
+
+        results = []
+        for o in offers:
+            # resolve a clean percentage so the game's "grab X% & above" rule works
+            pct = None
+            if o.discount_pct:
+                pct = int(o.discount_pct)
+            elif o.discount_type == 'percent' and o.discount_value is not None:
+                pct = int(o.discount_value)
+            if not pct or pct <= 0 or pct > 95:
+                continue
+            results.append({
+                'store':      o.store.name,
+                'area':       o.store.area or o.store.city or '',
+                'category':   o.store.category,
+                'pct':        pct,
+                'label':      f'{pct}% OFF',
+                'valid_till': o.valid_till.isoformat() if o.valid_till else None,
+            })
+            if len(results) >= 40:
+                break
+
+        return Response({'count': len(results), 'results': results})
+
+
 class StoreDetailView(APIView):
     permission_classes = [AllowAny]
 
