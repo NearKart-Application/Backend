@@ -502,11 +502,12 @@ class ProductImageUploadView(APIView):
                 ext = os.path.splitext(file.name)[1].lower() or '.jpg'
                 filename = f'products/{product_id}/{uuid.uuid4().hex}{ext}'
                 path = default_storage.save(filename, ContentFile(file.read()))
-                raw_url = default_storage.url(path)
-                if raw_url.startswith('http'):
-                    url = raw_url.replace('http://', 'https://', 1)
-                else:
-                    url = request.build_absolute_uri(raw_url).replace('http://', 'https://', 1)
+                # Store the storage URL as-is: FileSystemStorage yields a relative
+                # "/media/..." path (serializers resolve it to an absolute URL per
+                # request), while S3/remote backends yield a stable absolute URL.
+                # Never bake the request host into the DB — it breaks for any client
+                # on a different host (localhost vs LAN IP vs domain).
+                url = default_storage.url(path)
                 is_primary = (existing_count == 0 and i == 0)
                 ProductImage.objects.create(
                     product=product,

@@ -1,10 +1,30 @@
 """
 NearKart — Product Serializers
 """
+from django.conf import settings
 from django.db import models
 from rest_framework import serializers
 from drf_spectacular.utils import extend_schema_field
 from .models import Product, ProductVariant, ProductImage, Wishlist, ProductReview, ProductQA, ProductPriceHistory
+
+
+def resolve_media_url(url, request=None):
+    """Resolve a stored media URL to a stable, reachable absolute URL.
+
+    External/absolute URLs (seed images, S3) pass through unchanged. Relative media
+    paths ("/media/...") are prefixed with settings.SITE_URL — a single configured
+    base per environment — so the result is identical for every client and safe to
+    cache. (Request host is only a last-resort fallback if SITE_URL is unset; it is
+    never used when a response is cached, to avoid baking one client's host in.)
+    """
+    if not url or url.startswith('http://') or url.startswith('https://'):
+        return url
+    base = (getattr(settings, 'SITE_URL', '') or '').rstrip('/')
+    if base:
+        return f'{base}{url}'
+    if request is not None:
+        return request.build_absolute_uri(url)
+    return url
 
 
 class ProductVariantSerializer(serializers.ModelSerializer):
@@ -21,11 +41,16 @@ class ProductVariantSerializer(serializers.ModelSerializer):
 
 class ProductImageSerializer(serializers.ModelSerializer):
     variant_id = serializers.UUIDField(source='variant.id', allow_null=True, read_only=True)
+    image_url  = serializers.SerializerMethodField()
 
     class Meta:
         model  = ProductImage
         fields = ['id', 'image_url', 'is_primary', 'order', 'variant_id']
         read_only_fields = ['id']
+
+    @extend_schema_field(serializers.URLField())
+    def get_image_url(self, obj):
+        return resolve_media_url(obj.image_url, self.context.get('request'))
 
 
 class ProductSerializer(serializers.ModelSerializer):
@@ -56,7 +81,7 @@ class ProductSerializer(serializers.ModelSerializer):
     def get_primary_image(self, obj):
         images = list(obj.images.all())
         img = next((i for i in images if i.is_primary), None) or (images[0] if images else None)
-        return img.image_url if img else None
+        return resolve_media_url(img.image_url, self.context.get('request')) if img else None
 
     @extend_schema_field(serializers.IntegerField())
     def get_stock_total(self, obj):
@@ -118,7 +143,7 @@ class ProductListSerializer(serializers.ModelSerializer):
         """Returns first primary (or any) image using prefetch cache — zero DB hit."""
         images = list(obj.images.all())
         img = next((i for i in images if i.is_primary), None) or (images[0] if images else None)
-        return img.image_url if img else None
+        return resolve_media_url(img.image_url, self.context.get('request')) if img else None
 
     def _cheapest_variant(self, obj):
         """Returns lowest-price variant using prefetch cache — zero DB hit."""
@@ -212,10 +237,20 @@ class MobileProductDetailSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.ListField())
     def get_images(self, obj):
-        return [
-            {'url': img.image_url, 'variant_id': str(img.variant_id) if img.variant_id else None}
-            for img in sorted(obj.images.all(), key=lambda i: i.order)
-        ]
+        request = self.context.get('request')
+        out = []
+        for img in sorted(obj.images.all(), key=lambda i: i.order):
+            resolved = resolve_media_url(img.image_url, request)
+            out.append({
+                'id': str(img.id),
+                'url': resolved,
+                # alias for the vendor edit form, which reads `image_url`
+                'image_url': resolved,
+                'is_primary': img.is_primary,
+                'order': img.order,
+                'variant_id': str(img.variant_id) if img.variant_id else None,
+            })
+        return out
 
     @extend_schema_field(serializers.DictField())
     def get_store(self, obj):
