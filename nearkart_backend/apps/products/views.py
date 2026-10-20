@@ -431,8 +431,13 @@ class ProductUpdateView(APIView):
         self.check_object_permissions(request, product)
         store_id = str(product.store_id)
         product_name = product.name
+        store_lat, store_lng = product.store.location.y, product.store.location.x
+        product_category = product.category
         product.delete()
         CacheService.invalidate_product_detail(str(product_id))
+        CacheService.invalidate_nearby_products(
+            store_lat, store_lng, store_id=store_id, category=product_category,
+        )
         log_event('products', action='product_deleted', product_id=str(product_id),
                   store_id=store_id, user_id=str(request.user.id))
         log_vendor_action(request, 'product_delete', entity_type='product',
@@ -512,6 +517,10 @@ class ProductImageUploadView(APIView):
                 saved_urls.append(url)
 
             CacheService.invalidate_product_detail(str(product_id))
+            CacheService.invalidate_nearby_products(
+                product.store.location.y, product.store.location.x,
+                store_id=str(product.store_id), category=product.category,
+            )
             log_vendor_action(request, 'image_upload', entity_type='product',
                               entity_id=str(product_id), entity_name=product.name,
                               meta={'count': len(saved_urls)})
