@@ -446,8 +446,33 @@ class ProductUpdateView(APIView):
 
 
 class ProductImageUploadView(APIView):
-    """POST /api/v1/products/<id>/images/ — upload up to 5 images for a product."""
+    """GET/POST /api/v1/products/<id>/images/ — list or upload a product's images."""
     permission_classes = [IsAuthenticated, IsStoreOwner]
+
+    def get(self, request, product_id):
+        """List a product's existing images (vendor edit screen).
+
+        Without this the mobile edit screen could not load previously uploaded
+        images, so they couldn't be viewed or managed while editing.
+        """
+        try:
+            product = Product.objects.get(id=product_id)
+        except Product.DoesNotExist:
+            return Response({'error': 'not_found', 'message': 'Product not found.'}, status=status.HTTP_404_NOT_FOUND)
+        self.check_object_permissions(request, product)
+        from apps.products.serializers import resolve_media_url
+        images = [
+            {
+                'id': str(img.id),
+                'url': resolve_media_url(img.image_url, request),
+                'image_url': resolve_media_url(img.image_url, request),
+                'is_primary': img.is_primary,
+                'order': img.order,
+                'created_at': img.created_at.isoformat() if img.created_at else '',
+            }
+            for img in product.images.order_by('order')
+        ]
+        return Response(images)
 
     def post(self, request, product_id):
         try:
@@ -563,7 +588,10 @@ class ProductImageDeleteView(APIView):
         log_vendor_action(request, 'image_delete', entity_type='product',
                           entity_id=str(product_id), entity_name=product.name)
         from apps.products.serializers import resolve_media_url
-        remaining = [{'id': str(img.id), 'image_url': resolve_media_url(img.image_url, request), 'is_primary': img.is_primary}
+        remaining = [{'id': str(img.id),
+                      'url': resolve_media_url(img.image_url, request),
+                      'image_url': resolve_media_url(img.image_url, request),
+                      'is_primary': img.is_primary}
                      for img in product.images.order_by('order')]
         return Response({'images': remaining})
 
