@@ -565,6 +565,36 @@ class ProductImageDeleteView(APIView):
     """DELETE /api/v1/products/<id>/images/<image_id>/ — remove a single product image."""
     permission_classes = [IsAuthenticated, IsStoreOwner]
 
+    def patch(self, request, product_id, image_id):
+        """Set this image as the product's cover (primary) image."""
+        try:
+            product = Product.objects.get(id=product_id)
+        except Product.DoesNotExist:
+            return Response({'error': 'not_found'}, status=status.HTTP_404_NOT_FOUND)
+        self.check_object_permissions(request, product)
+        try:
+            target = product.images.get(id=image_id)
+        except ProductImage.DoesNotExist:
+            return Response({'error': 'not_found'}, status=status.HTTP_404_NOT_FOUND)
+        product.images.filter(is_primary=True).exclude(id=target.id).update(is_primary=False)
+        if not target.is_primary:
+            target.is_primary = True
+            target.save(update_fields=['is_primary'])
+        CacheService.invalidate_product_detail(str(product_id))
+        CacheService.invalidate_nearby_products(
+            product.store.location.y, product.store.location.x,
+            store_id=str(product.store_id), category=product.category,
+        )
+        log_vendor_action(request, 'image_set_primary', entity_type='product',
+                          entity_id=str(product_id), entity_name=product.name)
+        from apps.products.serializers import resolve_media_url
+        images = [{'id': str(img.id),
+                   'url': resolve_media_url(img.image_url, request),
+                   'image_url': resolve_media_url(img.image_url, request),
+                   'is_primary': img.is_primary}
+                  for img in product.images.order_by('order')]
+        return Response({'images': images})
+
     def delete(self, request, product_id, image_id):
         try:
             product = Product.objects.get(id=product_id)
