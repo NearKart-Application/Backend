@@ -162,7 +162,7 @@ class MessageListView(APIView):
             return conversation
         before_id = request.query_params.get('before')
         messages = ConversationService.get_messages(conversation, before_id=before_id)
-        return Response(MessageSerializer(messages, many=True).data)
+        return Response(MessageSerializer(messages, many=True, context={'request': request}).data)
 
     @extend_schema(
         tags=[_TAG],
@@ -331,11 +331,19 @@ class MessageReactionView(APIView):
             msg = Message.objects.get(id=message_id, conversation=conv)
         except Message.DoesNotExist:
             return Response({'error': 'not_found'}, status=404)
-        reaction, created = MessageReaction.objects.update_or_create(
-            message=msg, user=request.user,
-            defaults={'emoji': emoji},
-        )
-        return Response({'id': str(reaction.id), 'emoji': reaction.emoji, 'created': created},
+        existing = MessageReaction.objects.filter(message=msg, user=request.user, emoji=emoji).first()
+        if existing:
+            # Tapping the same emoji again toggles it off.
+            existing.delete()
+            created = False
+        else:
+            MessageReaction.objects.update_or_create(
+                message=msg, user=request.user,
+                defaults={'emoji': emoji},
+            )
+            created = True
+        reactions = MessageSerializer(msg, context={'request': request}).data['reactions']
+        return Response({'reactions': reactions, 'created': created},
                         status=201 if created else 200)
 
     def delete(self, request, conversation_id, message_id):
@@ -347,4 +355,9 @@ class MessageReactionView(APIView):
         if not ConversationService.user_belongs_to_conversation(request.user, conv):
             return Response({'error': 'permission_denied'}, status=403)
         MessageReaction.objects.filter(message_id=message_id, user=request.user).delete()
-        return Response(status=204)
+        try:
+            msg = Message.objects.get(id=message_id, conversation=conv)
+            reactions = MessageSerializer(msg, context={'request': request}).data['reactions']
+        except Message.DoesNotExist:
+            reactions = []
+        return Response({'reactions': reactions}, status=200)

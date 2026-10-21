@@ -10,13 +10,14 @@ from .models import Conversation, Message
 class MessageSerializer(serializers.ModelSerializer):
     sender_phone = serializers.SerializerMethodField()
     sender_role  = serializers.SerializerMethodField()
+    reactions    = serializers.SerializerMethodField()
 
     class Meta:
         model  = Message
         fields = [
             'id', 'conversation_id', 'sender_id', 'sender_phone', 'sender_role',
             'content', 'message_type', 'media_url', 'ref_id',
-            'is_read', 'created_at',
+            'is_read', 'created_at', 'reactions',
         ]
 
     @extend_schema_field(serializers.CharField())
@@ -26,6 +27,19 @@ class MessageSerializer(serializers.ModelSerializer):
     @extend_schema_field(serializers.CharField())
     def get_sender_role(self, obj):
         return obj.sender.role
+
+    @extend_schema_field(serializers.ListField())
+    def get_reactions(self, obj):
+        """Reactions aggregated per emoji: [{emoji, count, reacted_by_me}]."""
+        request = self.context.get('request')
+        me_id = getattr(getattr(request, 'user', None), 'id', None)
+        agg = {}
+        for r in obj.reactions.all():
+            entry = agg.setdefault(r.emoji, {'emoji': r.emoji, 'count': 0, 'reacted_by_me': False})
+            entry['count'] += 1
+            if me_id is not None and r.user_id == me_id:
+                entry['reacted_by_me'] = True
+        return list(agg.values())
 
 
 class ConversationSerializer(serializers.ModelSerializer):

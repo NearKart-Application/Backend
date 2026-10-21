@@ -92,7 +92,7 @@ class ConversationService:
 
     @staticmethod
     def get_messages(conversation: Conversation, before_id=None, limit=50):
-        qs = Message.objects.filter(conversation=conversation).order_by('-created_at')
+        qs = Message.objects.filter(conversation=conversation).prefetch_related('reactions').order_by('-created_at')
         if before_id:
             try:
                 pivot = Message.objects.get(id=before_id)
