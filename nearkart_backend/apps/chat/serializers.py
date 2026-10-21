@@ -47,6 +47,7 @@ class ConversationSerializer(serializers.ModelSerializer):
     store_id         = serializers.UUIDField(source='store.id', read_only=True)
     customer_phone   = serializers.CharField(source='customer.phone_number', read_only=True)
     customer_name    = serializers.CharField(source='customer.full_name', read_only=True)
+    display_name     = serializers.SerializerMethodField()
     my_unread_count  = serializers.SerializerMethodField()
     last_message     = serializers.SerializerMethodField()
 
@@ -54,9 +55,20 @@ class ConversationSerializer(serializers.ModelSerializer):
         model  = Conversation
         fields = [
             'id', 'store_id', 'store_name', 'customer_id', 'customer_phone', 'customer_name',
+            'display_name',
             'my_unread_count', 'last_message', 'last_message_at',
             'is_active', 'created_at',
         ]
+
+    @extend_schema_field(serializers.CharField())
+    def get_display_name(self, obj):
+        """The name of the OTHER party, from the requester's perspective:
+        the customer sees the store; the vendor/store side sees the customer."""
+        request = self.context.get('request')
+        user = getattr(request, 'user', None)
+        if user is not None and getattr(user, 'id', None) == obj.customer_id:
+            return obj.store.name
+        return (obj.customer.full_name or '').strip() or obj.customer.phone_number
 
     @extend_schema_field(serializers.IntegerField())
     def get_my_unread_count(self, obj):
