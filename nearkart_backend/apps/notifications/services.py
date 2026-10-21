@@ -232,6 +232,24 @@ class NotificationService:
         )
 
     @staticmethod
+    def notify_new_question(vendor, store_name: str, customer_name: str, store_id: str, question_id: str):
+        NotificationService.send(
+            vendor, NotificationType.NEW_QUESTION,
+            title=f'New Question — {store_name}',
+            body=f'{customer_name} asked a question about your store.',
+            data={'store_id': store_id, 'question_id': question_id},
+        )
+
+    @staticmethod
+    def notify_question_answered(customer, store_name: str, store_id: str, question_id: str):
+        NotificationService.send(
+            customer, NotificationType.QUESTION_ANSWERED,
+            title=f'Answer from {store_name}',
+            body='The store replied to your question.',
+            data={'store_id': store_id, 'question_id': question_id},
+        )
+
+    @staticmethod
     def notify_reservation_completed(customer, store_name: str, reservation_id: str, product_name: str):
         NotificationService.send(
             customer, NotificationType.RESERVATION_COMPLETED,

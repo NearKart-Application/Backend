@@ -681,7 +681,16 @@ class StoreQAView(APIView):
             return Response({'error': 'not_found'}, status=status.HTTP_404_NOT_FOUND)
         serializer = StoreQuestionSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        serializer.save(store=store, user=request.user)
+        question = serializer.save(store=store, user=request.user)
+        try:
+            from apps.notifications.services import NotificationService
+            NotificationService.notify_new_question(
+                store.owner, store.name,
+                getattr(request.user, 'full_name', None) or 'A customer',
+                str(store.id), str(question.id),
+            )
+        except Exception:
+            logger.exception('Failed to notify vendor of new question')
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 
@@ -706,6 +715,13 @@ class StoreQAAnswerView(APIView):
         question.answer = answer
         question.answered_at = timezone.now()
         question.save(update_fields=['answer', 'answered_at', 'updated_at'])
+        try:
+            from apps.notifications.services import NotificationService
+            NotificationService.notify_question_answered(
+                question.user, store.name, str(store.id), str(question.id),
+            )
+        except Exception:
+            logger.exception('Failed to notify customer of answered question')
         from .serializers import StoreQuestionSerializer
         return Response(StoreQuestionSerializer(question).data)
 

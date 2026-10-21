@@ -23,6 +23,8 @@ class NotificationType(models.TextChoices):
     NEW_REVIEW              = 'new_review',              'New Review'
     STORE_OPENED            = 'store_opened',            'Store Opened'
     NEW_OFFER               = 'new_offer',               'New Offer'
+    NEW_QUESTION            = 'new_question',            'New Question'
+    QUESTION_ANSWERED       = 'question_answered',       'Question Answered'
     # Videos
     VIDEO_LIKED             = 'video_liked',             'Video Liked'
     VIDEO_READY             = 'video_ready',             'Video Ready'

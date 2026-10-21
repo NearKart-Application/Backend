@@ -1,0 +1,59 @@
+from django.db import migrations, models
+
+
+class Migration(migrations.Migration):
+    """Add Store Q&A notification types (choices-only; no schema change)."""
+
+    dependencies = [
+        ("notifications", "0004_notification_preference"),
+    ]
+
+    operations = [
+        migrations.AlterField(
+            model_name="notification",
+            name="notification_type",
+            field=models.CharField(
+                choices=[
+                    ("new_message", "New Message"),
+                    ("reservation_created", "Reservation Created"),
+                    ("reservation_confirmed", "Reservation Confirmed"),
+                    ("reservation_cancelled", "Reservation Cancelled"),
+                    ("reservation_expired", "Reservation Expired"),
+                    ("reservation_expiring_soon", "Reservation Expiring Soon"),
+                    ("reservation_completed", "Reservation Completed"),
+                    ("new_follower", "New Follower"),
+                    ("new_review", "New Review"),
+                    ("store_opened", "Store Opened"),
+                    ("new_offer", "New Offer"),
+                    ("new_question", "New Question"),
+                    ("question_answered", "Question Answered"),
+                    ("video_liked", "Video Liked"),
+                    ("video_ready", "Video Ready"),
+                    ("video_expiring_soon", "Video Expiring Soon"),
+                    ("wallet_topup", "Wallet Top-Up"),
+                    ("subscription_expiring", "Subscription Expiring"),
+                    ("subscription_expired", "Subscription Expired"),
+                    ("group_added", "Added to Group"),
+                    ("group_removed", "Removed from Group"),
+                    ("group_product_shared", "Product Shared in Group"),
+                    ("group_product_finalized", "Product Finalized in Group"),
+                    ("group_admin_promoted", "Promoted to Group Admin"),
+                    ("invoice_received", "Invoice Received"),
+                    ("loyalty", "Loyalty Points"),
+                    ("vendor_coupon", "Vendor Coupon"),
+                    ("weekly_digest", "Weekly Digest"),
+                    ("price_drop_alert", "Price Drop Alert"),
+                    ("low_stock", "Low Stock Alert"),
+                    ("out_of_stock_alert", "Product Out of Stock"),
+                    ("back_in_stock", "Back in Stock"),
+                    ("reorder_point", "Reorder Point Reached"),
+                    ("po_reminder", "Purchase Order Due"),
+                    ("audit_complete", "Stock Audit Complete"),
+                    ("weekly_stock_summary", "Weekly Stock Summary"),
+                    ("referral_reward", "Referral Reward"),
+                ],
+                db_index=True,
+                max_length=30,
+            ),
+        ),
+    ]
