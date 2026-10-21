@@ -25,6 +25,8 @@ class NotificationType(models.TextChoices):
     NEW_OFFER               = 'new_offer',               'New Offer'
     NEW_QUESTION            = 'new_question',            'New Question'
     QUESTION_ANSWERED       = 'question_answered',       'Question Answered'
+    QUESTION_EXPIRING       = 'question_expiring',       'Question Expiring'
+    QUESTION_DELETED        = 'question_deleted',        'Question Deleted'
     # Videos
     VIDEO_LIKED             = 'video_liked',             'Video Liked'
     VIDEO_READY             = 'video_ready',             'Video Ready'

@@ -250,6 +250,33 @@ class NotificationService:
         )
 
     @staticmethod
+    def notify_question_expiring_vendor(vendor, store_name: str, customer_name: str, store_id: str, question_id: str):
+        NotificationService.send(
+            vendor, NotificationType.QUESTION_EXPIRING,
+            title=f'Unanswered question — {store_name}',
+            body=f"{customer_name}'s question is still unanswered and will be removed in 2 days.",
+            data={'store_id': store_id, 'question_id': question_id},
+        )
+
+    @staticmethod
+    def notify_question_expiring_customer(customer, store_name: str, store_id: str, question_id: str):
+        NotificationService.send(
+            customer, NotificationType.QUESTION_EXPIRING,
+            title=f'Still awaiting a reply — {store_name}',
+            body='Your question has not been answered yet and will be removed in 2 days.',
+            data={'store_id': store_id, 'question_id': question_id},
+        )
+
+    @staticmethod
+    def notify_question_deleted(customer, store_name: str, store_id: str):
+        NotificationService.send(
+            customer, NotificationType.QUESTION_DELETED,
+            title=f'Question removed — {store_name}',
+            body='Your question was removed without a reply. Please ask again if you still need help.',
+            data={'store_id': store_id},
+        )
+
+    @staticmethod
     def notify_reservation_completed(customer, store_name: str, reservation_id: str, product_name: str):
         NotificationService.send(
             customer, NotificationType.RESERVATION_COMPLETED,
