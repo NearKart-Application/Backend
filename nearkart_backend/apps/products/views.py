@@ -263,11 +263,29 @@ class ProductDetailView(APIView):
     permission_classes = [AllowAny]
 
     @extend_schema(tags=[_TAG], summary='Get product detail', responses={200: ProductSerializer}, auth=[])
+    def _inject_owner_cost_price(self, data, request, product_id):
+        """Attach purchase cost (cost_price) per-request — owner-only, so it is NEVER cached/leaked.
+
+        The product-detail payload is cached per-product (shared across users), so cost_price
+        must be resolved outside the cache: only the store owner sees a value, everyone else null.
+        """
+        data = dict(data)
+        data['cost_price'] = None
+        user = getattr(request, 'user', None)
+        if user is not None and user.is_authenticated:
+            owned = (Product.objects.filter(id=product_id, store__owner=user)
+                     .prefetch_related('variants').first())
+            if owned:
+                v = min(owned.variants.all(), key=lambda x: x.price, default=None)
+                if v and v.cost_price is not None:
+                    data['cost_price'] = float(v.cost_price)
+        return data
+
     def get(self, request, product_id):
         key    = CacheService.product_detail_key(str(product_id))
         cached = CacheService.get(key)
         if cached is not None:
-            return Response(cached)
+            return Response(self._inject_owner_cost_price(cached, request, product_id))
         try:
             from django.db.models import Avg, Count
             product = Product.objects.select_related('store').prefetch_related('variants', 'images').annotate(
@@ -280,6 +298,7 @@ class ProductDetailView(APIView):
             return Response({'error': 'not_found', 'message': 'Product not found.'}, status=status.HTTP_404_NOT_FOUND)
         data = MobileProductDetailSerializer(product, context={'request': request}).data
         CacheService.set(key, data, timeout=CacheService.TTL_PRODUCT_DETAIL)
+        data = self._inject_owner_cost_price(data, request, product_id)
         user = request.user if request.user.is_authenticated else None
         log_event('products', action='product_viewed', product_id=str(product_id),
                   store_id=str(product.store_id), user_id=str(user.id) if user else None)
@@ -400,19 +419,40 @@ class ProductUpdateView(APIView):
         serializer.is_valid(raise_exception=True)
         product = ProductService.update(product, serializer.validated_data)
 
-        # If sale_price provided, apply it to the first variant (drives is_on_sale + discount %)
-        sale_price_raw = request.data.get('sale_price')
-        if sale_price_raw is not None:
-            from decimal import Decimal, InvalidOperation
-            try:
-                sale_price = Decimal(str(sale_price_raw))
-                variant = product.variants.order_by('created_at').first()
-                if variant:
+        # Variant-level fields are sent flat on the product form but live on the variant,
+        # so apply them to the first variant (mirrors how sale_price is handled).
+        from decimal import Decimal, InvalidOperation
+        variant = product.variants.order_by('created_at').first()
+        if variant:
+            variant_updates = []
+            # sale_price → drives is_on_sale + discount %
+            sale_price_raw = request.data.get('sale_price')
+            if sale_price_raw is not None:
+                try:
+                    sale_price = Decimal(str(sale_price_raw))
                     # Clear sale if sale_price >= base_price
                     variant.price = sale_price if sale_price < product.base_price else product.base_price
-                    variant.save(update_fields=['price'])
-            except (InvalidOperation, ValueError):
-                pass
+                    variant_updates.append('price')
+                except (InvalidOperation, ValueError):
+                    pass
+            # cost_price (purchase cost — owner-only, never shown to customers)
+            cost_price_raw = request.data.get('cost_price')
+            if cost_price_raw not in (None, ''):
+                try:
+                    variant.cost_price = Decimal(str(cost_price_raw))
+                    variant_updates.append('cost_price')
+                except (InvalidOperation, ValueError):
+                    pass
+            # mrp (crossed-out price shown to customers)
+            mrp_raw = request.data.get('mrp')
+            if mrp_raw not in (None, ''):
+                try:
+                    variant.mrp = Decimal(str(mrp_raw))
+                    variant_updates.append('mrp')
+                except (InvalidOperation, ValueError):
+                    pass
+            if variant_updates:
+                variant.save(update_fields=variant_updates)
 
         CacheService.invalidate_product_detail(str(product_id))
         log_event('products', action='product_updated', product_id=str(product_id),
