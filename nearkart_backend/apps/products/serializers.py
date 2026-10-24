@@ -62,6 +62,7 @@ class ProductSerializer(serializers.ModelSerializer):
     is_wishlisted = serializers.SerializerMethodField(read_only=True)
     primary_image = serializers.SerializerMethodField(read_only=True)
     stock_total   = serializers.SerializerMethodField(read_only=True)
+    cost_price    = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model  = Product
@@ -70,12 +71,25 @@ class ProductSerializer(serializers.ModelSerializer):
             'name', 'description', 'category', 'category_fk',
             'status', 'is_visible', 'base_price', 'barcode',
             'variants', 'images',
-            'primary_image', 'stock_total',
+            'primary_image', 'stock_total', 'cost_price',
             'distance_km', 'is_wishlisted',
             'created_at', 'last_updated_at',
         ]
         read_only_fields = ['id', 'store_id', 'store_name', 'created_at', 'last_updated_at']
         extra_kwargs = {'product_code': {'required': False, 'allow_blank': True}}
+
+    @extend_schema_field(serializers.FloatField(allow_null=True))
+    def get_cost_price(self, obj):
+        """Purchase cost (owner-only). These are vendor endpoints, but gate anyway so it's
+        never exposed to a non-owner; customers never hit this serializer."""
+        request = self.context.get('request')
+        user = getattr(request, 'user', None)
+        if user is None or not getattr(user, 'is_authenticated', False) or obj.store.owner_id != user.id:
+            return None
+        variant = min(obj.variants.all(), key=lambda v: v.price, default=None)
+        if variant and variant.cost_price is not None:
+            return float(variant.cost_price)
+        return None
 
     @extend_schema_field(serializers.URLField(allow_null=True))
     def get_primary_image(self, obj):
