@@ -208,6 +208,7 @@ class MobileProductDetailSerializer(serializers.ModelSerializer):
     """Mobile-compatible product detail serializer."""
     price        = serializers.DecimalField(source='base_price', max_digits=10, decimal_places=2, read_only=True)
     sale_price   = serializers.SerializerMethodField()
+    mrp          = serializers.SerializerMethodField()
     images       = serializers.SerializerMethodField()
     store        = serializers.SerializerMethodField()
     distance_km  = serializers.SerializerMethodField()
@@ -221,7 +222,7 @@ class MobileProductDetailSerializer(serializers.ModelSerializer):
         model  = Product
         fields = [
             'id', 'name', 'description', 'category', 'subcategory',
-            'price', 'sale_price', 'base_price', 'images', 'store',
+            'price', 'sale_price', 'mrp', 'base_price', 'images', 'store',
             'distance_km', 'sizes', 'colors',
             'stock_count', 'is_on_sale', 'festival_tag', 'is_wishlisted',
             # Vendor edit form fields
@@ -233,6 +234,14 @@ class MobileProductDetailSerializer(serializers.ModelSerializer):
         variant = min(obj.variants.all(), key=lambda v: v.price, default=None)
         if variant and float(variant.price) < float(obj.base_price):
             return float(variant.price)
+        return None
+
+    @extend_schema_field(serializers.FloatField(allow_null=True))
+    def get_mrp(self, obj):
+        """MRP of the price-driving (cheapest) variant — shown struck-through when above the selling price."""
+        variant = min(obj.variants.all(), key=lambda v: v.price, default=None)
+        if variant and variant.mrp:
+            return float(variant.mrp)
         return None
 
     @extend_schema_field(serializers.ListField())
