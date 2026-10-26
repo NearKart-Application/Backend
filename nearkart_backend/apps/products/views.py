@@ -1347,13 +1347,46 @@ class ProductBulkImportView(APIView):
         from .services import ProductService
         store = request.user.store
 
+        import requests
+
+        def _validate_image(url):
+            """Return None if the URL is a usable image, else a short reason string.
+            Run BEFORE opening the DB transaction so a slow fetch never holds a row lock."""
+            if not url.lower().startswith(('http://', 'https://')):
+                return None  # not a fetchable URL — leave as-is, don't block the row
+            try:
+                resp = requests.get(url, timeout=5)
+            except Exception:
+                return 'image URL is unreachable'
+            if resp.status_code != 200:
+                return f'image URL returned HTTP {resp.status_code}'
+            if not resp.headers.get('Content-Type', '').lower().startswith('image/'):
+                return 'image URL does not point to an image'
+            if len(resp.content) > 10 * 1024 * 1024:
+                return 'image is larger than 10 MB'
+            try:
+                from PIL import Image as PilImage
+                w, h = PilImage.open(io.BytesIO(resp.content)).size
+                if w < 300 or h < 300:
+                    return f'image is too small ({w}x{h}px, minimum 300x300)'
+            except Exception:
+                return 'image file is corrupt or unreadable'
+            return None
+
         created_count = 0
         updated_count = 0
-        errors = []
+        errors = []       # rows that could NOT be imported (skipped)
+        warnings = []     # rows imported, but with an image problem to fix
+        rework = []       # (original row, reason) → the downloadable "rows to fix" CSV
+
+        def _skip(i, row, msg):
+            errors.append({'row': i, 'message': msg})
+            rework.append((row, msg))
+
         for i, row in enumerate(rows, start=2):
             name = (row.get('name') or '').strip()
             if not name:
-                errors.append({'row': i, 'message': 'name is required'})
+                _skip(i, row, 'name is required')
                 continue
             try:
                 base_price_raw = row.get('base_price') or row.get('price') or '0'
@@ -1361,18 +1394,26 @@ class ProductBulkImportView(APIView):
                 if base_price <= 0:
                     raise ValueError('price must be > 0')
             except (ValueError, AttributeError):
-                errors.append({'row': i, 'message': f'invalid base_price: {base_price_raw!r}'})
+                _skip(i, row, f'invalid base_price: {base_price_raw!r}')
                 continue
             try:
                 stock = int((row.get('stock') or '0').strip() or '0')
             except ValueError:
-                errors.append({'row': i, 'message': f"invalid stock: {row.get('stock')!r}"})
+                _skip(i, row, f"invalid stock: {row.get('stock')!r}")
                 continue
 
             category  = (row.get('category') or 'others').strip().lower()
             desc      = (row.get('description') or '').strip()
             barcode   = (row.get('barcode') or row.get('ean') or '').strip()
             image_url = (row.get('image_url') or row.get('image') or '').strip()
+            # Check the image URL up front. A bad image does NOT reject the product (Shopify-style):
+            # the product still imports as draft, and we flag the image so the vendor can fix & re-upload.
+            if image_url:
+                image_reason = _validate_image(image_url)
+                if image_reason:
+                    warnings.append({'row': i, 'message': image_reason})
+                    rework.append((row, image_reason))
+                    image_url = ''  # don't attach a broken image; the product itself still imports
             try:
                 with transaction.atomic():
                     # Idempotency: match an existing product by barcode (if given) else by name,
@@ -1434,7 +1475,20 @@ class ProductBulkImportView(APIView):
                         created_count += 1
             except Exception as exc:
                 # A bad row must not fail the whole import — report it and continue.
-                errors.append({'row': i, 'message': f'could not import: {exc}'})
+                _skip(i, row, f'could not import: {exc}')
+
+        # Downloadable CSV of just the rows that need attention (skipped + image issues), with a
+        # 'reason' column — so the vendor fixes only those and re-uploads a small file. Re-importing
+        # it is safe: good rows match & update in place (idempotent), successes are never duplicated.
+        failed_csv = ''
+        if rework:
+            buf = io.StringIO()
+            out_fields = list(header) + ['reason']
+            writer = csv.DictWriter(buf, fieldnames=out_fields, extrasaction='ignore')
+            writer.writeheader()
+            for orig, reason in rework:
+                writer.writerow({**{k: (orig.get(k) or '') for k in header}, 'reason': reason})
+            failed_csv = buf.getvalue()
 
         ok = created_count or updated_count
         return Response(
@@ -1444,6 +1498,8 @@ class ProductBulkImportView(APIView):
                 'skipped': len(errors),
                 'processed': len(rows),
                 'errors': errors,
+                'warnings': warnings,
+                'failed_csv': failed_csv,
             },
             status=status.HTTP_201_CREATED if ok else status.HTTP_400_BAD_REQUEST,
         )
