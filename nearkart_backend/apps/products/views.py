@@ -1881,9 +1881,14 @@ class HomeDecorProductListView(APIView):
     def get(self, request):
         from django.db.models import Q
         store = request.user.store
+        # Show every home-decor product's variants (decor + furniture categories map to this screen),
+        # plus any variant that already has a home-decor attribute set. Previously this listed ONLY
+        # variants with attributes already set — a chicken-and-egg where a new decor/furniture product
+        # never appeared, so the vendor had no way to add its dimensions/assembly flags.
         variants = ProductVariant.objects.filter(
             product__store=store,
         ).filter(
+            Q(product__category__in=['decor', 'furniture']) |
             Q(length_cm__isnull=False) |
             Q(width_cm__isnull=False) |
             Q(height_cm__isnull=False) |
