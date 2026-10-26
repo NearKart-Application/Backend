@@ -1373,21 +1373,36 @@ class ProductBulkImportView(APIView):
                 return 'image file is corrupt or unreadable'
             return None
 
-        created_count = 0
-        updated_count = 0
-        errors = []       # rows that could NOT be imported (skipped)
-        warnings = []     # rows imported, but with an image problem to fix
-        rework = []       # (original row, reason) → the downloadable "rows to fix" CSV
-        updated_products = []  # (id, category) of existing products updated → bust their caches
+        def _build_failed_csv(items):
+            """Rows needing attention + a 'reason' column, as CSV text (empty string if none)."""
+            if not items:
+                return ''
+            buf = io.StringIO()
+            out_fields = list(header) + ['reason']
+            writer = csv.DictWriter(buf, fieldnames=out_fields, extrasaction='ignore')
+            writer.writeheader()
+            for orig, reason in items:
+                writer.writerow({**{k: (orig.get(k) or '') for k in header}, 'reason': reason})
+            return buf.getvalue()
 
-        def _skip(i, row, msg):
+        # ── Phase 1: validate EVERY row first (no DB writes, no network) ──────────────────────
+        # The whole file must be clean before we create anything. If any row has a hard error we
+        # import NOTHING and hand back a CSV of just the bad rows (+ reasons) to fix and re-upload.
+        # This prevents the earlier behaviour where products were created as we went, leaving a
+        # half-imported catalog when a later row failed.
+        errors = []   # hard errors: a row that cannot be imported
+        rework = []   # (original row, reason) for the downloadable "rows to fix" CSV
+        valid  = []   # parsed, validated rows ready to write in phase 2
+        seen   = {}   # in-file duplicate detection: identity key -> first row number
+
+        def _reject(i, row, msg):
             errors.append({'row': i, 'message': msg})
             rework.append((row, msg))
 
         for i, row in enumerate(rows, start=2):
             name = (row.get('name') or '').strip()
             if not name:
-                _skip(i, row, 'name is required')
+                _reject(i, row, 'name is required')
                 continue
             try:
                 base_price_raw = row.get('base_price') or row.get('price') or '0'
@@ -1395,65 +1410,96 @@ class ProductBulkImportView(APIView):
                 if base_price <= 0:
                     raise ValueError('price must be > 0')
             except (ValueError, AttributeError):
-                _skip(i, row, f'invalid base_price: {base_price_raw!r}')
+                _reject(i, row, f'invalid base_price: {base_price_raw!r}')
                 continue
             try:
                 stock = int((row.get('stock') or '0').strip() or '0')
             except ValueError:
-                _skip(i, row, f"invalid stock: {row.get('stock')!r}")
+                _reject(i, row, f"invalid stock: {row.get('stock')!r}")
                 continue
 
             category  = (row.get('category') or 'others').strip().lower()
             desc      = (row.get('description') or '').strip()
             barcode   = (row.get('barcode') or row.get('ean') or '').strip()
             image_url = (row.get('image_url') or row.get('image') or '').strip()
-            # Check the image URL up front. A bad image does NOT reject the product (Shopify-style):
-            # the product still imports as draft, and we flag the image so the vendor can fix & re-upload.
-            if image_url:
-                image_reason = _validate_image(image_url)
-                if image_reason:
-                    warnings.append({'row': i, 'message': image_reason})
-                    rework.append((row, image_reason))
-                    image_url = ''  # don't attach a broken image; the product itself still imports
-            try:
-                with transaction.atomic():
-                    # Idempotency: match an existing product by barcode (if given) else by name,
-                    # within this store. This makes the import safe to re-run — a failed, partial,
-                    # or accidentally-repeated upload UPDATES the existing product instead of
-                    # creating a duplicate (which would otherwise corrupt the inventory).
+
+            # Reject two rows in the SAME file that resolve to the same product — otherwise the
+            # idempotency key would silently collapse them into one.
+            key = ('barcode', barcode) if barcode else ('name', name.lower())
+            if key in seen:
+                _reject(i, row, f'duplicate of row {seen[key]} (same {key[0]})')
+                continue
+            seen[key] = i
+
+            valid.append({'row': i, 'orig': row, 'name': name, 'base_price': base_price,
+                          'stock': stock, 'category': category, 'desc': desc,
+                          'barcode': barcode, 'image_url': image_url})
+
+        # Any hard error → create nothing, return the rows-to-fix CSV.
+        if errors:
+            return Response(
+                {'created': 0, 'updated': 0, 'skipped': len(errors), 'processed': len(rows),
+                 'errors': errors, 'warnings': [],
+                 'message': f'Nothing was imported — {len(errors)} row(s) need fixing. '
+                            'Correct them (download below) and re-upload.',
+                 'failed_csv': _build_failed_csv(rework)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ── Phase 2a: validate images (network) for the clean rows, OUTSIDE the transaction ────
+        # A bad image does NOT block the import (the product data is valid): the product is created
+        # without the image and flagged so the vendor can fix the link and re-upload.
+        warnings = []
+        image_rework = []
+        for vr in valid:
+            if vr['image_url']:
+                reason = _validate_image(vr['image_url'])
+                if reason:
+                    warnings.append({'row': vr['row'], 'message': reason})
+                    image_rework.append((vr['orig'], reason))
+                    vr['image_url'] = ''
+
+        # ── Phase 2b: write EVERYTHING in one transaction (all-or-nothing on a technical error) ─
+        created_count = 0
+        updated_count = 0
+        updated_products = []  # (id, category) of existing products updated → bust their caches
+        try:
+            with transaction.atomic():
+                for vr in valid:
+                    # Idempotency: match an existing product by barcode (if given) else by name.
                     existing = (
-                        store.products.filter(barcode=barcode).first() if barcode
-                        else store.products.filter(name=name).first()
+                        store.products.filter(barcode=vr['barcode']).first() if vr['barcode']
+                        else store.products.filter(name=vr['name']).first()
                     )
                     if existing:
-                        existing.name = name
-                        existing.category = category
-                        existing.description = desc
-                        existing.base_price = base_price
-                        if barcode:
-                            existing.barcode = barcode
+                        existing.name = vr['name']
+                        existing.category = vr['category']
+                        existing.description = vr['desc']
+                        existing.base_price = vr['base_price']
+                        if vr['barcode']:
+                            existing.barcode = vr['barcode']
                         # Do NOT touch status/is_visible — never silently un-publish a live product.
                         existing.save(update_fields=['name', 'category', 'description',
                                                       'base_price', 'barcode', 'last_updated_at'])
                         variant = existing.variants.order_by('created_at').first()
                         if variant:
-                            variant.price = base_price
-                            variant.stock_quantity = stock
+                            variant.price = vr['base_price']
+                            variant.stock_quantity = vr['stock']
                             variant.save(update_fields=['price', 'stock_quantity'])
                         else:
                             ProductVariant.objects.create(
                                 product=existing, name='Default',
                                 sku=f'{existing.product_code}-DEFAULT',
-                                price=base_price, stock_quantity=stock,
+                                price=vr['base_price'], stock_quantity=vr['stock'],
                             )
-                        if image_url:
+                        if vr['image_url']:
                             img = existing.images.filter(is_primary=True).first()
                             if img:
-                                img.image_url = image_url
+                                img.image_url = vr['image_url']
                                 img.save(update_fields=['image_url'])
                             else:
                                 ProductImage.objects.create(
-                                    product=existing, image_url=image_url, is_primary=True, order=0,
+                                    product=existing, image_url=vr['image_url'], is_primary=True, order=0,
                                 )
                         updated_count += 1
                         updated_products.append((str(existing.id), existing.category))
@@ -1461,23 +1507,32 @@ class ProductBulkImportView(APIView):
                         # Generate a unique product_code — otherwise every row defaults to '' and
                         # the 2nd row hits the unique constraint (IntegrityError → whole import 500s).
                         product = Product.objects.create(
-                            store=store, name=name,
-                            product_code=ProductService._generate_product_code(store=store, category=category),
-                            category=category, description=desc, base_price=base_price,
-                            barcode=barcode, status='draft', is_visible=False,
+                            store=store, name=vr['name'],
+                            product_code=ProductService._generate_product_code(store=store, category=vr['category']),
+                            category=vr['category'], description=vr['desc'], base_price=vr['base_price'],
+                            barcode=vr['barcode'], status='draft', is_visible=False,
                         )
                         ProductVariant.objects.create(
                             product=product, name='Default',
-                            sku=f'{product.product_code}-DEFAULT', price=base_price, stock_quantity=stock,
+                            sku=f'{product.product_code}-DEFAULT', price=vr['base_price'], stock_quantity=vr['stock'],
                         )
-                        if image_url:
+                        if vr['image_url']:
                             ProductImage.objects.create(
-                                product=product, image_url=image_url, is_primary=True, order=0,
+                                product=product, image_url=vr['image_url'], is_primary=True, order=0,
                             )
                         created_count += 1
-            except Exception as exc:
-                # A bad row must not fail the whole import — report it and continue.
-                _skip(i, row, f'could not import: {exc}')
+        except Exception as exc:
+            # The file validated, so this is an unexpected technical failure mid-write. The whole
+            # transaction rolled back (nothing saved); re-uploading is safe because it's idempotent.
+            return Response(
+                {'created': 0, 'updated': 0, 'skipped': 0, 'processed': len(rows),
+                 'errors': [], 'warnings': [],
+                 'message': f'Import could not be completed ({exc}). Nothing was saved — '
+                            're-uploading the same file is safe and will not create duplicates. '
+                            'Please try again.',
+                 'failed_csv': ''},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         # Re-importing can change price/stock/etc. of an ALREADY-PUBLISHED product, so bust the
         # customer-facing caches for updated products — otherwise shoppers see stale data until TTL.
@@ -1494,31 +1549,12 @@ class ProductBulkImportView(APIView):
                         loc.y, loc.x, store_id=str(store.id), category=cat,
                     )
 
-        # Downloadable CSV of just the rows that need attention (skipped + image issues), with a
-        # 'reason' column — so the vendor fixes only those and re-uploads a small file. Re-importing
-        # it is safe: good rows match & update in place (idempotent), successes are never duplicated.
-        failed_csv = ''
-        if rework:
-            buf = io.StringIO()
-            out_fields = list(header) + ['reason']
-            writer = csv.DictWriter(buf, fieldnames=out_fields, extrasaction='ignore')
-            writer.writeheader()
-            for orig, reason in rework:
-                writer.writerow({**{k: (orig.get(k) or '') for k in header}, 'reason': reason})
-            failed_csv = buf.getvalue()
-
-        ok = created_count or updated_count
+        # Rows imported WITHOUT their image → downloadable so the vendor fixes the link & re-uploads.
         return Response(
-            {
-                'created': created_count,
-                'updated': updated_count,
-                'skipped': len(errors),
-                'processed': len(rows),
-                'errors': errors,
-                'warnings': warnings,
-                'failed_csv': failed_csv,
-            },
-            status=status.HTTP_201_CREATED if ok else status.HTTP_400_BAD_REQUEST,
+            {'created': created_count, 'updated': updated_count, 'skipped': 0,
+             'processed': len(rows), 'errors': [], 'warnings': warnings,
+             'failed_csv': _build_failed_csv(image_rework)},
+            status=status.HTTP_201_CREATED,
         )
 
 
