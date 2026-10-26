@@ -1313,8 +1313,34 @@ class ProductBulkImportView(APIView):
         try:
             text = file.read().decode('utf-8-sig')
             reader = csv.DictReader(io.StringIO(text))
+            # Normalise headers (trim + lowercase) so 'Name', ' Base_Price ' etc. still match —
+            # otherwise a capitalised header would silently fail every row with "name is required".
+            reader.fieldnames = [(f or '').strip().lower() for f in (reader.fieldnames or [])]
         except Exception:
             return Response({'error': 'invalid_file', 'message': 'Could not parse CSV.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # --- Structural check: reject the whole file when the header itself is wrong (Shopify-style).
+        # These are file-level problems the vendor must fix before ANY row can import, so we report
+        # them as a single clear message instead of the same per-row error repeated hundreds of times.
+        header = reader.fieldnames or []
+        missing = []
+        if 'name' not in header:
+            missing.append('name')
+        if 'base_price' not in header and 'price' not in header:
+            missing.append('base_price')
+        if missing:
+            return Response(
+                {'error': 'invalid_header',
+                 'message': f"Missing required column(s): {', '.join(missing)}. "
+                            "Download the template and keep the header row intact."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        rows = list(reader)
+        if not rows:
+            return Response(
+                {'error': 'no_rows', 'message': 'No product rows found in the file (only the header row).'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         from decimal import Decimal
         from django.db import transaction
@@ -1324,7 +1350,7 @@ class ProductBulkImportView(APIView):
         created_count = 0
         updated_count = 0
         errors = []
-        for i, row in enumerate(reader, start=2):
+        for i, row in enumerate(rows, start=2):
             name = (row.get('name') or '').strip()
             if not name:
                 errors.append({'row': i, 'message': 'name is required'})
@@ -1412,7 +1438,13 @@ class ProductBulkImportView(APIView):
 
         ok = created_count or updated_count
         return Response(
-            {'created': created_count, 'updated': updated_count, 'errors': errors},
+            {
+                'created': created_count,
+                'updated': updated_count,
+                'skipped': len(errors),
+                'processed': len(rows),
+                'errors': errors,
+            },
             status=status.HTTP_201_CREATED if ok else status.HTTP_400_BAD_REQUEST,
         )
 
