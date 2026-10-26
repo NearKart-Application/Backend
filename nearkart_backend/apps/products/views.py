@@ -406,6 +406,16 @@ class ProductUpdateView(APIView):
         # cost_price is owner-only and lives outside the public serializer/cache.
         v = min(product.variants.all(), key=lambda x: x.price, default=None)
         data['cost_price'] = float(v.cost_price) if (v and v.cost_price is not None) else None
+        # Jewellery attributes of the default (first) variant, so the edit form can show them inline
+        # for jewellery-category products (same fields as the Jewelry Inventory screen).
+        fv = product.variants.order_by('created_at').first()
+        if fv:
+            data['variant_id']      = str(fv.id)
+            data['weight_grams']    = str(fv.weight_grams) if fv.weight_grams is not None else ''
+            data['price_per_gram']  = str(fv.price_per_gram) if fv.price_per_gram is not None else ''
+            data['purity']          = fv.purity or ''
+            data['making_charges']  = str(fv.making_charges) if fv.making_charges is not None else ''
+            data['hallmark_number'] = fv.hallmark_number or ''
         return Response(data)
 
     @extend_schema(
@@ -468,6 +478,22 @@ class ProductUpdateView(APIView):
                     variant_updates.append('mrp')
                 except (InvalidOperation, ValueError):
                     pass
+            # Jewellery attributes (category-specific) → default variant. '' clears a field.
+            for jf in ('weight_grams', 'price_per_gram', 'making_charges'):
+                raw = request.data.get(jf)
+                if raw is None:
+                    continue
+                if raw == '':
+                    setattr(variant, jf, None); variant_updates.append(jf)
+                else:
+                    try:
+                        setattr(variant, jf, Decimal(str(raw))); variant_updates.append(jf)
+                    except (InvalidOperation, ValueError):
+                        pass
+            for jf in ('purity', 'hallmark_number'):
+                raw = request.data.get(jf)
+                if raw is not None:
+                    setattr(variant, jf, str(raw)); variant_updates.append(jf)
             if variant_updates:
                 variant.save(update_fields=variant_updates)
 
