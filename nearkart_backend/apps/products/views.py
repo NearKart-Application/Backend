@@ -391,6 +391,23 @@ class ProductCreateView(APIView):
 class ProductUpdateView(APIView):
     permission_classes = [IsAuthenticated, IsStoreOwner]
 
+    def get(self, request, product_id):
+        """Owner-scoped product fetch for the vendor edit form. Unlike the public
+        ProductDetailView.get, this does NOT filter by is_visible/status (so draft,
+        inactive and hidden products can be edited) and is never cached (it carries
+        owner-only cost_price). Returns the same shape the form already consumes."""
+        try:
+            product = (Product.objects.select_related('store')
+                       .prefetch_related('variants', 'images').get(id=product_id))
+        except Product.DoesNotExist:
+            return Response({'error': 'not_found', 'message': 'Product not found.'}, status=status.HTTP_404_NOT_FOUND)
+        self.check_object_permissions(request, product)  # owner only
+        data = dict(MobileProductDetailSerializer(product, context={'request': request}).data)
+        # cost_price is owner-only and lives outside the public serializer/cache.
+        v = min(product.variants.all(), key=lambda x: x.price, default=None)
+        data['cost_price'] = float(v.cost_price) if (v and v.cost_price is not None) else None
+        return Response(data)
+
     @extend_schema(
         tags=[_TAG],
         summary='Update product (owner only)',
