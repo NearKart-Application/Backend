@@ -1378,6 +1378,7 @@ class ProductBulkImportView(APIView):
         errors = []       # rows that could NOT be imported (skipped)
         warnings = []     # rows imported, but with an image problem to fix
         rework = []       # (original row, reason) → the downloadable "rows to fix" CSV
+        updated_products = []  # (id, category) of existing products updated → bust their caches
 
         def _skip(i, row, msg):
             errors.append({'row': i, 'message': msg})
@@ -1455,6 +1456,7 @@ class ProductBulkImportView(APIView):
                                     product=existing, image_url=image_url, is_primary=True, order=0,
                                 )
                         updated_count += 1
+                        updated_products.append((str(existing.id), existing.category))
                     else:
                         # Generate a unique product_code — otherwise every row defaults to '' and
                         # the 2nd row hits the unique constraint (IntegrityError → whole import 500s).
@@ -1476,6 +1478,21 @@ class ProductBulkImportView(APIView):
             except Exception as exc:
                 # A bad row must not fail the whole import — report it and continue.
                 _skip(i, row, f'could not import: {exc}')
+
+        # Re-importing can change price/stock/etc. of an ALREADY-PUBLISHED product, so bust the
+        # customer-facing caches for updated products — otherwise shoppers see stale data until TTL.
+        # (New rows import as draft/hidden and aren't cached, so they need no invalidation.)
+        if updated_products:
+            loc = getattr(store, 'location', None)
+            touched_categories = set()
+            for pid, cat in updated_products:
+                CacheService.invalidate_product_detail(pid)
+                touched_categories.add(cat)
+            if loc is not None:
+                for cat in touched_categories:
+                    CacheService.invalidate_nearby_products(
+                        loc.y, loc.x, store_id=str(store.id), category=cat,
+                    )
 
         # Downloadable CSV of just the rows that need attention (skipped + image issues), with a
         # 'reason' column — so the vendor fixes only those and re-uploads a small file. Re-importing
