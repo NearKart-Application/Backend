@@ -1753,9 +1753,15 @@ class JewelryProductListView(APIView):
     def get(self, request):
         from django.db.models import Q
         store = request.user.store
+        # Show every jewellery-category product's variants (so the vendor can OPEN them and set
+        # attributes), plus any variant that already has a jewelry attribute set (covers products
+        # not categorised as jewellery but given jewelry fields). Previously this listed ONLY
+        # variants with attributes already set — a chicken-and-egg where a new jewellery product
+        # never appeared here, so the vendor had no way to add its attributes.
         variants = ProductVariant.objects.filter(
             product__store=store,
         ).filter(
+            Q(product__category='jewellery') |
             Q(weight_grams__isnull=False) |
             Q(price_per_gram__isnull=False) |
             Q(purity__gt='') |
