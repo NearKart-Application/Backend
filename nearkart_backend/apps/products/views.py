@@ -1332,23 +1332,42 @@ class ProductBulkImportView(APIView):
                 errors.append({'row': i, 'message': f'invalid base_price: {base_price_raw!r}'})
                 continue
             from decimal import Decimal
-            product = Product.objects.create(
-                store=request.user.store,
-                name=name,
-                category=(row.get('category') or 'others').strip().lower(),
-                description=(row.get('description') or '').strip(),
-                base_price=Decimal(str(base_price)),
-                barcode=(row.get('barcode') or row.get('ean') or '').strip(),
-                status='draft',
-                is_visible=False,
-            )
-            stock = int((row.get('stock') or '0').strip() or '0')
-            sku = f'{product.product_code}-DEFAULT'
-            ProductVariant.objects.create(
-                product=product, name='Default',
-                sku=sku, price=product.base_price, stock_quantity=stock,
-            )
-            created_count += 1
+            from django.db import transaction
+            from .services import ProductService
+            category = (row.get('category') or 'others').strip().lower()
+            try:
+                with transaction.atomic():
+                    # Generate a unique product_code — otherwise every row defaults to '' and
+                    # the 2nd row hits the unique constraint (IntegrityError → whole import 500s).
+                    product = Product.objects.create(
+                        store=request.user.store,
+                        name=name,
+                        product_code=ProductService._generate_product_code(
+                            store=request.user.store, category=category),
+                        category=category,
+                        description=(row.get('description') or '').strip(),
+                        base_price=Decimal(str(base_price)),
+                        barcode=(row.get('barcode') or row.get('ean') or '').strip(),
+                        status='draft',
+                        is_visible=False,
+                    )
+                    stock = int((row.get('stock') or '0').strip() or '0')
+                    ProductVariant.objects.create(
+                        product=product, name='Default',
+                        sku=f'{product.product_code}-DEFAULT', price=product.base_price,
+                        stock_quantity=stock,
+                    )
+                    # Optional image: store the given URL as the product's primary image.
+                    # External URLs pass through as-is; the serializers resolve relative paths.
+                    image_url = (row.get('image_url') or row.get('image') or '').strip()
+                    if image_url:
+                        ProductImage.objects.create(
+                            product=product, image_url=image_url, is_primary=True, order=0,
+                        )
+                created_count += 1
+            except Exception as exc:
+                # A bad row must not fail the whole import — report it and continue.
+                errors.append({'row': i, 'message': f'could not create: {exc}'})
 
         return Response({'created': created_count, 'errors': errors},
                         status=status.HTTP_201_CREATED if created_count else status.HTTP_400_BAD_REQUEST)
