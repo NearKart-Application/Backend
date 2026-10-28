@@ -459,6 +459,15 @@ class ProductUpdateView(APIView):
         variant = product.variants.order_by('created_at').first()
         if variant:
             variant_updates = []
+            # stock — the form's Stock field lives on the variant (create sets it too); without
+            # this, editing a product's stock on the form silently did nothing.
+            stock_raw = request.data.get('stock')
+            if stock_raw is not None and str(stock_raw).strip() != '':
+                try:
+                    variant.stock_quantity = int(stock_raw)
+                    variant_updates.append('stock_quantity')
+                except (ValueError, TypeError):
+                    pass
             # sale_price → drives is_on_sale + discount %
             sale_price_raw = request.data.get('sale_price')
             if sale_price_raw is not None:
