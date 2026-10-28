@@ -496,6 +496,13 @@ class SerialNumberDetailView(APIView):
             sn.save(update_fields=['sold_at', 'updated_at'])
         return Response(SerialNumberSerializer(sn).data)
 
+    def delete(self, request, sn_id):
+        sn, err = self._get(request, sn_id)
+        if err:
+            return err
+        sn.delete()
+        return Response(status=204)
+
 
 class BulkStockAdjustView(APIView):
     """POST /inventory/bulk-adjust/ — adjust stock for multiple variants in one request."""
