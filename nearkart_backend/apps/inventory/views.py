@@ -258,6 +258,7 @@ class PurchaseOrderDetailView(APIView):
             return Response(ser.errors, status=400)
         po = ser.save()
         if po.status == 'received' and not po.received_at:
+            from django.db import transaction as db_transaction  # not imported at module scope here
             with db_transaction.atomic():
                 po.received_at = timezone.now()
                 po.save(update_fields=['received_at', 'updated_at'])
