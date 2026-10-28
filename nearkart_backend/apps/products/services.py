@@ -187,6 +187,13 @@ class ProductService:
             SearchVector, SearchQuery, SearchRank, TrigramSimilarity,
         )
         from django.db.models import F, ExpressionWrapper, FloatField, Q, Avg, Count
+        from django.db.models.functions import Greatest
+
+        # Explicit text search reaches further than the tight nearby-browse radius, so a vendor a
+        # customer searched by name (e.g. "Varun Electronics") still appears even when it's not
+        # right next door. Generous cap; results are ordered nearest-first (below) instead of being
+        # hard-blocked at the browse radius.
+        SEARCH_RADIUS_KM = 50
 
         search_vector = (
             SearchVector('name', weight='A', config='simple') +
@@ -202,20 +209,27 @@ class ProductService:
         ).select_related('store').prefetch_related('variants', 'images').annotate(
             bm25_rank=SearchRank(search_vector, search_query, cover_density=True),
             trigram_score=TrigramSimilarity('name', query),
+            store_name_score=TrigramSimilarity('store__name', query),
             hybrid_score=ExpressionWrapper(
-                F('bm25_rank') * 0.6 + F('trigram_score') * 0.4,
+                F('bm25_rank') * 0.6
+                + Greatest(F('trigram_score'), F('store_name_score')) * 0.4,
                 output_field=FloatField(),
             ),
             store_avg_rating=Avg('store__reviews__rating'),
         ).filter(
-            Q(bm25_rank__gt=0.01) | Q(trigram_score__gt=0.2)
+            # Match on the product name OR the vendor/store name, so searching a shop by name
+            # surfaces that store's products (previously only product names were matched).
+            Q(bm25_rank__gt=0.01) | Q(trigram_score__gt=0.2) | Q(store_name_score__gt=0.2)
         )
 
+        user_point = None
         if lat is not None and lng is not None:
             from django.contrib.gis.geos import Point
             from django.contrib.gis.measure import D
+            from django.contrib.gis.db.models.functions import Distance
             user_point = Point(lng, lat, srid=4326)
-            qs = qs.filter(store__location__dwithin=(user_point, D(km=radius_km)))
+            qs = qs.filter(store__location__dwithin=(user_point, D(km=SEARCH_RADIUS_KM)))
+            qs = qs.annotate(distance=Distance('store__location', user_point))
 
         if min_price is not None:
             qs = qs.filter(base_price__gte=min_price)
@@ -232,6 +246,13 @@ class ProductService:
             qs = qs.order_by('-base_price')
         elif ordering == 'rating':
             qs = qs.order_by('-store_avg_rating')
+        elif ordering == 'relevance':
+            qs = qs.order_by('-hybrid_score')
+        elif user_point is not None:
+            # Default for located searches: nearest first (what customers expect when they
+            # search a vendor by name), with relevance as the tiebreaker. (Also handles
+            # ordering=='distance'.)
+            qs = qs.order_by('distance', '-hybrid_score')
         else:
             qs = qs.order_by('-hybrid_score')
 
