@@ -416,6 +416,13 @@ class ProductUpdateView(APIView):
             data['purity']          = fv.purity or ''
             data['making_charges']  = str(fv.making_charges) if fv.making_charges is not None else ''
             data['hallmark_number'] = fv.hallmark_number or ''
+            # Home-decor attributes (decor/furniture) — inline on the edit form.
+            data['length_cm']            = str(fv.length_cm) if fv.length_cm is not None else ''
+            data['width_cm']             = str(fv.width_cm) if fv.width_cm is not None else ''
+            data['height_cm']            = str(fv.height_cm) if fv.height_cm is not None else ''
+            data['weight_kg']            = str(fv.weight_kg) if fv.weight_kg is not None else ''
+            data['is_assembly_required'] = bool(fv.is_assembly_required)
+            data['is_display_unit']      = bool(fv.is_display_unit)
         return Response(data)
 
     @extend_schema(
@@ -494,6 +501,21 @@ class ProductUpdateView(APIView):
                 raw = request.data.get(jf)
                 if raw is not None:
                     setattr(variant, jf, str(raw)); variant_updates.append(jf)
+            # Home-decor attributes (decor/furniture) → default variant. '' clears a dimension.
+            for hf in ('length_cm', 'width_cm', 'height_cm', 'weight_kg'):
+                raw = request.data.get(hf)
+                if raw is None:
+                    continue
+                if raw == '':
+                    setattr(variant, hf, None); variant_updates.append(hf)
+                else:
+                    try:
+                        setattr(variant, hf, Decimal(str(raw))); variant_updates.append(hf)
+                    except (InvalidOperation, ValueError):
+                        pass
+            for bf in ('is_assembly_required', 'is_display_unit'):
+                if bf in request.data:
+                    setattr(variant, bf, bool(request.data.get(bf))); variant_updates.append(bf)
             if variant_updates:
                 variant.save(update_fields=variant_updates)
 
