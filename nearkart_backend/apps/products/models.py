@@ -38,6 +38,9 @@ class Product(BaseModel):
     previous_price = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     festival_tag   = models.CharField(max_length=50, blank=True)
     barcode        = models.CharField(max_length=100, blank=True, db_index=True)
+    hsn_code       = models.CharField(max_length=8, blank=True, default='', help_text='HSN/SAC code for GST tax classification')
+    gst_rate       = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True, help_text='GST rate % (e.g. 0, 5, 12, 18, 28)')
+    colors         = models.JSONField(default=list, blank=True, help_text='Colour options shown to customers, e.g. ["Red","Blue"]')
     last_updated_at = models.DateTimeField(auto_now=True, db_index=True)
 
     class Meta:

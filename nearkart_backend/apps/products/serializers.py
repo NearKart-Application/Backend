@@ -70,6 +70,7 @@ class ProductSerializer(serializers.ModelSerializer):
             'id', 'store_id', 'store_name', 'product_code',
             'name', 'description', 'category', 'category_fk',
             'status', 'is_visible', 'base_price', 'barcode',
+            'hsn_code', 'gst_rate', 'colors',
             'variants', 'images',
             'primary_image', 'stock_total', 'cost_price',
             'distance_km', 'is_wishlisted',
@@ -241,6 +242,7 @@ class MobileProductDetailSerializer(serializers.ModelSerializer):
             'stock_count', 'is_on_sale', 'festival_tag', 'is_wishlisted',
             # Vendor edit form fields
             'status', 'is_visible', 'product_code', 'barcode',
+            'hsn_code', 'gst_rate',
         ]
 
     @extend_schema_field(serializers.FloatField(allow_null=True))
@@ -302,13 +304,17 @@ class MobileProductDetailSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.ListField(child=serializers.CharField()))
     def get_colors(self, obj):
+        # Explicit stored colours take precedence; fall back to deriving from
+        # "Size / Colour" variant names for products created before the field existed.
+        if obj.colors:
+            return obj.colors
         colors = []
         seen = set()
         for v in sorted(obj.variants.all(), key=lambda v: v.name):
             parts = v.name.split('/')
             if len(parts) > 1:
                 color = parts[1].strip()
-                if color not in seen:
+                if color and color not in seen:
                     seen.add(color)
                     colors.append(color)
         return colors
