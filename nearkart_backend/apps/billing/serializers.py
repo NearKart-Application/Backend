@@ -50,6 +50,11 @@ class SubscriptionSerializer(serializers.ModelSerializer):
 
 
 class TransactionSerializer(serializers.ModelSerializer):
+    # The model field is `transaction_type` (db_column='type'). Expose it as `type` so the
+    # wallet UI contract is preserved; without this explicit mapping DRF cannot find a model
+    # field named `type` and raises ImproperlyConfigured — a 500 on every transactions call.
+    type = serializers.CharField(source='transaction_type', read_only=True)
+
     class Meta:
         model  = Transaction
         fields = [
