@@ -77,6 +77,23 @@ class BlacklistToggleView(APIView):
         msg = f'Customer blocked.' if is_blocked else 'Customer unblocked.'
         return Response({'is_blocked': is_blocked, 'message': msg})
 
+    def delete(self, request, store_id, customer_id):
+        """Remove a customer from the blacklist (idempotent unblock). The toggle is POST-only,
+        but the vendor UI issues DELETE to unblock — without this it returned 405."""
+        store = self._get_owned_store(store_id, request.user)
+        if isinstance(store, Response):
+            return store
+        try:
+            customer = User.objects.get(id=customer_id, role='customer')
+        except User.DoesNotExist:
+            return Response(
+                {'error': 'not_found', 'message': 'Customer not found.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        from .models import Blacklist
+        Blacklist.objects.filter(store=store, customer=customer).delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
     def _get_owned_store(self, store_id, user):
         try:
             store = Store.objects.get(id=store_id)
