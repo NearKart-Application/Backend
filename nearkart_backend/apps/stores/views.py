@@ -87,13 +87,14 @@ class NearbyStoresView(APIView):
             radius     = int(request.query_params.get('radius', 2))
             category   = request.query_params.get('category')
             store_type = request.query_params.get('store_type')
+            query      = (request.query_params.get('q') or '').strip() or None
         except (KeyError, ValueError):
             return Response(
                 {'error': 'validation_error', 'message': 'lat and lng are required numbers.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        stores = annotate_stores_with_subcategories(StoreService.get_nearby(lat, lng, radius_km=radius, category=category, store_type=store_type))
+        stores = annotate_stores_with_subcategories(StoreService.get_nearby(lat, lng, radius_km=radius, category=category, store_type=store_type, query=query))
         data = StoreListSerializer(stores, many=True).data
         return Response({'count': len(data), 'next': None, 'previous': None, 'results': data})
 

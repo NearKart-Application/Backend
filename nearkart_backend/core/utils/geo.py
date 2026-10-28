@@ -31,21 +31,28 @@ def build_point(lat: float, lng: float) -> Point:
 def get_nearby_stores(lat: float, lng: float,
                       radius_km: int = 2, category: str = None,
                       store_type: str = None,
-                      limit: int = 50) -> list:
+                      limit: int = 50, query: str = None) -> list:
     """
     Find stores within radius using PostGIS ST_DWithin (GIST index).
 
-    Ranked by weighted relevance score (Algorithm 2):
+    Browse mode (no query): ranked by weighted relevance score (Algorithm 2):
       40 % — inverse distance  (closer = higher)
       25 % — avg review rating
       20 % — currently open
       10 % — has active offer
        5 % — follower popularity (capped)
 
+    Search mode (query set): match the store NAME, widen the radius to a generous
+    50 km cap and order nearest-first, so a vendor searched by name (e.g. "Varun
+    Electronics") still appears when it's not right next door.
+
     Uses XFetch (Algorithm 4) to prevent cache stampede on expiry.
     """
     from apps.stores.models import Store, StoreHours, StoreOffer
     from core.utils.cache import CacheService
+
+    if query:
+        radius_km = 50  # explicit vendor-name search reaches further than the browse radius
 
     cache_key = CacheService.nearby_stores_key(lat, lng, radius_km, category or 'all', store_type or 'all')
 
@@ -98,7 +105,7 @@ def get_nearby_stores(lat: float, lng: float,
             ).filter(
                 Q(valid_till__isnull=True) | Q(valid_till__gte=date.today())
             ).order_by('-created_at')),
-        ).order_by('-relevance_score')
+        )
 
         if category and category != 'all':
             qs = qs.filter(category=category)
@@ -106,8 +113,21 @@ def get_nearby_stores(lat: float, lng: float,
         if store_type and store_type in ('product', 'service', 'home'):
             qs = qs.filter(store_type=store_type)
 
+        if query:
+            # Explicit vendor-name search: match the store name and order nearest-first
+            # (within the widened radius) instead of the browse relevance rank.
+            from django.contrib.postgres.search import TrigramSimilarity
+            qs = qs.annotate(name_score=TrigramSimilarity('name', query)).filter(
+                name_score__gt=0.2
+            ).order_by('distance')
+        else:
+            qs = qs.order_by('-relevance_score')
+
         return list(qs[:limit])
 
+    # Searches are query-specific and varied — compute directly, don't pollute the browse cache.
+    if query:
+        return _fetch()
     # XFetch: recompute probabilistically before TTL expires to prevent stampede
     return CacheService.get_or_compute(
         cache_key, _fetch, ttl=CacheService.TTL_NEARBY_STORES
