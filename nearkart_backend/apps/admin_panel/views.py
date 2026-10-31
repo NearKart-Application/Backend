@@ -190,7 +190,7 @@ class AdminStoreListView(APIView):
 
         cities = _city_scope(request.user)
         if cities:
-            qs = qs.filter(_city_q(cities, 'locality', 'address'))
+            qs = qs.filter(_city_q(cities, 'locality', 'address', 'city'))
 
         search = request.query_params.get('search', '').strip()
         if search:
