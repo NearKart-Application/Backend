@@ -134,6 +134,10 @@ DATABASES = {
         # CONN_MAX_AGE must be 0 with PgBouncer transaction pooling.
         # Persistent connections + transaction pooling = stale connection errors.
         'CONN_MAX_AGE': 0,
+        # Transaction pooling reclaims the connection after each transaction, so
+        # PostgreSQL server-side (named) cursors become invalid on the next fetch
+        # ("InvalidCursorName: cursor ... does not exist"). Disable them here.
+        'DISABLE_SERVER_SIDE_CURSORS': True,
         'OPTIONS': {
             'connect_timeout': 10,
             # Kill any single query that runs longer than 10 s — prevents slow
