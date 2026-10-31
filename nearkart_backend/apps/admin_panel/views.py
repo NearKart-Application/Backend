@@ -73,7 +73,7 @@ class PlatformStatsView(APIView):
 
         store_qs = Store.objects.all()
         if cities:
-            store_qs = store_qs.filter(_city_q(cities, 'locality', 'address'))
+            store_qs = store_qs.filter(_city_q(cities, 'locality', 'address', 'city'))
 
         store_ids = store_qs.values_list('id', flat=True)
 
@@ -1472,7 +1472,7 @@ class AdminVendorSearchView(APIView):
 
         qs = Store.objects.select_related('owner').filter(is_active=True)
         if cities:
-            qs = qs.filter(_city_q(cities, 'locality', 'address'))
+            qs = qs.filter(_city_q(cities, 'locality', 'address', 'city'))
         if q:
             qs = qs.filter(
                 Q(name__icontains=q) |
