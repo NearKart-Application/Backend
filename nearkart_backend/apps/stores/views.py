@@ -2297,12 +2297,13 @@ class MonthlyEarningsPDFView(APIView):
             return Response({'error': 'validation_error', 'message': 'month must be YYYY-MM format.'}, status=400)
 
         from django.utils import timezone
+        from datetime import timezone as dt_timezone  # django.utils.timezone.utc was removed in Django 5
         import calendar
         from decimal import Decimal
         year, month = month_dt.year, month_dt.month
         last_day = calendar.monthrange(year, month)[1]
-        period_start = timezone.datetime(year, month, 1, tzinfo=timezone.utc)
-        period_end   = timezone.datetime(year, month, last_day, 23, 59, 59, tzinfo=timezone.utc)
+        period_start = timezone.datetime(year, month, 1, tzinfo=dt_timezone.utc)
+        period_end   = timezone.datetime(year, month, last_day, 23, 59, 59, tzinfo=dt_timezone.utc)
 
         invoices = Invoice.objects.filter(
             store=store,
