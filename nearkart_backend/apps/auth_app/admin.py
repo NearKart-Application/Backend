@@ -6,6 +6,7 @@ from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.db.models import Count
 from django.utils.html import format_html
+from django.utils.safestring import mark_safe
 
 from core.admin_scope import get_user_scope
 from .models import User, OTPToken, DeviceToken, SocialAccount
@@ -129,11 +130,11 @@ class UserAdmin(BaseUserAdmin):
     @admin.display(description='Active', ordering='is_active')
     def active_badge(self, obj):
         if obj.is_active:
-            return format_html(
+            return mark_safe(
                 '<span style="padding:2px 8px;border-radius:12px;font-size:11px;'
                 'font-weight:600;background:#d4edda;color:#155724">Active</span>'
             )
-        return format_html(
+        return mark_safe(
             '<span style="padding:2px 8px;border-radius:12px;font-size:11px;'
             'font-weight:600;background:#f8d7da;color:#721c24">Inactive</span>'
         )
@@ -141,11 +142,11 @@ class UserAdmin(BaseUserAdmin):
     @admin.display(description='Suspended', ordering='is_suspended')
     def suspended_badge(self, obj):
         if obj.is_suspended:
-            return format_html(
+            return mark_safe(
                 '<span style="padding:2px 8px;border-radius:12px;font-size:11px;'
                 'font-weight:600;background:#fff3cd;color:#856404">Suspended</span>'
             )
-        return format_html(
+        return mark_safe(
             '<span style="padding:2px 8px;border-radius:12px;font-size:11px;'
             'font-weight:600;background:#d4edda;color:#155724">OK</span>'
         )

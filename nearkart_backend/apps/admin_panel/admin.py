@@ -8,6 +8,7 @@ from django.http import JsonResponse
 from django.urls import path
 from django.utils import timezone
 from django.utils.html import format_html
+from django.utils.safestring import mark_safe
 
 from apps.locations.models import LocationMaster as _LocationMaster
 from .forms import AdminProfileForm
@@ -63,7 +64,7 @@ class PromoBannerAdmin(admin.ModelAdmin):
             return _badge('Ended', '#f8d7da', '#721c24')
         if obj.starts_at or obj.ends_at:
             return _badge('Live', '#d4edda', '#155724')
-        return format_html('<span style="color:#999">Always On</span>')
+        return mark_safe('<span style="color:#999">Always On</span>')
 
 
 # ─── Category ─────────────────────────────────────────────────────────────────

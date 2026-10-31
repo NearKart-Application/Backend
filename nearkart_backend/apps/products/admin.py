@@ -6,6 +6,7 @@ Wishlist, ProductReview.
 from django.contrib import admin
 from django.db.models import Sum
 from django.utils.html import format_html
+from django.utils.safestring import mark_safe
 
 from .models import (
     Product, ProductVariant, ProductImage,
@@ -117,7 +118,7 @@ class ProductAdmin(admin.ModelAdmin):
     def total_stock(self, obj):
         qty = obj._total_stock or 0
         if qty == 0:
-            return format_html('<span style="color:#721c24;font-weight:600">0</span>')
+            return mark_safe('<span style="color:#721c24;font-weight:600">0</span>')
         elif qty <= 5:
             return format_html('<span style="color:#856404;font-weight:600">{}</span>', qty)
         return format_html('<span style="color:#155724;font-weight:600">{}</span>', qty)

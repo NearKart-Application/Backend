@@ -5,6 +5,7 @@ PurchaseOrder, StockAudit, CompositeProduct, SerialNumber.
 """
 from django.contrib import admin
 from django.utils.html import format_html
+from django.utils.safestring import mark_safe
 
 from .models import (
     StockMovementLog, StockWatchlist,
@@ -200,7 +201,7 @@ class StockAuditAdmin(admin.ModelAdmin):
     def discrepancy_display(self, obj):
         d = obj.total_discrepancy
         if d == 0:
-            return format_html('<span style="color:#155724;font-weight:600">0</span>')
+            return mark_safe('<span style="color:#155724;font-weight:600">0</span>')
         elif d > 0:
             return format_html('<span style="color:#856404;font-weight:600">+{}</span>', d)
         return format_html('<span style="color:#721c24;font-weight:600">{}</span>', d)

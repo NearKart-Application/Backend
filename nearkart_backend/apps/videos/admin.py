@@ -4,6 +4,7 @@ Shopify-grade admin for Video, VideoLike, VideoSave, VideoProductTag.
 """
 from django.contrib import admin
 from django.utils.html import format_html
+from django.utils.safestring import mark_safe
 
 from .models import Video, VideoLike, VideoSave, VideoProductTag
 
@@ -83,11 +84,11 @@ class VideoAdmin(admin.ModelAdmin):
     @admin.display(description='Engagement %')
     def engagement_rate(self, obj):
         if not obj.view_count:
-            return format_html('<span style="color:#999">—</span>')
+            return mark_safe('<span style="color:#999">—</span>')
         rate = obj.like_count / obj.view_count * 100
         color = '#155724' if rate >= 5 else ('#856404' if rate >= 2 else '#721c24')
         return format_html(
-            '<span style="color:{};font-weight:600">{:.1f}%</span>', color, rate
+            '<span style="color:{};font-weight:600">{}%</span>', color, f'{rate:.1f}'
         )
 
 

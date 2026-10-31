@@ -4,6 +4,7 @@ Shopify-grade admin for Notification.
 """
 from django.contrib import admin
 from django.utils.html import format_html
+from django.utils.safestring import mark_safe
 
 from .models import Notification
 
@@ -85,11 +86,11 @@ class NotificationAdmin(admin.ModelAdmin):
     @admin.display(description='Read', ordering='is_read')
     def read_badge(self, obj):
         if obj.is_read:
-            return format_html(
+            return mark_safe(
                 '<span style="padding:2px 8px;border-radius:12px;font-size:11px;'
                 'font-weight:600;background:#d4edda;color:#155724">Read</span>'
             )
-        return format_html(
+        return mark_safe(
             '<span style="padding:2px 8px;border-radius:12px;font-size:11px;'
             'font-weight:600;background:#fff3cd;color:#856404">Unread</span>'
         )

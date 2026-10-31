@@ -5,6 +5,7 @@ Shopify-grade admin for Reservation.
 from django.contrib import admin
 from django.utils import timezone
 from django.utils.html import format_html
+from django.utils.safestring import mark_safe
 
 from .models import Reservation
 
@@ -68,7 +69,7 @@ class ReservationAdmin(admin.ModelAdmin):
     @admin.display(description='Past Due')
     def is_expired_badge(self, obj):
         if obj.status in ('expired', 'cancelled', 'completed'):
-            return format_html('<span style="color:#999">—</span>')
+            return mark_safe('<span style="color:#999">—</span>')
         if timezone.now() > obj.expires_at:
             return _badge('Yes', '#f8d7da', '#721c24')
         return _badge('No', '#d4edda', '#155724')

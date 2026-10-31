@@ -4,6 +4,7 @@ Shopify-grade admin for LoyaltyAccount, LoyaltyTransaction, Referral.
 """
 from django.contrib import admin
 from django.utils.html import format_html
+from django.utils.safestring import mark_safe
 
 from .models import LoyaltyAccount, LoyaltyTransaction, Referral, WalletWithdrawalRequest
 
@@ -45,7 +46,7 @@ class LoyaltyAccountAdmin(admin.ModelAdmin):
             return format_html(
                 '<span style="color:#856404;font-weight:600">{} pts</span>', obj.balance
             )
-        return format_html('<span style="color:#999">0 pts</span>')
+        return mark_safe('<span style="color:#999">0 pts</span>')
 
 
 # ─── Loyalty Transaction Admin ────────────────────────────────────────────────
