@@ -58,6 +58,15 @@ def _in_scope(user, locality: str) -> bool:
     return any(c.lower() in locality for c in cities)
 
 
+def _banner_in_scope(user, target_city: str) -> bool:
+    """Master sees all; location admins may touch global (no target_city) or their-city banners."""
+    cities = _city_scope(user)
+    if not cities or not target_city:
+        return True
+    tc = target_city.lower()
+    return any(c.lower() in tc for c in cities)
+
+
 class PlatformStatsView(APIView):
     """GET /admin-panel/stats/ — platform-wide aggregated statistics."""
     permission_classes = [IsAuthenticated, IsAdmin | IsMasterAdmin]
@@ -236,7 +245,7 @@ class AdminStoreUpdateView(APIView):
         except Store.DoesNotExist:
             return Response({'error': 'not_found', 'message': 'Store not found.'}, status=404)
 
-        if not _in_scope(request.user, f'{store.locality} {store.address}'):
+        if not _in_scope(request.user, f'{store.locality} {store.address} {store.city}'):
             return Response({'error': 'forbidden', 'message': 'Store is outside your assigned city.'}, status=403)
 
         if 'store_type' in request.data and request.user.role != 'master_admin':
@@ -273,7 +282,7 @@ class AdminUserListView(APIView):
 
         cities = _city_scope(request.user)
         if cities:
-            city_vendors   = _city_q(cities, 'stores__locality', 'stores__address') & Q(role='vendor')
+            city_vendors   = _city_q(cities, 'stores__locality', 'stores__address', 'stores__city') & Q(role='vendor')
             city_customers = _city_q(cities, 'location_city') & Q(role='customer')
             qs = qs.filter(city_vendors | city_customers).distinct()
 
@@ -428,6 +437,9 @@ class AdminBannerDetailView(APIView):
         except PromoBanner.DoesNotExist:
             return Response({'error': 'not_found'}, status=404)
 
+        if not _banner_in_scope(request.user, banner.target_city):
+            return Response({'error': 'forbidden', 'message': 'Banner is outside your assigned city.'}, status=403)
+
         data = request.data
         for field in ['title', 'subtitle', 'badge_text', 'image_url', 'link_type', 'link_value', 'target_city']:
             if field in data:
@@ -450,6 +462,8 @@ class AdminBannerDetailView(APIView):
             banner = PromoBanner.objects.get(id=banner_id)
         except PromoBanner.DoesNotExist:
             return Response({'error': 'not_found'}, status=404)
+        if not _banner_in_scope(request.user, banner.target_city):
+            return Response({'error': 'forbidden', 'message': 'Banner is outside your assigned city.'}, status=403)
         banner.delete()
         return Response(status=204)
 
@@ -463,6 +477,8 @@ class AdminBannerToggleView(APIView):
             banner = PromoBanner.objects.get(id=banner_id)
         except PromoBanner.DoesNotExist:
             return Response({'error': 'not_found'}, status=404)
+        if not _banner_in_scope(request.user, banner.target_city):
+            return Response({'error': 'forbidden', 'message': 'Banner is outside your assigned city.'}, status=403)
         banner.is_active = not banner.is_active
         banner.save(update_fields=['is_active', 'updated_at'])
         return Response({'id': str(banner.id), 'is_active': banner.is_active})
@@ -584,7 +600,7 @@ class AdminProductListView(APIView):
 
         cities = _city_scope(request.user)
         if cities:
-            qs = qs.filter(_city_q(cities, 'store__locality', 'store__address'))
+            qs = qs.filter(_city_q(cities, 'store__locality', 'store__address', 'store__city'))
 
         search = request.query_params.get('search', '').strip()
         if search:
@@ -628,7 +644,7 @@ class AdminProductDetailView(APIView):
         except Product.DoesNotExist:
             return Response({'error': 'not_found', 'message': 'Product not found.'}, status=404)
 
-        if not _in_scope(request.user, f'{product.store.locality} {product.store.address}'):
+        if not _in_scope(request.user, f'{product.store.locality} {product.store.address} {product.store.city}'):
             return Response({'error': 'forbidden', 'message': 'Product is outside your assigned city.'}, status=403)
 
         allowed_fields = ['status', 'is_visible']
@@ -663,7 +679,7 @@ class AdminWebsiteRequestListView(APIView):
 
         cities = _city_scope(request.user)
         if cities:
-            qs = qs.filter(_city_q(cities, 'store__locality', 'store__address'))
+            qs = qs.filter(_city_q(cities, 'store__locality', 'store__address', 'store__city'))
 
         status_filter = request.query_params.get('status', '').strip()
         if status_filter:
@@ -690,7 +706,7 @@ class AdminWebsiteRequestUpdateView(APIView):
         except WebsiteRequest.DoesNotExist:
             return Response({'error': 'not_found', 'message': 'Website request not found.'}, status=404)
 
-        if not _in_scope(request.user, f'{wr.store.locality} {wr.store.address}'):
+        if not _in_scope(request.user, f'{wr.store.locality} {wr.store.address} {wr.store.city}'):
             return Response({'error': 'forbidden', 'message': 'Request is outside your assigned city.'}, status=403)
 
         new_status = request.data.get('status', '').strip()
@@ -815,7 +831,7 @@ class AdminStoreVideoListView(APIView):
         except Store.DoesNotExist:
             return Response({'error': 'not_found', 'message': 'Store not found.'}, status=404)
 
-        if not _in_scope(request.user, f'{store.locality} {store.address}'):
+        if not _in_scope(request.user, f'{store.locality} {store.address} {store.city}'):
             return Response({'error': 'forbidden', 'message': 'Store is outside your assigned city.'}, status=403)
 
         videos = Video.objects.filter(store=store).order_by('-created_at')
@@ -840,7 +856,7 @@ class AdminDeleteVideoView(APIView):
         except Video.DoesNotExist:
             return Response({'error': 'not_found', 'message': 'Video not found.'}, status=404)
 
-        if not _in_scope(request.user, f'{video.store.locality} {video.store.address}'):
+        if not _in_scope(request.user, f'{video.store.locality} {video.store.address} {video.store.city}'):
             return Response({'error': 'forbidden', 'message': 'Video is outside your assigned city.'}, status=403)
 
         store_name = video.store.name
@@ -1360,7 +1376,7 @@ class AdminCouponListCreateView(APIView):
         except (Store.DoesNotExist, Exception):
             return Response({'error': 'not_found', 'message': 'Store not found.'}, status=status.HTTP_404_NOT_FOUND)
 
-        if not _in_scope(request.user, f'{target_store.locality} {target_store.address}'):
+        if not _in_scope(request.user, f'{target_store.locality} {target_store.address} {target_store.city}'):
             return Response({'error': 'forbidden', 'message': 'Store is outside your assigned city.'}, status=status.HTTP_403_FORBIDDEN)
 
         plan_obj = None
@@ -1772,6 +1788,9 @@ class AdminBlacklistListView(APIView):
     def get(self, request):
         from apps.blacklist.models import Blacklist
         qs = Blacklist.objects.select_related('store', 'customer').order_by('-created_at')
+        cities = _city_scope(request.user)
+        if cities:
+            qs = qs.filter(_city_q(cities, 'store__locality', 'store__address', 'store__city'))
         store_id = request.query_params.get('store_id')
         if store_id:
             qs = qs.filter(store__id=store_id)
@@ -1807,6 +1826,9 @@ class AdminLoyaltyListView(APIView):
     def get(self, request):
         from apps.loyalty.models import LoyaltyAccount
         qs = LoyaltyAccount.objects.select_related('user').order_by('-balance')
+        cities = _city_scope(request.user)
+        if cities:
+            qs = qs.filter(_city_q(cities, 'user__location_city'))
         search = request.query_params.get('search')
         if search:
             qs = qs.filter(user__phone_number__icontains=search)
@@ -1842,6 +1864,9 @@ class AdminLoyaltyAdjustView(APIView):
         except LoyaltyAccount.DoesNotExist:
             return Response({'error': 'not_found'}, status=404)
 
+        if not _in_scope(request.user, account.user.location_city):
+            return Response({'error': 'forbidden', 'message': 'Account is outside your assigned city.'}, status=403)
+
         points = request.data.get('points')
         reason = request.data.get('reason', '').strip()
         if not isinstance(points, int) or points == 0:
@@ -1876,6 +1901,8 @@ class AdminLoyaltyAdjustView(APIView):
             account = LoyaltyAccount.objects.get(id=account_id)
         except LoyaltyAccount.DoesNotExist:
             return Response({'error': 'not_found'}, status=404)
+        if not _in_scope(request.user, account.user.location_city):
+            return Response({'error': 'forbidden', 'message': 'Account is outside your assigned city.'}, status=403)
         is_active = request.data.get('is_active')
         if is_active is not None:
             account.is_active = bool(is_active)
@@ -1886,8 +1913,8 @@ class AdminLoyaltyAdjustView(APIView):
 # ─── Admin Subscription Views ──────────────────────────────────────────────────
 
 class AdminSubscriptionListView(APIView):
-    """GET /admin-panel/subscriptions/ — all vendor subscriptions."""
-    permission_classes = [IsAuthenticated, IsAdmin | IsMasterAdmin]
+    """GET /admin-panel/subscriptions/ — all vendor subscriptions (master admin only — billing)."""
+    permission_classes = [IsAuthenticated, IsMasterAdmin]
 
     def get(self, request):
         from apps.billing.models import Subscription
@@ -2213,6 +2240,10 @@ class ContentModerationView(APIView):
         from apps.stores.models import StoreReview
         qs = StoreReview.objects.filter(is_flagged=True).select_related('store', 'user').order_by('-created_at')
 
+        cities = _city_scope(request.user)
+        if cities:
+            qs = qs.filter(_city_q(cities, 'store__locality', 'store__address', 'store__city'))
+
         search = request.query_params.get('search', '').strip()
         if search:
             from django.db.models import Q as DQ
@@ -2244,6 +2275,9 @@ class ContentModerationView(APIView):
             review = StoreReview.objects.get(id=review_id)
         except StoreReview.DoesNotExist:
             return Response({'error': 'not_found'}, status=404)
+
+        if not _in_scope(request.user, f'{review.store.locality} {review.store.address} {review.store.city}'):
+            return Response({'error': 'forbidden', 'message': 'Review is outside your assigned city.'}, status=403)
 
         action = request.data.get('action')  # 'approve' or 'delete'
         if action == 'approve':
