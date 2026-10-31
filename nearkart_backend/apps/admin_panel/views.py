@@ -1891,20 +1891,22 @@ class AdminSubscriptionListView(APIView):
 
     def get(self, request):
         from apps.billing.models import Subscription
-        qs = Subscription.objects.select_related('vendor', 'plan').order_by('-created_at')
+        # Subscription relates to a store (store.owner is the vendor) — there is no 'vendor' FK.
+        qs = Subscription.objects.select_related('store', 'store__owner', 'plan').order_by('-created_at')
         active = request.query_params.get('is_active')
         if active is not None:
             qs = qs.filter(is_active=(active.lower() == 'true'))
         search = request.query_params.get('search')
         if search:
-            qs = qs.filter(vendor__phone_number__icontains=search)
+            qs = qs.filter(store__owner__phone_number__icontains=search)
         page = StandardOffsetPagination()
         results = page.paginate_queryset(qs, request)
         data = [
             {
                 'id':           str(sub.id),
-                'vendor_phone': sub.vendor.phone_number,
-                'vendor_id':    str(sub.vendor.id),
+                'vendor_phone': sub.store.owner.phone_number,
+                'vendor_id':    str(sub.store.owner_id),
+                'store_name':   sub.store.name,
                 'plan':         sub.plan.name if sub.plan else None,
                 'is_active':    sub.is_active,
                 'expires_at':   sub.expires_at,
