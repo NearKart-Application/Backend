@@ -1913,13 +1913,16 @@ class AdminLoyaltyAdjustView(APIView):
 # ─── Admin Subscription Views ──────────────────────────────────────────────────
 
 class AdminSubscriptionListView(APIView):
-    """GET /admin-panel/subscriptions/ — all vendor subscriptions (master admin only — billing)."""
-    permission_classes = [IsAuthenticated, IsMasterAdmin]
+    """GET /admin-panel/subscriptions/ — vendor subscriptions (read-only; scoped to the admin's city)."""
+    permission_classes = [IsAuthenticated, IsAdmin | IsMasterAdmin]
 
     def get(self, request):
         from apps.billing.models import Subscription
         # Subscription relates to a store (store.owner is the vendor) — there is no 'vendor' FK.
         qs = Subscription.objects.select_related('store', 'store__owner', 'plan').order_by('-created_at')
+        cities = _city_scope(request.user)
+        if cities:
+            qs = qs.filter(_city_q(cities, 'store__locality', 'store__address', 'store__city'))
         active = request.query_params.get('is_active')
         if active is not None:
             qs = qs.filter(is_active=(active.lower() == 'true'))
